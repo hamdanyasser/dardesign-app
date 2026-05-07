@@ -1,0 +1,31 @@
+# Default DarDesign generation settings.
+# Tweak these here; transform.py reads them at module import time.
+
+base_model: "stabilityai/stable-diffusion-xl-base-1.0"
+fallback_model: "runwayml/stable-diffusion-v1-5"
+
+controlnet:
+  depth_sdxl: "diffusers/controlnet-depth-sdxl-1.0"
+  seg_sdxl: "diffusers/controlnet-seg-sdxl-1.0"
+  depth_sd15: "lllyasviel/sd-controlnet-depth"
+  seg_sd15:   "lllyasviel/sd-controlnet-seg"
+
+# ControlNet conditioning weights (depth, seg) — winners from sweep go in configs/sweep_winners.json
+default_controlnet_weights:
+  depth: 0.7
+  seg: 0.5
+
+# Diffusion sampling
+steps: 30
+guidance: 7.0
+strength: 0.7        # img2img-style strength when used; SDXL controlnet ignores this for txt2img
+output_size: [1024, 1024]
+sd15_fallback_size: [768, 768]
+
+# Negative-prompt seeds (additional to ontology negatives)
+extra_negative_en: "low resolution, jpeg artifacts, color banding"
+
+# LoRA
+lora_dir: "models/loras"
+lora_filename_template: "dardesign-{culture}-lora.safetensors"
+lora_scale: 0.8

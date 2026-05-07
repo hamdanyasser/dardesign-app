@@ -12,6 +12,7 @@ pydantic==2.10.3
 pillow==11.0.0
 numpy==1.26.4
 opencv-python-headless==4.10.0.84
+PyYAML==6.0.2
 
 # --- ML core (Kaggle T4 / CUDA 12.1) ---
 # Torch is pre-installed on Kaggle; pin here for local environments that need it.
