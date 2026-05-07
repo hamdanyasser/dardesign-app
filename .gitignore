@@ -34,3 +34,45 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ml artifacts (do NOT commit)
+*.safetensors
+*.ckpt
+*.bin
+*.pt
+*.pth
+
+# generated outputs
+outputs/finals/*
+outputs/sweeps/*
+outputs/ablations/*
+outputs/baselines/decor8/*
+outputs/baselines/roomgpt/*
+outputs/baselines/ours/*
+!outputs/**/.gitkeep
+
+# datasets (raw images live outside git; only READMEs + templates are tracked)
+datasets/*/images/
+datasets/*/captions.jsonl
+
+# eval results (regeneratable)
+eval/results.csv
+
+# uploads / job outputs from the running backend
+backend/uploads/*
+!backend/uploads/.gitkeep
+
+# misc
+*.log
+.DS_Store
+Thumbs.db

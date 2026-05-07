@@ -1,0 +1,43 @@
+# DarDesign backend + ML deps.
+# Pinned to versions known to work on Kaggle T4 (CUDA 12.1, free tier, 15 GB VRAM).
+# Reinstalls on Kaggle: `pip install -r backend/requirements.txt --quiet --upgrade-strategy only-if-needed`
+
+# --- API ---
+fastapi==0.115.6
+uvicorn[standard]==0.32.1
+python-multipart==0.0.20
+pydantic==2.10.3
+
+# --- Imaging / IO ---
+pillow==11.0.0
+numpy==1.26.4
+opencv-python-headless==4.10.0.84
+
+# --- ML core (Kaggle T4 / CUDA 12.1) ---
+# Torch is pre-installed on Kaggle; pin here for local environments that need it.
+# Comment the torch line out on Kaggle to avoid a reinstall.
+torch==2.4.0
+torchvision==0.19.0
+
+# --- diffusion stack ---
+diffusers==0.31.0
+transformers==4.46.3
+accelerate==1.1.1
+safetensors==0.4.5
+peft==0.13.2
+
+# --- ControlNet preprocessing ---
+controlnet-aux==0.0.9
+
+# --- training ---
+bitsandbytes==0.44.1 ; platform_system != "Windows"
+datasets==3.1.0
+
+# --- metrics ---
+scikit-image==0.24.0
+torchmetrics==1.5.2
+lpips==0.1.4
+
+# --- dev ---
+pytest==8.3.4
+httpx==0.28.1
