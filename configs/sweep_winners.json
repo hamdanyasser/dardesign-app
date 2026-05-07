@@ -1,0 +1,7 @@
+{
+  "_note": "Hand-picked (depth, seg) pairs after running scripts/controlnet_sweep.py. Update these by eye when sweep contact sheets are reviewed.",
+  "default": [0.7, 0.5],
+  "lebanese": [0.7, 0.5],
+  "khaleeji": [0.7, 0.5],
+  "moroccan": [0.7, 0.5]
+}
