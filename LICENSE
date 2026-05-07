@@ -1,0 +1,26 @@
+DarDesign — Academic-use license
+
+Copyright (c) 2026 Yasser Hamdan
+
+This work was produced as part of an undergraduate Final Year Project. Permission
+is hereby granted, free of charge, to any student or academic to use, copy,
+modify, and distribute this code and the accompanying documentation for
+educational and research purposes, provided the above copyright notice and this
+permission notice appear in all copies.
+
+The following are NOT covered by this license and remain the property of their
+respective owners:
+
+  - The cultural design ontology entries cite public sources (see
+    ontology/sources.md). Their underlying terminology belongs to the cultures
+    they describe.
+  - Any image dataset curated by Zainab and stored under datasets/<culture>/.
+  - Pre-trained model weights downloaded from third parties (Stable Diffusion
+    XL, ControlNet, OneFormer, Depth Anything V2) are governed by their
+    upstream licenses (see Hugging Face model cards).
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
+FOR A PARTICULAR PURPOSE, AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS BE
+LIABLE FOR ANY CLAIM, DAMAGES, OR OTHER LIABILITY ARISING FROM THE USE OF THIS
+SOFTWARE.
