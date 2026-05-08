@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { DM_Sans, Inter, Noto_Kufi_Arabic, Tajawal } from "next/font/google";
+import { Cormorant_Garamond, DM_Sans, Inter, Noto_Kufi_Arabic, Tajawal } from "next/font/google";
 import "./globals.css";
 import { ImageProvider } from "@/context/ImageContext";
 import { ThemeLanguageProvider } from "@/context/ThemeLanguageContext";
@@ -7,6 +7,14 @@ import { ThemeLanguageProvider } from "@/context/ThemeLanguageContext";
 const inter = Inter({
   subsets: ["latin"],
   variable: "--font-inter",
+  display: "swap",
+});
+
+const cormorantGaramond = Cormorant_Garamond({
+  subsets: ["latin"],
+  weight: ["300", "400", "500", "600"],
+  style: ["normal", "italic"],
+  variable: "--font-cormorant",
   display: "swap",
 });
 
@@ -47,7 +55,7 @@ export default function RootLayout({
       lang="en"
       dir="ltr"
       data-theme="dark"
-      className={`${inter.variable} ${notoKufiArabic.variable} ${tajawal.variable} ${dmSans.variable}`}
+      className={`${inter.variable} ${notoKufiArabic.variable} ${tajawal.variable} ${dmSans.variable} ${cormorantGaramond.variable}`}
       suppressHydrationWarning
     >
       <body className="antialiased">

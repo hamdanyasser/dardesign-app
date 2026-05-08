@@ -364,6 +364,18 @@ export default function Home() {
               >
                 {copy.landing.hero.secondaryCta}
               </Link>
+
+              <Link
+                href="/atelier"
+                className={cn(
+                  "group inline-flex items-center gap-2 px-2 py-3.5 text-sm tracking-[0.32em] uppercase text-[var(--dd-text-secondary)] transition-colors duration-300 hover:text-[var(--dd-gold)]",
+                  isArabic ? "font-arabic" : "font-ui"
+                )}
+                aria-label={isArabic ? "ادخل أتيليه دار" : "Enter the Atelier"}
+              >
+                <span className="h-px w-7 bg-current transition-all duration-300 group-hover:w-10" />
+                {isArabic ? "أتيليه دار" : "The Atelier"}
+              </Link>
             </div>
           </div>
         </div>
