@@ -25,23 +25,37 @@ npm run lint      # ESLint check
 src/
 ├── app/
 │   ├── globals.css              # All CSS variables, themes, animations, utility classes (~548 lines)
-│   ├── layout.tsx               # Root layout — 4 fonts, both providers, <html> defaults
-│   ├── page.tsx                 # Landing page — 8 sections, bilingual, dark/light (~743 lines)
+│   ├── layout.tsx               # Root layout — 5 fonts (Inter, DM Sans, Noto Kufi Arabic, Tajawal, Cormorant Garamond), both providers, <html> defaults
+│   ├── page.tsx                 # Home — thin wrapper that renders <AtelierApp /> from src/components/atelier/
 │   ├── transform/page.tsx       # Upload + style selection page
 │   └── result/page.tsx          # Loading animation + before/after slider
 ├── components/
 │   ├── ui/                      # shadcn primitives (button, card, badge, separator, switch, dropdown-menu)
+│   ├── atelier/                 # 7-act cinematic landing — every module scoped under .atelier-page
+│   │   ├── AtelierApp.tsx        # Composer (cinema intro → hero → manifesto → … → coda)
+│   │   ├── atelier.css           # ~1020 lines, scoped under .atelier-page so the global selectors don't leak
+│   │   ├── effects.tsx           # Custom cursor + chrome, useScrollProgress, useReveal, useActLabel, useMouseParallax
+│   │   ├── intro.tsx             # CinemaIntro, CursorTrail, CountTo, AmbientOrnament
+│   │   ├── hero.tsx              # 3-layer pointed-arch hero with mouse-parallax 3D tilt
+│   │   ├── extras.tsx            # CalligraphyDar, DustMotes, Interlude, Morpher (drag-cross-fade across 3 cultures)
+│   │   ├── acts.tsx              # The Three Houses — Lebanese / Khaleeji / Moroccan SVG stages
+│   │   ├── content.tsx           # Manifesto, Alchemy (5-step), Atlas (8 motifs), Coda (door, CTA → /transform)
+│   │   ├── finale.tsx            # ArchTunnel (3D), Palette, ZelligeAssembler, Colophon
+│   │   └── floating-controls.tsx # Top-right EN/AR + dark/light toggles, wired to ThemeLanguageContext
 │   ├── islamic-pattern.tsx      # Decorative 8-pointed star repeating SVG background
 │   ├── gold-button.tsx          # Primary CTA — renders as <Link> or <button>
 │   ├── upload-zone.tsx          # Drag-and-drop image upload with preview
 │   ├── style-card.tsx           # Single style option card with radio indicator
 │   ├── style-selector.tsx       # Grid of 3 StyleCards
 │   ├── loading-screen.tsx       # 8s loading animation with spinning star + progress bar
+│   ├── error-banner.tsx         # Bilingual error display + retry CTA
+│   ├── share-dialog.tsx         # Copy-to-clipboard share modal
 │   └── before-after-slider.tsx  # Draggable clip-path image comparison slider
 ├── context/
 │   ├── ThemeLanguageContext.tsx  # Language (EN/AR), theme (dark/light), all translations
-│   └── ImageContext.tsx          # Cross-page state: uploaded image + selected style
+│   └── ImageContext.tsx          # Cross-page state: uploaded image + selected style + jobId
 └── lib/
+    ├── api.ts                   # Typed backend client (uploadImage, startTransform, pollStatus, …)
     └── utils.ts                 # cn() utility (clsx + tailwind-merge)
 ```
 
@@ -67,9 +81,9 @@ src/
 
 | Route | Purpose |
 |-------|---------|
-| `/` | 8-section bilingual landing page |
+| `/` | Cinematic 7-act scrollytelling (Atelier) — was the 8-section landing, now the home. Floating EN/AR + dark/light toggles in top-right. Coda CTA → `/transform`. |
 | `/transform` | Upload room photo + select style |
-| `/result?style=X` | 8s loading screen → before/after slider |
+| `/result?jobId=…&style=…` | Live progress polling → before/after slider, download, share, try-another-style |
 
 ### Context: ThemeLanguageContext
 

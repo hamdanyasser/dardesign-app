@@ -973,3 +973,45 @@ h3 { font-size: clamp(28px, 3vw, 44px); }
   .chrome { padding: 16px 20px; }
   .atelier-page section { padding: 80px 6vw; }
 }
+
+/* ---------- Floating EN/AR + theme toggles ---------- */
+.atelier-page .atelier-controls {
+  position: fixed;
+  top: 60px;
+  right: 36px;
+  z-index: 110;
+  display: flex;
+  gap: 8px;
+  pointer-events: auto;
+}
+.atelier-page .atelier-controls button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 38px;
+  height: 30px;
+  padding: 0 10px;
+  background: rgba(20, 17, 13, 0.78);
+  border: 1px solid rgba(212, 175, 55, 0.35);
+  color: var(--parchment);
+  font-family: var(--ui);
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  cursor: pointer;
+  backdrop-filter: blur(6px);
+  transition: border-color 0.3s, color 0.3s, transform 0.25s, background 0.3s;
+}
+.atelier-page .atelier-controls button:hover {
+  border-color: var(--gold);
+  color: var(--gold-hi);
+  transform: translateY(-1px);
+}
+.atelier-page .atelier-controls button:focus-visible {
+  outline: none;
+  border-color: var(--gold-hi);
+  box-shadow: 0 0 0 2px rgba(243, 220, 146, 0.25);
+}
+@media (max-width: 720px) {
+  .atelier-page .atelier-controls { top: 52px; right: 16px; }
+}

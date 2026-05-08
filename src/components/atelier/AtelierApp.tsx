@@ -1,7 +1,7 @@
 "use client";
 
-/** Composes the seven-act Atelier scrollytelling. Mounted by /atelier/page.tsx
- *  inside a `.atelier-page` wrapper so the heavy custom CSS is scoped. */
+/** Composes the seven-act Atelier scrollytelling. Mounted as the home route
+ *  (`/`) inside a `.atelier-page` wrapper so the heavy custom CSS is scoped. */
 
 import { useRef } from "react";
 import { ActKhaleeji, ActLebanese, ActMoroccan, ActsOverture } from "./acts";
@@ -9,6 +9,7 @@ import { Alchemy, Atlas, Coda, Manifesto } from "./content";
 import { CursorAndChrome, useActLabel, useReveal, useScrollProgress } from "./effects";
 import { Interlude, Morpher } from "./extras";
 import { ArchTunnel, Colophon, Palette, ZelligeAssembler } from "./finale";
+import FloatingControls from "./floating-controls";
 import { Hero } from "./hero";
 import { CinemaIntro, CursorTrail } from "./intro";
 
@@ -23,6 +24,7 @@ export default function AtelierApp() {
       <CinemaIntro />
       <CursorTrail />
       <CursorAndChrome progress={progress} act={act} rootRef={rootRef} />
+      <FloatingControls />
       <Hero />
       <Manifesto />
       <Interlude

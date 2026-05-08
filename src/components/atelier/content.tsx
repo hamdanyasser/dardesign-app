@@ -5,6 +5,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useThemeLanguage } from "@/context/ThemeLanguageContext";
 import { useMouseParallax } from "./effects";
 
 /* ============================================================
@@ -435,6 +436,7 @@ export function Coda() {
   const ref = useRef<HTMLDivElement>(null);
   useMouseParallax(ref);
   const router = useRouter();
+  const { isArabic } = useThemeLanguage();
   return (
     <section className="coda" data-act="Act VII · The Door" data-screen-label="08 Door">
       <div className="reveal eyebrow" style={{ justifyContent: "center" }}>Act VII · The Door</div>
@@ -480,8 +482,8 @@ export function Coda() {
         type="button"
         onClick={() => router.push("/transform")}
       >
-        Bring a room
-        <span style={{ fontSize: 14 }}>→</span>
+        {isArabic ? "احضر غرفة" : "Bring a room"}
+        <span style={{ fontSize: 14 }}>{isArabic ? "←" : "→"}</span>
       </button>
       <div className="coda-foot reveal d4">
         <span>Dar · دار</span>
