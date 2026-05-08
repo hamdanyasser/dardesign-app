@@ -115,27 +115,72 @@ def _is_light_mode() -> bool:
 
 
 def _emit_placeholder(image_path: Path, style: str, out_path: Path) -> Path:
-    """Generate a labelled placeholder so frontend/backend can be tested without a GPU."""
-    from PIL import Image, ImageDraw, ImageFont  # local import — pillow is light
+    """Generate a culturally-tinted placeholder so light-mode dev can't be
+    confused for a real generation. Each culture gets a strong colour wash
+    + ornament overlay + a clear top-band saying this is a stand-in."""
+    from PIL import Image, ImageDraw, ImageEnhance, ImageFont
 
-    src = Image.open(image_path).convert("RGB")
-    src = src.resize((1024, 1024))
+    # Distinct cultural casts so the user immediately sees A != B.
+    CULTURE = {
+        "lebanese": {"tint": (168, 50, 50),  "name": "Lebanese", "ar": "لبناني"},
+        "khaleeji": {"tint": (217, 154, 31), "name": "Khaleeji", "ar": "خليجي"},
+        "moroccan": {"tint": (30, 80, 143),  "name": "Moroccan", "ar": "مغربي"},
+    }
+    palette = CULTURE.get(style, {"tint": (212, 175, 55), "name": style.title(), "ar": ""})
+    tint = palette["tint"]
+
+    src = Image.open(image_path).convert("RGB").resize((1024, 1024))
+
+    # 1) desaturate the photo most of the way, then blend a solid culture colour
+    desat = ImageEnhance.Color(src).enhance(0.25)
+    tint_layer = Image.new("RGB", src.size, tint)
+    tinted = Image.blend(desat, tint_layer, 0.42)
+
+    # 2) ornament overlay — eight-point stars in a sparse grid
     overlay = Image.new("RGBA", src.size, (0, 0, 0, 0))
     draw = ImageDraw.Draw(overlay)
+    spacing = 192
+    for cx in range(spacing // 2, 1024, spacing):
+        for cy in range(spacing // 2, 1024, spacing):
+            r1, r2 = 28, 12
+            pts = []
+            import math
+            for i in range(16):
+                r = r1 if i % 2 == 0 else r2
+                a = (i / 16) * 2 * math.pi - math.pi / 2
+                pts.append((cx + math.cos(a) * r, cy + math.sin(a) * r))
+            draw.polygon(pts, outline=(243, 220, 146, 90))
 
-    band_h = 96
-    draw.rectangle([0, src.size[1] - band_h, src.size[0], src.size[1]], fill=(20, 17, 10, 220))
-    label = f"DARDESIGN_LIGHT placeholder — style={style}"
+    # 3) top band — clearly says PREVIEW so no one thinks this is the real thing
+    band_h = 110
+    draw.rectangle([0, 0, 1024, band_h], fill=(12, 10, 8, 230))
     try:
-        font = ImageFont.truetype("arial.ttf", 28)
+        title_font = ImageFont.truetype("arial.ttf", 30)
+        sub_font = ImageFont.truetype("arial.ttf", 16)
     except Exception:
-        font = ImageFont.load_default()
-    draw.text((24, src.size[1] - band_h + 32), label, fill=(212, 175, 55, 255), font=font)
+        title_font = ImageFont.load_default()
+        sub_font = ImageFont.load_default()
 
-    composed = Image.alpha_composite(src.convert("RGBA"), overlay).convert("RGB")
+    draw.text(
+        (28, 22),
+        f"PREVIEW · {palette['name']} · {palette['ar']}",
+        fill=(243, 220, 146, 255),
+        font=title_font,
+    )
+    draw.text(
+        (28, 64),
+        "Light-mode stand-in. Real generation needs the Kaggle T4 backend (see kaggle/README.md).",
+        fill=(232, 216, 184, 230),
+        font=sub_font,
+    )
+
+    composed = Image.alpha_composite(tinted.convert("RGBA"), overlay).convert("RGB")
     out_path.parent.mkdir(parents=True, exist_ok=True)
     composed.save(out_path, format="PNG", optimize=True)
-    logger.warning("DARDESIGN_LIGHT placeholder written to %s — NOT a real generation", out_path)
+    logger.warning(
+        "DARDESIGN_LIGHT placeholder written to %s (style=%s) — NOT a real generation",
+        out_path, style,
+    )
     return out_path
 
 
