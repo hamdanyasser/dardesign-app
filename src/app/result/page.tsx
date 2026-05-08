@@ -73,6 +73,10 @@ function ResultContent() {
         const blobUrl = await fetchResultBlob(jid);
         setResultImageUrl(blobUrl);
       } catch (e) {
+        // An "aborted" error means we cancelled the poll ourselves (StrictMode
+        // double-effect, swap-style, or unmount) — not a user-facing failure.
+        // Don't surface it; the controller that took over will report status.
+        if (e instanceof ApiError && e.code === "aborted") return;
         if (e instanceof ApiError) {
           setErr({
             en: e.message_en,
