@@ -1,0 +1,2226 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/>
+<title>Dar Design Atelier</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;1,300;1,400&family=Inter:wght@300;400;500&family=Noto+Kufi+Arabic:wght@300;400;500;700&family=Amiri:ital,wght@0,400;1,400&display=swap" rel="stylesheet">
+<style>
+  :root{--ink:#0c0a08;--parchment:#f3ead2;--gold:#d4af37;--pomegranate:#8d1b2d;--saffron:#e8a13a;--cobalt:#2d3a8c;--en:'Cormorant Garamond',serif;--ui:'Inter',sans-serif;--ar:'Noto Kufi Arabic',sans-serif;--ar-b:'Amiri',serif;--tod:0;
+    /* the picked culture re-pigments these. one choice. all downstream. */
+    --house-accent:var(--gold);--house-shadow:rgba(212,175,55,.45);--house-name:'';--house-name-ar:'';
+    --ar-weight:300;--en-emphasis-weight:300;--en-emphasis-style:italic;--motif-tempo:1;
+  }
+  :root[data-house='lebanon']{--house-accent:var(--cobalt);--house-shadow:rgba(45,58,140,.55);--house-name:'beiruti';--house-name-ar:'بيروتيّ';--ar-weight:400;--en-emphasis-weight:400;--en-emphasis-style:italic;--motif-tempo:1.18;}
+  :root[data-house='gulf']{--house-accent:var(--gold);--house-shadow:rgba(212,175,55,.6);--house-name:'najdi';--house-name-ar:'نَجدِيّ';--ar-weight:500;--en-emphasis-weight:300;--en-emphasis-style:italic;--motif-tempo:.78;}
+  :root[data-house='morocco']{--house-accent:var(--pomegranate);--house-shadow:rgba(141,27,45,.55);--house-name:'andalusi';--house-name-ar:'أَندَلُسيّ';--ar-weight:300;--en-emphasis-weight:300;--en-emphasis-style:italic;--motif-tempo:.92;}
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{background:var(--ink);color:var(--parchment);font-family:var(--ui);overflow-x:hidden}
+  /* the journey is one long scroll. no section breaks. */
+  body{height:780vh}
+  ::selection{background:var(--gold);color:var(--ink)}
+
+  /* the persistent stage */
+  #stage{position:fixed;inset:0;z-index:1;background:#070504}
+  #stage canvas{position:absolute;inset:0;width:100%;height:100%;display:block}
+  /* thin film grain over everything, always */
+  #stage::after{content:"";position:absolute;inset:0;pointer-events:none;opacity:.09;mix-blend-mode:overlay;background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='180' height='180'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='1.4' numOctaves='2'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>")}
+
+  /* the protagonist — ر as a single continuous gold stroke layered above the stage */
+  #ra{position:fixed;inset:0;z-index:5;pointer-events:none}
+  #ra svg{width:100%;height:100%;overflow:visible}
+  #ra path{fill:none;stroke:var(--gold);stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;filter:drop-shadow(0 0 6px rgba(212,175,55,.45))}
+
+  /* whispered text — never in sections, drifts in/out at story beats */
+  .voice{position:fixed;z-index:8;pointer-events:none;mix-blend-mode:screen;opacity:0;transition:opacity 1.6s cubic-bezier(.4,.05,.2,1)}
+  .voice.on{opacity:1}
+  .voice .en{font-family:var(--en);font-style:italic;font-weight:300;font-size:clamp(36px,5vw,84px);line-height:.95;color:var(--parchment);letter-spacing:-.01em;text-wrap:balance}
+  .voice .en em{color:var(--house-accent);font-weight:var(--en-emphasis-weight);font-style:var(--en-emphasis-style)}
+  .voice .ar{font-family:var(--ar);font-weight:var(--ar-weight);font-size:clamp(28px,3.6vw,60px);line-height:1.1;color:var(--parchment);direction:rtl;margin-top:.4em;letter-spacing:-.01em}
+  .voice .ar span{color:var(--house-accent)}
+  .voice .whisper{font-family:var(--en);font-style:italic;font-size:14px;letter-spacing:.05em;color:rgba(243,234,210,.55);margin-top:1em;max-width:24em}
+  .voice .whisper-ar{font-family:var(--ar-b);font-size:15px;color:rgba(243,234,210,.55);direction:rtl}
+
+  /* positions for voices — they bloom near the camera's gaze */
+  .v1{top:18%;left:8%;max-width:46%}
+  .v2{top:62%;right:8%;max-width:42%;text-align:right}
+  .v3{top:14%;left:50%;transform:translateX(-50%);max-width:62%;text-align:center}
+  .v4{bottom:18%;left:50%;transform:translateX(-50%);max-width:60%;text-align:center}
+  .v5{top:52%;left:8%;max-width:44%}
+  .v6{top:24%;right:10%;max-width:38%;text-align:right}
+
+  /* the time-of-day witness — a single line that breathes through the scroll */
+  .toworld{position:fixed;left:24px;bottom:24px;z-index:9;font-family:var(--ui);font-size:10px;letter-spacing:.4em;text-transform:uppercase;color:rgba(212,175,55,.7);display:flex;gap:14px;align-items:center}
+  .toworld::before{content:"";width:6px;height:6px;background:var(--house-accent);border-radius:50%;box-shadow:0 0 12px var(--house-shadow)}
+
+  /* the witness reveals the chosen house, never as a label, only as a quiet sigil */
+  .toworld .house{margin-left:14px;font-family:var(--en);font-style:italic;letter-spacing:.05em;text-transform:none;color:rgba(243,234,210,.55)}
+  .toworld .house::before{content:var(--house-name)}
+  .toworld .house-ar{font-family:var(--ar-b);direction:rtl;color:rgba(212,175,55,.7);margin-left:6px;letter-spacing:0;font-size:11px}
+  .toworld .house-ar::before{content:var(--house-name-ar)}
+
+  /* THE THRESHOLD — the gesture that commits.
+     a centre ring, three names. the visitor draws a thread to one. */
+  .threshold{position:fixed;inset:0;z-index:14;pointer-events:none;display:flex;align-items:center;justify-content:center;opacity:0;transition:opacity 1.4s cubic-bezier(.4,.05,.2,1)}
+  .threshold.on{opacity:1;pointer-events:auto;cursor:none}
+  .threshold.gone{opacity:0;pointer-events:none;transition:opacity 2.2s ease}
+  .threshold svg{position:absolute;inset:0;width:100%;height:100%;overflow:visible}
+  .threshold .seal{fill:none;stroke:var(--gold);stroke-width:1}
+  .threshold .thread{fill:none;stroke:var(--gold);stroke-width:1.4;stroke-linecap:round;filter:drop-shadow(0 0 8px rgba(212,175,55,.6));pointer-events:none}
+  .threshold .seed{fill:var(--gold);filter:drop-shadow(0 0 6px rgba(212,175,55,.7))}
+  .door{position:absolute;display:flex;flex-direction:column;align-items:center;gap:8px;color:var(--parchment);text-align:center;transition:transform .9s cubic-bezier(.2,.8,.2,1),opacity .9s ease;will-change:transform}
+  .door .arch{width:120px;height:160px;border:1px solid rgba(212,175,55,.6);border-top-left-radius:60px 80px;border-top-right-radius:60px 80px;border-bottom:0;background:linear-gradient(180deg,rgba(212,175,55,.04),transparent 60%);box-shadow:inset 0 0 32px rgba(212,175,55,.05)}
+  .door .ar{font-family:var(--ar);font-size:22px;color:var(--gold);direction:rtl;letter-spacing:0}
+  .door .en{font-family:var(--en);font-style:italic;font-size:14px;letter-spacing:.32em;text-transform:uppercase;color:rgba(243,234,210,.7)}
+  .door .whisper{font-family:var(--en);font-style:italic;font-size:11px;color:rgba(243,234,210,.4);letter-spacing:.05em;max-width:160px;line-height:1.4}
+  .door[data-h='lebanon']{left:14%;top:50%;transform:translateY(-50%)}
+  .door[data-h='gulf']    {left:50%;top:14%;transform:translate(-50%,0)}
+  .door[data-h='morocco'] {right:14%;top:50%;transform:translateY(-50%)}
+  .door.near .arch{border-color:var(--house-accent);box-shadow:inset 0 0 48px var(--house-shadow),0 0 32px var(--house-shadow)}
+  .door.committed{transform:translate(0,0) scale(1.04);opacity:1}
+  .threshold.gone .door:not(.committed){opacity:.18;transform:scale(.94)}
+  .threshold .prompt{position:absolute;left:50%;bottom:12%;transform:translateX(-50%);text-align:center}
+  .threshold .prompt .en{font-family:var(--en);font-style:italic;font-size:18px;color:rgba(243,234,210,.7);letter-spacing:.04em}
+  .threshold .prompt .ar{font-family:var(--ar);font-size:17px;color:var(--gold);direction:rtl;margin-top:.3em}
+  .threshold .prompt .hint{display:block;margin-top:.7em;font-family:var(--ui);font-size:10px;letter-spacing:.4em;text-transform:uppercase;color:rgba(212,175,55,.45)}
+
+  /* mute crescent — gold, top-right, sized as kindly as it is killable */
+  .mute{position:fixed;top:24px;right:24px;z-index:11;width:34px;height:34px;border-radius:50%;cursor:none;background:transparent;border:0}
+  .mute svg{width:100%;height:100%;overflow:visible}
+  .mute circle{fill:none;stroke:var(--gold);stroke-width:1}
+  .mute path{fill:var(--gold);transition:transform .6s cubic-bezier(.2,.8,.2,1)}
+  .mute.on path{transform:translateX(-12%)}
+
+  /* cursor — a saffron dot, a quiet halo when it nears something live */
+  body{cursor:none}
+  .cur{position:fixed;width:8px;height:8px;background:var(--gold);border-radius:50%;pointer-events:none;z-index:12;mix-blend-mode:difference;transform:translate(-50%,-50%);transition:width .35s cubic-bezier(.2,.8,.2,1),height .35s,background .35s}
+  .cur.lg{width:64px;height:64px;background:transparent;border:1px solid var(--gold)}
+
+  /* progress — a single hairline, gold, the bottom edge of the world */
+  .prog{position:fixed;left:0;bottom:0;height:1px;background:linear-gradient(to right,transparent,var(--gold),transparent);z-index:10;transform-origin:left;transform:scaleX(0);transition:transform .12s linear}
+
+  /* the keyhole at the end of the journey */
+  .keyhole{position:fixed;inset:0;z-index:7;pointer-events:none;display:flex;align-items:center;justify-content:center;opacity:0;transition:opacity 1.6s ease}
+  .keyhole.on{opacity:1;pointer-events:auto}
+  .keyhole input{position:absolute;inset:0;opacity:0;cursor:none}
+  .keyhole-svg{width:min(60vmin,540px);height:min(60vmin,540px);filter:drop-shadow(0 0 24px rgba(212,175,55,.4))}
+  .keyhole-svg path{fill:none;stroke:var(--gold);stroke-width:2;stroke-linejoin:round}
+  .keyhole-svg .well{fill:#070504}
+  .keyhole-prompt{position:absolute;bottom:14vh;left:50%;transform:translateX(-50%);text-align:center;color:var(--parchment)}
+  .keyhole-prompt .en{font-family:var(--en);font-style:italic;font-size:24px;letter-spacing:.02em}
+  .keyhole-prompt .ar{font-family:var(--ar);font-size:22px;direction:rtl;color:var(--gold);margin-top:.3em}
+
+  /* the cold open — v14. a film, opening.
+     no spinner. no percentage. no skip. just dust drifting through a dark
+     room, the seal forming itself in mid-air, the bismillah ghosting in, and
+     the hijri date settling in the corner like a colophon. five seconds. */
+  #boot{position:fixed;inset:0;z-index:99;background:radial-gradient(ellipse at 50% 55%, #0e0a06 0%, #050402 75%);display:flex;align-items:center;justify-content:center;flex-direction:column;gap:0;transition:opacity 2.4s cubic-bezier(.5,0,.2,1),visibility 0s 2.4s}
+  #boot.gone{opacity:0;visibility:hidden}
+  #boot canvas{position:absolute;inset:0;width:100%;height:100%;display:block;opacity:0;animation:bootDustIn 1.6s ease-out .4s forwards}
+  @keyframes bootDustIn{to{opacity:.85}}
+  #boot .seal-wrap{position:relative;width:200px;height:200px;opacity:0;animation:bootSealIn 1.4s cubic-bezier(.2,.8,.2,1) 1.2s forwards}
+  @keyframes bootSealIn{0%{opacity:0;transform:scale(.7) rotate(-18deg)}100%{opacity:1;transform:scale(1) rotate(0)}}
+  #boot svg{width:200px;height:200px;overflow:visible;display:block}
+  #boot .seal-c{fill:none;stroke:var(--gold);stroke-width:1;stroke-dasharray:580;stroke-dashoffset:580;animation:bootTrace 3.0s cubic-bezier(.6,.05,.2,1) 1.4s forwards}
+  #boot .seal-r{fill:none;stroke:var(--gold);stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:340;stroke-dashoffset:340;filter:drop-shadow(0 0 6px rgba(212,175,55,.5));animation:bootTrace 2.4s cubic-bezier(.6,.05,.2,1) 2.0s forwards}
+  @keyframes bootTrace{to{stroke-dashoffset:0}}
+  #boot .seal-c-soft{fill:none;stroke:var(--gold-soft);stroke-width:.5;stroke-dasharray:2 8;opacity:0;animation:bootSoftIn 1.6s ease 3.6s forwards, bootSoftSpin 32s linear 3.6s infinite}
+  @keyframes bootSoftIn{to{opacity:.55}}
+  @keyframes bootSoftSpin{to{transform:rotate(360deg);transform-origin:center}}
+  #boot .bismillah{position:absolute;top:12vh;left:50%;transform:translateX(-50%);font-family:var(--ar-b);font-size:18px;letter-spacing:.05em;color:rgba(212,175,55,.45);direction:rtl;opacity:0;animation:bootFade 2.0s ease 2.6s forwards}
+  #boot .hijri{position:absolute;bottom:8vh;right:7vw;font-family:var(--en);font-style:italic;font-size:11px;letter-spacing:.5em;text-transform:uppercase;color:rgba(212,175,55,.5);opacity:0;text-align:right;line-height:2;animation:bootFade 2.0s ease 3.4s forwards}
+  #boot .hijri .ar{font-family:var(--ar);font-size:14px;letter-spacing:0;display:block;direction:rtl;color:rgba(212,175,55,.6)}
+  @keyframes bootFade{to{opacity:.85}}
+  #boot .vignette{position:absolute;inset:0;background:radial-gradient(ellipse at 50% 50%, transparent 28%, rgba(0,0,0,.8) 78%);pointer-events:none}
+  #boot .grain{position:absolute;inset:0;opacity:.13;mix-blend-mode:overlay;background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='200' height='200'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='1.4' numOctaves='2'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>")}
+  /* the only piece of typography we permit in the cold open: the wordmark, set so it reads as a title card */
+  #boot .wordmark{position:absolute;bottom:14vh;left:50%;transform:translateX(-50%);font-family:var(--en);font-style:italic;font-weight:300;font-size:13px;letter-spacing:.7em;text-transform:uppercase;color:rgba(243,234,210,.55);opacity:0;animation:bootFade 2.0s ease 4.0s forwards}
+
+  /* LETTERBOX — v14. anamorphic 2.35:1 bars slide in for the held beat,
+     and again as the camera enters the keyhole. cinema, not landing page. */
+  .letterbox{position:fixed;left:0;right:0;height:11vh;background:#000;z-index:30;pointer-events:none;transition:transform 1.6s cubic-bezier(.7,0,.2,1);will-change:transform}
+  .letterbox.top{top:0;transform:translateY(-100%)}
+  .letterbox.bottom{bottom:0;transform:translateY(100%)}
+  .letterbox.on{transform:translateY(0)}
+  .letterbox::after{content:"";position:absolute;inset:0;opacity:.05;background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='200' height='200'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='1.6' numOctaves='2'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>")}
+  .letterbox.top::before{content:"";position:absolute;left:0;right:0;bottom:0;height:1px;background:linear-gradient(to right,transparent,rgba(212,175,55,.18),transparent)}
+  .letterbox.bottom::before{content:"";position:absolute;left:0;right:0;top:0;height:1px;background:linear-gradient(to right,transparent,rgba(212,175,55,.18),transparent)}
+
+  /* COLOR GRADE — v14. a cinema LUT lerped across TOD, applied to the canvas. */
+  #stage canvas{transition:filter 1.2s cubic-bezier(.5,0,.2,1)}
+
+  /* CHROME RESTRAINT — v14. the toworld label appears only at threshold crossings.
+     the mute crescent only appears once the visitor has scrolled. */
+  .toworld .house, .toworld .house-ar{display:none !important}
+  .toworld{opacity:0;transition:opacity 1.4s cubic-bezier(.5,0,.2,1)}
+  .toworld.on{opacity:1}
+  .mute{opacity:0;transition:opacity 1.4s cubic-bezier(.5,0,.2,1);pointer-events:none}
+  .mute.ready{opacity:.85;pointer-events:auto}
+  .mute.ready:hover{opacity:1}
+
+  /* GAZE RING — v14. a thin gold arc fills while the visitor holds their gaze
+     on a door. release at full = auto-commit. no click required. */
+  .gaze-ring{position:fixed;left:50%;top:50%;width:120px;height:120px;margin:-60px 0 0 -60px;z-index:13;pointer-events:none;opacity:0;transition:opacity .5s ease}
+  .gaze-ring.on{opacity:1}
+  .gaze-ring svg{width:100%;height:100%;transform:rotate(-90deg)}
+  .gaze-ring circle{fill:none;stroke:var(--gold);stroke-width:1.4;stroke-linecap:round;stroke-dasharray:339.3;stroke-dashoffset:339.3;filter:drop-shadow(0 0 6px rgba(212,175,55,.6));transition:stroke-dashoffset .12s linear}
+
+  /* CONVERGENCE — v14. at p ≈ .985 the three culture glyphs briefly converge
+     in a single frame; the chosen one steps forward; the others bow. */
+  .convergence{position:fixed;inset:0;z-index:8;pointer-events:none;display:flex;align-items:center;justify-content:center;gap:60px;opacity:0;transition:opacity 1.0s cubic-bezier(.5,0,.2,1)}
+  .convergence.on{opacity:1}
+  .convergence .glyph{font-family:var(--ar);font-weight:400;font-size:clamp(40px,5vw,72px);color:var(--gold);direction:rtl;letter-spacing:.04em;text-shadow:0 0 24px rgba(212,175,55,.45);transition:transform 1.2s cubic-bezier(.2,.8,.2,1), opacity 1.2s ease}
+  .convergence .glyph.dim{opacity:.18;transform:translateY(8px) scale(.85)}
+  .convergence .glyph.chosen{transform:translateY(-4px) scale(1.14)}
+
+  /* SCENT — fades up on long-press, only in riad/atrium */
+  .scent{position:fixed;left:50%;bottom:14vh;transform:translateX(-50%);z-index:9;pointer-events:none;text-align:center;opacity:0;transition:opacity 1.2s ease}
+  .scent.on{opacity:1}
+  .scent .ar{display:block;font-family:var(--ar-b);font-size:34px;color:var(--gold);direction:rtl;letter-spacing:.02em}
+  .scent .en{display:block;font-family:var(--en);font-style:italic;font-size:14px;letter-spacing:.5em;text-transform:uppercase;color:rgba(243,234,210,.6);margin-top:.4em}
+
+  /* THE VERSE — the revelation. it appears once per visitor and never again.
+     stay still inside the held beat for 6+ seconds and a single line of Arabic
+     calligraphy crystallizes over the steam. replay = lost forever. */
+  .verse{position:fixed;left:50%;top:30%;transform:translate(-50%,-50%);z-index:11;pointer-events:none;text-align:center;opacity:0;transition:opacity 1.6s cubic-bezier(.5,0,.2,1);max-width:min(900px,82vw)}
+  .verse.on{opacity:1}
+  .verse .ar{font-family:var(--ar-b);font-size:clamp(28px,4.2vw,56px);color:var(--gold);direction:rtl;line-height:1.35;letter-spacing:.01em;text-shadow:0 0 22px rgba(212,175,55,.5),0 0 60px rgba(212,175,55,.18)}
+  .verse .en{font-family:var(--en);font-style:italic;font-size:clamp(14px,1.6vw,20px);color:rgba(243,234,210,.55);letter-spacing:.16em;text-transform:uppercase;margin-top:1em}
+  .verse .rule{display:block;width:88px;height:1px;background:linear-gradient(to right,transparent,var(--gold),transparent);margin:1.2em auto 0;opacity:.6}
+
+  /* easter egg colophon — pull seal down to reveal */
+  .colophon{position:fixed;inset:0;z-index:98;background:rgba(7,5,4,.95);display:flex;align-items:center;justify-content:center;flex-direction:column;gap:18px;opacity:0;visibility:hidden;transition:opacity .9s ease,visibility 0s .9s}
+  .colophon.on{opacity:1;visibility:visible;transition:opacity .9s ease}
+  .colophon .ar{font-family:var(--ar);font-size:42px;color:var(--gold);direction:rtl;letter-spacing:.04em}
+  .colophon .en{font-family:var(--en);font-style:italic;font-size:18px;color:rgba(243,234,210,.7);letter-spacing:.2em;text-transform:uppercase}
+  .colophon .yr{font-family:var(--en);font-style:italic;font-size:14px;color:var(--gold);letter-spacing:.4em;text-transform:uppercase}
+
+  /* THE FLASH — the only break in the spell, and only at the very end */
+  .flash{position:fixed;inset:0;z-index:200;pointer-events:none;opacity:0;background:radial-gradient(circle at 50% 50%,#fff 0%,var(--gold) 22%,rgba(212,175,55,.55) 38%,rgba(7,5,4,.95) 70%);transition:opacity 1.4s cubic-bezier(.5,0,.2,1)}
+  .flash.on{opacity:1}
+
+  @media(max-width:780px){
+    .voice{max-width:84% !important;left:8% !important;right:8% !important;text-align:left !important}
+    .voice .en{font-size:clamp(28px,8vw,52px)}
+    .voice .ar{font-size:clamp(22px,6vw,40px)}
+    .v2,.v6{right:auto}
+  }
+</style>
+</head><body>
+
+<!-- COLD OPEN — v14. five seconds. no skip. -->
+<div id="boot">
+  <canvas id="bootDust"></canvas>
+  <div class="vignette"></div>
+  <div class="grain"></div>
+  <div class="bismillah">بسم الله الرحمن الرحيم</div>
+  <div class="seal-wrap">
+    <svg viewBox="0 0 200 200" aria-hidden="true">
+      <circle class="seal-c-soft" cx="100" cy="100" r="102"/>
+      <circle class="seal-c" cx="100" cy="100" r="89"/>
+      <!-- the ر — born here -->
+      <path class="seal-r" id="bootRa" d="M 64 92 Q 82 56 112 56 Q 144 56 144 92 Q 144 122 118 130 L 64 130"/>
+    </svg>
+  </div>
+  <div class="wordmark">dar &nbsp;·&nbsp; دار</div>
+  <div class="hijri">mmxxvi<span class="ar">سَنَة ١٤٤٧ هـ</span></div>
+</div>
+
+<!-- THE STAGE — one persistent space -->
+<div id="stage"><canvas id="canvas"></canvas></div>
+
+<!-- THE PROTAGONIST — ر, on screen always -->
+<div id="ra">
+  <svg viewBox="0 0 1920 1080" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+    <path id="raPath" d=""/>
+  </svg>
+</div>
+
+<!-- WHISPERS — voices that bloom at moments along the scroll -->
+<div class="voice v1" data-from=".02" data-to=".12">
+  <div class="en"><em>دار</em> is not a house.<br/>It is the <em>act</em> of housing.</div>
+  <div class="ar">دارٌ ليست بيتاً — بل <span>فعلُ</span> السكن.</div>
+</div>
+
+<div class="voice v3" data-from=".14" data-to=".24">
+  <div class="en">a study, in three thresholds</div>
+  <div class="ar">دراسةٌ في ثلاث عتبات</div>
+</div>
+
+<div class="voice v2" data-from=".28" data-to=".40">
+  <div class="en">The <em>ا</em> is a column.<br/>The <em>ر</em> is a keystone.<br/>The <em>ل</em> is a doorframe.</div>
+  <div class="ar">الألفُ عمود.<br/>الراءُ <span>قِمَّةُ</span> القَوس.<br/>اللامُ إطارُ الباب.</div>
+</div>
+
+<div class="voice v4" data-from=".44" data-to=".58">
+  <div class="en">pass beneath</div>
+  <div class="ar">مُرَّ من تحت</div>
+  <div class="whisper">a horseshoe arch is an argument with gravity. it loses, beautifully, on purpose.</div>
+  <div class="whisper-ar">القوسُ المُتحدّر جدالٌ مع الجاذبية — يخسر، بجمالٍ، عن قصد.</div>
+</div>
+
+<div class="voice v5" data-from=".62" data-to=".72">
+  <div class="en">eight points,<br/><em>one</em> star.</div>
+  <div class="ar">ثماني نقاط، <span>نجمةٌ</span> واحدة.</div>
+</div>
+
+<div class="voice v6" data-from=".76" data-to=".84">
+  <div class="en">dust becomes word</div>
+  <div class="ar">الغبارُ يصير كلمة</div>
+</div>
+
+<!-- THE TIME OF DAY — one witness, breathing -->
+<div class="toworld"><span id="todLabel">dusk · غسق</span><span class="house" id="houseSig"></span><span class="house-ar" id="houseSigAr"></span></div>
+
+<!-- THE THRESHOLD — three doorways. one thread. one commitment. -->
+<div class="threshold" id="threshold" aria-label="choose a house">
+  <svg id="threadSvg" viewBox="0 0 1920 1080" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+    <circle class="seal" cx="960" cy="540" r="58"/>
+    <circle class="seal" cx="960" cy="540" r="38" stroke-dasharray="3 6" opacity=".5"/>
+    <circle class="seed" id="seed" cx="960" cy="540" r="4"/>
+    <path class="thread" id="thread" d=""/>
+  </svg>
+  <div class="door" data-h="lebanon">
+    <div class="arch"></div>
+    <div class="ar">بيروت</div>
+    <div class="en">beirut</div>
+    <div class="whisper">a sea-room. cobalt shutters thrown wide on a light that argues.</div>
+  </div>
+  <div class="door" data-h="gulf">
+    <div class="arch"></div>
+    <div class="ar">نَجد</div>
+    <div class="en">najd</div>
+    <div class="whisper">a still majlis. lanterns, slow. gold remembering its weight.</div>
+  </div>
+  <div class="door" data-h="morocco">
+    <div class="arch"></div>
+    <div class="ar">فاس</div>
+    <div class="en">fes</div>
+    <div class="whisper">a riad at the hour the fountain stops thinking.</div>
+  </div>
+  <div class="prompt">
+    <div class="en">draw a thread to a door</div>
+    <div class="ar">اِرسُم خَيطاً إلى بابٍ</div>
+    <span class="hint">commit · لا اختيار يُسترَدّ</span>
+  </div>
+</div>
+
+<!-- THE PROGRESS — a hairline at the bottom of the world -->
+<div class="prog" id="prog"></div>
+
+<!-- THE MUTE — a crescent, top-right -->
+<button class="mute" id="mute" aria-label="audio">
+  <svg viewBox="-20 -20 60 60"><circle cx="10" cy="10" r="14"/><path d="M 10 -2 a 12 12 0 1 0 0 24 a 8 8 0 1 1 0 -24 z"/></svg>
+</button>
+
+<!-- THE CURSOR -->
+<div class="cur" id="cur"></div>
+
+<!-- THE KEYHOLE — coda. no upload card. a portal. -->
+<label class="keyhole" id="keyhole">
+  <svg class="keyhole-svg" viewBox="0 0 200 200" aria-hidden="true">
+    <!-- arched well + circle = keyhole silhouette -->
+    <path class="well" d="M 60 180 L 60 95 Q 60 50 100 50 Q 140 50 140 95 L 140 180 Z"/>
+    <path d="M 60 180 L 60 95 Q 60 50 100 50 Q 140 50 140 95 L 140 180"/>
+    <circle cx="100" cy="92" r="22" fill="#070504"/>
+    <circle cx="100" cy="92" r="22"/>
+    <!-- the ر, set in the keystone -->
+    <path d="M 88 90 Q 92 78 104 78 Q 116 78 116 90 Q 116 100 106 104 L 88 104" stroke-width="1.4"/>
+  </svg>
+  <input type="file" accept="image/*" id="upload"/>
+  <div class="keyhole-prompt">
+    <div class="en"><em>drop</em> a room into the keyhole</div>
+    <div class="ar">أَلقِ غرفةً في ثُقب المفتاح</div>
+  </div>
+</label>
+
+<!-- LETTERBOX BARS — v14. sliding cinema crop. -->
+<div class="letterbox top" id="lbTop"></div>
+<div class="letterbox bottom" id="lbBot"></div>
+
+<!-- GAZE RING — v14. fills while held; auto-commits at full. -->
+<div class="gaze-ring" id="gazeRing"><svg viewBox="0 0 120 120"><circle cx="60" cy="60" r="54"/></svg></div>
+
+<!-- CONVERGENCE — v14. one frame, three glyphs. -->
+<div class="convergence" id="convergence">
+  <span class="glyph" data-h="lebanon">د</span>
+  <span class="glyph" data-h="gulf">ا</span>
+  <span class="glyph" data-h="morocco">ر</span>
+</div>
+
+<!-- SCENT — long-press a fountain area on mobile (or hold pointer still on desktop) -->
+<div class="scent" id="scent" aria-hidden="true"><span class="ar" id="scentAr">نَعناع</span><span class="en" id="scentEn">mint</span></div>
+
+<!-- THE VERSE — v13. shown once per visitor at the held beat, after 6s of stillness. -->
+<div class="verse" id="verse" aria-hidden="true">
+  <div class="ar">هذا الضَّوءُ مَرَّ من هُنا قَبلَ مِئَتي عام.</div>
+  <span class="rule"></span>
+  <div class="en">this light passed here two hundred years ago</div>
+</div>
+
+<!-- THE COLOPHON — easter egg -->
+<div class="colophon" id="colophon">
+  <div class="ar">مُصمَّمٌ في دار · سَنَة ١٤٤٧ هـ</div>
+  <div class="en">designed in dar</div>
+  <div class="yr">anno hijri MCCCCXLVII · MMXXVI</div>
+</div>
+
+<div class="flash" id="flash"></div>
+
+<script src="https://unpkg.com/three@0.160.0/build/three.min.js"></script>
+<script>
+/* ────────────────────────── BOOT ──────────────────────────
+   loading is the first act. the ر traces itself live as
+   downloads complete. no spinner, no "skip". earn the wait. */
+/* ────────────────────────── COLD OPEN — v14 ──────────────────────────
+   five seconds of film. the seal traces itself across a CSS timeline; the
+   dust drifts behind. we don't track loading progress — we trust the work.
+   if the assets aren't ready by t=5s, the visitor sees a beautiful blank
+   instead of a percentage. they will know. they always do. */
+let three_ready = false;
+function endBoot(){ const b = document.getElementById('boot'); if(b) b.classList.add('gone'); }
+setTimeout(endBoot, 5400);
+
+// dust drifting through the cold open — a small Canvas, untouched by Three.js
+(function bootDust(){
+  const c = document.getElementById('bootDust'); if(!c) return;
+  const ctx = c.getContext('2d');
+  function size(){ c.width = c.offsetWidth * (window.devicePixelRatio||1); c.height = c.offsetHeight * (window.devicePixelRatio||1); ctx.setTransform(window.devicePixelRatio||1, 0, 0, window.devicePixelRatio||1, 0, 0); }
+  size(); addEventListener('resize', size);
+  const motes = [];
+  for(let i=0;i<140;i++){
+    motes.push({
+      x: Math.random()*c.offsetWidth,
+      y: Math.random()*c.offsetHeight,
+      vy: 0.15 + Math.random()*0.30,
+      vx: (Math.random()-.5)*0.08,
+      r: 0.6 + Math.random()*1.3,
+      a: 0.20 + Math.random()*0.55,
+    });
+  }
+  let running = true;
+  setTimeout(()=>{ running = false; }, 6500);
+  function tickDust(){
+    if(!running) return;
+    ctx.clearRect(0,0,c.offsetWidth,c.offsetHeight);
+    for(const m of motes){
+      m.x += m.vx; m.y += m.vy;
+      if(m.y > c.offsetHeight) m.y = -4;
+      ctx.beginPath();
+      ctx.fillStyle = `rgba(212,175,55,${m.a.toFixed(2)})`;
+      ctx.arc(m.x, m.y, m.r, 0, Math.PI*2);
+      ctx.fill();
+    }
+    requestAnimationFrame(tickDust);
+  }
+  requestAnimationFrame(tickDust);
+})();
+
+/* ─────────────────────────── CURSOR ───────────────────────────
+   v14: cursor disappears after 2s of stillness — the visitor is in the film,
+   not at a desk. moves bring it back instantly. */
+const cur = document.getElementById('cur');
+let _curIdle = null;
+function wakeCursor(){ cur.style.opacity = '1'; clearTimeout(_curIdle); _curIdle = setTimeout(()=>{ cur.style.opacity = '0'; }, 2000); }
+wakeCursor();
+addEventListener('mousemove', e => { cur.style.left=e.clientX+'px'; cur.style.top=e.clientY+'px'; wakeCursor(); });
+cur.style.transition = 'opacity .6s ease, width .35s cubic-bezier(.2,.8,.2,1), height .35s, background .35s';
+document.querySelectorAll('.mute, #keyhole').forEach(el=>{
+  el.addEventListener('mouseenter',()=>cur.classList.add('lg'));
+  el.addEventListener('mouseleave',()=>cur.classList.remove('lg'));
+});
+// the mute crescent waits until the visitor scrolls before announcing itself
+let _muteReady = false;
+addEventListener('scroll', ()=>{ if(!_muteReady){ _muteReady = true; document.getElementById('mute').classList.add('ready'); } }, {passive:true});
+
+/* ────────────────────────── AUDIO — v7 ──────────────────────────
+   karplus-strong plucked oud (a real plucked string, not detuned sines),
+   per-chamber convolution reverb, footsteps tied to scroll cadence,
+   fountain whose volume scales inversely with mouse motion, an adhan
+   whisper at the dawn beat, panned far. */
+let ac, master, droneOn=false, convo, _convoNode, fountainGain, adhanPlayed=false;
+let _ouds = []; // active string voices
+let _verb;       // alias for the convolution node (legacy code references _verb)
+
+// build an exponentially-decaying impulse response procedurally
+function makeIR(seconds=2.4, decay=2.5, slap=false){
+  const sr = ac.sampleRate, n = Math.max(1, Math.floor(sr*seconds));
+  const buf = ac.createBuffer(2, n, sr);
+  for(let ch=0; ch<2; ch++){
+    const d = buf.getChannelData(ch);
+    for(let i=0; i<n; i++){
+      const t = i/n;
+      const env = Math.pow(1-t, decay);
+      d[i] = (Math.random()*2-1) * env;
+      // slap = a single early reflection bump
+      if(slap && i === Math.floor(sr*0.018)) d[i] += (ch?1:-1)*0.6;
+    }
+  }
+  return buf;
+}
+
+// karplus-strong via a feedback delay tuned to a frequency, with a one-pole lowpass on the loop.
+// emits a plucked-string note that sustains and slowly damps.
+function pluck(freq, when, dur=2.8, gain=.18, pan=0){
+  const sr = ac.sampleRate;
+  const delay = ac.createDelay(1);
+  delay.delayTime.value = 1/freq;
+  const lp = ac.createBiquadFilter(); lp.type='lowpass'; lp.frequency.value = freq*8; lp.Q.value=.4;
+  const fb = ac.createGain(); fb.gain.value = .986;
+  delay.connect(lp); lp.connect(fb); fb.connect(delay);
+  // exciter: short noise burst into the loop
+  const burstN = Math.floor(sr/freq);
+  const burst = ac.createBuffer(1, burstN, sr);
+  const bd = burst.getChannelData(0);
+  for(let i=0;i<burstN;i++){ bd[i] = (Math.random()*2-1) * (1 - i/burstN); }
+  const src = ac.createBufferSource(); src.buffer = burst;
+  src.connect(delay);
+  // body: a tiny formant-ish resonance
+  const body = ac.createBiquadFilter(); body.type='peaking'; body.frequency.value=420; body.Q.value=2.2; body.gain.value=6;
+  const out = ac.createGain(); out.gain.value = 0;
+  out.gain.linearRampToValueAtTime(gain, when+0.005);
+  out.gain.exponentialRampToValueAtTime(0.0001, when+dur);
+  const panner = ac.createStereoPanner(); panner.pan.value = pan;
+  delay.connect(body); body.connect(out); out.connect(panner); panner.connect(_convoNode); panner.connect(master);
+  src.start(when); src.stop(when+0.05);
+  setTimeout(()=>{ try{ delay.disconnect(); lp.disconnect(); fb.disconnect(); body.disconnect(); out.disconnect(); panner.disconnect(); }catch(e){} }, (dur+0.4)*1000);
+}
+
+// fountain: pink-noise into a bandpass, lightly tremolo'd. volume modulated by mouse stillness.
+function makeFountain(){
+  const len = ac.sampleRate*4;
+  const buf = ac.createBuffer(1, len, ac.sampleRate);
+  const d = buf.getChannelData(0);
+  let b0=0,b1=0,b2=0;
+  for(let i=0;i<len;i++){
+    const w = Math.random()*2-1;
+    b0 = .997*b0 + w*.0995; b1 = .985*b1 + w*.299; b2 = .950*b2 + w*.5;
+    d[i] = b0+b1+b2*.3;
+  }
+  const src = ac.createBufferSource(); src.buffer=buf; src.loop=true;
+  const bp = ac.createBiquadFilter(); bp.type='bandpass'; bp.frequency.value=2400; bp.Q.value=.7;
+  const hp = ac.createBiquadFilter(); hp.type='highpass'; hp.frequency.value=900;
+  const tremLfo = ac.createOscillator(); tremLfo.frequency.value = .7;
+  const tremG = ac.createGain(); tremG.gain.value = .15;
+  tremLfo.connect(tremG);
+  fountainGain = ac.createGain(); fountainGain.gain.value = 0;
+  tremG.connect(fountainGain.gain);
+  src.connect(bp); bp.connect(hp); hp.connect(fountainGain);
+  fountainGain.connect(_convoNode); fountainGain.connect(master);
+  src.start(); tremLfo.start();
+}
+
+// adhan: a single long sustained vowel (formant-shaped sine), panned far, played at the dawn beat.
+function adhanWhisper(pan=-.85){
+  const t0 = ac.currentTime;
+  const f0 = 196; // G3 — a low call
+  // a sequence of three sustained tones with slight pitch waver
+  const notes = [{f:196,d:1.4},{f:233,d:1.2},{f:174,d:1.8}];
+  let when = t0 + .2;
+  for(const n of notes){
+    const o = ac.createOscillator(); o.type='sine'; o.frequency.value = n.f;
+    const o2= ac.createOscillator(); o2.type='sine'; o2.frequency.value = n.f*2.97;
+    const fmt = ac.createBiquadFilter(); fmt.type='peaking'; fmt.frequency.value=720; fmt.Q.value=4; fmt.gain.value=12;
+    const fmt2= ac.createBiquadFilter(); fmt2.type='peaking'; fmt2.frequency.value=1180; fmt2.Q.value=4; fmt2.gain.value=8;
+    const g = ac.createGain(); g.gain.value=0;
+    g.gain.linearRampToValueAtTime(.04, when+.25);
+    g.gain.linearRampToValueAtTime(.045, when+n.d*.6);
+    g.gain.exponentialRampToValueAtTime(.0001, when+n.d);
+    const wob = ac.createOscillator(); wob.frequency.value=4.6;
+    const wobG = ac.createGain(); wobG.gain.value=2.4;
+    wob.connect(wobG); wobG.connect(o.detune); wobG.connect(o2.detune);
+    const p = ac.createStereoPanner(); p.pan.value = pan;
+    o.connect(fmt); fmt.connect(fmt2); o2.connect(fmt2); fmt2.connect(g);
+    g.connect(p); p.connect(_convoNode);
+    o.start(when); o2.start(when); wob.start(when);
+    o.stop(when+n.d+.1); o2.stop(when+n.d+.1); wob.stop(when+n.d+.1);
+    when += n.d * .7;
+  }
+}
+
+function ensureAudio(){
+  if(ac) return;
+  ac = new (AudioContext||webkitAudioContext)();
+  master = ac.createGain(); master.gain.value=0; master.connect(ac.destination);
+  // convolution reverb — IR is swapped per chamber.
+  convo = ac.createConvolver(); convo.normalize = true;
+  convo.buffer = makeIR(2.4, 2.5);
+  const wet = ac.createGain(); wet.gain.value = .55;
+  convo.connect(wet); wet.connect(master);
+  _convoNode = convo;
+  _verb = convo; // alias for legacy retuneDrone()
+  // ambient drone — soft sustained low strings (held, looped)
+  scheduleDrone();
+  // fountain (silent until mouse stillness reveals it)
+  makeFountain();
+}
+
+// the held drone — v12: a single sustained oud breath baked into an AudioBuffer.
+// karplus-strong's bright pluck stays as our kettle clink + chime arpeggio.
+// the WORLD'S breath is now a real string resonating, not math pretending.
+let oudBuf = null, oudSource = null, oudGain = null;
+function makeOudBreath(){
+  if(!ac) return null;
+  const dur = 8.0;
+  const sr  = ac.sampleRate;
+  const len = Math.floor(sr * dur);
+  const buf = ac.createBuffer(2, len, sr);
+  const f0 = 73.42; // D2 — the world's fundamental at base rate
+  const f5 = f0 * 1.5;
+  // empirical harmonic table for a plucked nylon/gut string close-mic'd in a wooden body:
+  // partial number → amplitude weight → decay seconds → phase. body formants live in 1–3.
+  const harm = [
+    { n:1,   amp:1.00, dec:7.0, ph:0.00 },
+    { n:2,   amp:0.62, dec:6.4, ph:0.31 },
+    { n:3,   amp:0.48, dec:5.7, ph:0.73 },
+    { n:4,   amp:0.30, dec:4.9, ph:1.10 },
+    { n:5,   amp:0.21, dec:4.2, ph:1.52 },
+    { n:6,   amp:0.14, dec:3.6, ph:1.93 },
+    { n:7,   amp:0.09, dec:3.0, ph:2.27 },
+    { n:1.5, amp:0.16, dec:5.5, ph:0.55 }, // body resonance, the wooden box
+    { n:2.5, amp:0.10, dec:4.6, ph:1.18 },
+  ];
+  for(let ch=0; ch<2; ch++){
+    const d = buf.getChannelData(ch);
+    const phShift = ch === 0 ? 0 : 0.05; // stereo width via tiny phase offset
+    for(let i=0; i<len; i++){
+      const t = i/sr;
+      // a second 'pluck' refresh at t≈4 keeps the loop alive (sustains a real instrument can't)
+      const env1 = Math.exp(-t / 6.0);
+      const env2 = Math.exp(-Math.max(0, t-4.0) / 6.0) * 0.85;
+      let s = 0;
+      for(const h of harm){
+        const am = 1 + 0.04 * Math.sin(2*Math.PI*0.28*t + h.ph);  // bow-like vibrato
+        const v  = (env1 + env2) * h.amp * am;
+        s += Math.sin(2*Math.PI*f0*h.n*t + h.ph + phShift) * v;
+        s += Math.sin(2*Math.PI*f5*h.n*t + h.ph*1.3 + phShift) * v * 0.45;
+      }
+      // crossfade the buffer ends so loop is seamless
+      const fI = Math.min(1, i/(sr*0.6));
+      const fO = Math.min(1, (len - i)/(sr*0.6));
+      d[i] = s * fI * fO * 0.10;
+    }
+  }
+  return buf;
+}
+function scheduleDrone(){
+  if(!ac) return;
+  if(!oudBuf) oudBuf = makeOudBreath();
+  if(oudSource){ try{ oudSource.stop(); }catch(e){} oudSource = null; }
+  const cfg = HOUSE && HOUSES[HOUSE] || HOUSES.gulf;
+  const src = ac.createBufferSource();
+  src.buffer = oudBuf; src.loop = true;
+  src.playbackRate.value = (cfg.drone[1] || 73.42) / 73.42;
+  oudGain = ac.createGain(); oudGain.gain.value = .6;
+  // low-pass through a gentle body filter for warmth
+  const body = ac.createBiquadFilter(); body.type='peaking'; body.frequency.value=420; body.Q.value=1.4; body.gain.value=4;
+  const tilt = ac.createBiquadFilter(); tilt.type='lowshelf'; tilt.frequency.value=180; tilt.gain.value=3;
+  src.connect(body); body.connect(tilt); tilt.connect(oudGain);
+  oudGain.connect(master); oudGain.connect(_convoNode);
+  src.start();
+  oudSource = src;
+}
+
+/* ────────── FOLEY — v14. one bird overhead before the riad; one vendor's
+   call in the souk pass. each fires exactly once and audibly belongs to
+   a place outside the room. */
+function birdCall(){
+  if(!ac) return;
+  const t0 = ac.currentTime;
+  for(let i=0; i<3; i++){
+    const startAt = t0 + i*0.24;
+    const o   = ac.createOscillator(); o.type='sine';
+    o.frequency.setValueAtTime(2400 + Math.random()*500, startAt);
+    o.frequency.exponentialRampToValueAtTime(1300 + Math.random()*400, startAt + 0.13);
+    const g   = ac.createGain(); g.gain.value = 0;
+    g.gain.linearRampToValueAtTime(0.06, startAt + 0.008);
+    g.gain.exponentialRampToValueAtTime(0.0001, startAt + 0.16);
+    const pan = ac.createStereoPanner(); pan.pan.value = -0.5 + i*0.5;
+    const hp  = ac.createBiquadFilter(); hp.type='highpass'; hp.frequency.value=900;
+    o.connect(hp); hp.connect(g); g.connect(pan); pan.connect(_convoNode);
+    o.start(startAt); o.stop(startAt + 0.18);
+  }
+}
+function vendorCall(){
+  if(!ac) return;
+  const t0 = ac.currentTime + 0.1;
+  const notes = [{f:330, d:0.6},{f:294, d:0.4},{f:262, d:1.0}];
+  let when = t0;
+  for(const n of notes){
+    const o   = ac.createOscillator(); o.type='sine'; o.frequency.value = n.f;
+    const o2  = ac.createOscillator(); o2.type='sine'; o2.frequency.value = n.f*2.9;
+    const fmt = ac.createBiquadFilter(); fmt.type='peaking'; fmt.frequency.value=820; fmt.Q.value=3.5; fmt.gain.value=9;
+    const lp  = ac.createBiquadFilter(); lp.type='lowpass'; lp.frequency.value=1400; lp.Q.value=.6;
+    const g   = ac.createGain(); g.gain.value=0;
+    g.gain.linearRampToValueAtTime(0.022, when+0.15);
+    g.gain.exponentialRampToValueAtTime(0.0001, when+n.d);
+    const wob = ac.createOscillator(); wob.frequency.value=4.6; const wg = ac.createGain(); wg.gain.value=2;
+    wob.connect(wg); wg.connect(o.detune); wg.connect(o2.detune);
+    const pan = ac.createStereoPanner(); pan.pan.value = 0.7;
+    o.connect(fmt); o2.connect(fmt); fmt.connect(lp); lp.connect(g);
+    g.connect(pan); pan.connect(_convoNode);
+    o.start(when); o2.start(when); wob.start(when);
+    o.stop(when+n.d+0.05); o2.stop(when+n.d+0.05); wob.stop(when+n.d+0.05);
+    when += n.d*0.85;
+  }
+}
+const muteBtn = document.getElementById('mute');
+muteBtn.addEventListener('click',()=>{
+  ensureAudio(); if(ac.state==='suspended')ac.resume();
+  droneOn=!droneOn;
+  master.gain.cancelScheduledValues(ac.currentTime);
+  master.gain.linearRampToValueAtTime(droneOn?.34:0, ac.currentTime+1.6);
+  muteBtn.classList.toggle('on', droneOn);
+});
+
+/* PER-CHAMBER REVERB — swap the IR as the camera moves between zones. */
+const CHAMBERS = [
+  { range:[.00,.16], ir:[1.0, 2.2, true],   name:'courtyard' }, // 1.2s slap
+  { range:[.16,.36], ir:[1.6, 2.4, false],  name:'corridor' },
+  { range:[.36,.56], ir:[2.4, 2.6, false],  name:'arch tunnel' },
+  { range:[.56,.74], ir:[3.4, 2.8, false],  name:'zellige' },
+  { range:[.74,.90], ir:[4.8, 3.2, false],  name:'atrium' },
+  { range:[.90,1.0], ir:[6.0, 3.4, false],  name:'riad' }, // 6m wet tail
+];
+let _curChamber = -1;
+function updateChamberReverb(p){
+  if(!ac) return;
+  for(let i=0;i<CHAMBERS.length;i++){
+    const c = CHAMBERS[i];
+    if(p>=c.range[0] && p<c.range[1] && i!==_curChamber){
+      _curChamber = i;
+      try{ convo.buffer = makeIR(...c.ir); }catch(e){}
+      // footstep on chamber crossing
+      footstep();
+    }
+  }
+}
+
+/* FOOTSTEPS — on tile, cadence matches scroll velocity. */
+let _lastStepP = 0;
+function footstep(vel=.3){
+  if(!ac) return;
+  const t = ac.currentTime;
+  const len = ac.sampleRate*0.18;
+  const buf = ac.createBuffer(1, len, ac.sampleRate);
+  const d = buf.getChannelData(0);
+  for(let i=0;i<len;i++){ const x = i/len; d[i] = (Math.random()*2-1) * Math.pow(1-x, 8); }
+  const src = ac.createBufferSource(); src.buffer = buf;
+  const bp = ac.createBiquadFilter(); bp.type='bandpass'; bp.frequency.value=2200+Math.random()*400; bp.Q.value=1.4;
+  const g = ac.createGain(); g.gain.value = Math.min(.18, .08 + vel*.4);
+  src.connect(bp); bp.connect(g); g.connect(_convoNode); g.connect(master);
+  src.start(t);
+}
+function scrollFootsteps(p){
+  if(!ac || !droneOn) return;
+  // step every ~3% of journey
+  if(Math.abs(p - _lastStepP) > 0.018){
+    const vel = Math.min(1, Math.abs(p - _lastStepP)*60);
+    footstep(vel);
+    _lastStepP = p;
+  }
+}
+
+/* FOUNTAIN — its volume = mouse stillness. */
+let _lastMouse = {x:0,y:0,t:performance.now()}, _stillness = 0;
+addEventListener('mousemove', e => {
+  const now = performance.now();
+  const dt = now - _lastMouse.t;
+  const dx = e.clientX - _lastMouse.x, dy = e.clientY - _lastMouse.y;
+  const v = Math.hypot(dx,dy)/Math.max(1,dt);
+  _stillness *= 0.9; _stillness -= v*0.6;
+  _lastMouse = {x:e.clientX, y:e.clientY, t:now};
+});
+setInterval(()=>{
+  _stillness = Math.min(1, _stillness + 0.04);
+  if(fountainGain && droneOn){
+    // only audible in the riad chamber, scaled by stillness
+    const inRiad = p > .82 ? 1 : 0;
+    const target = Math.max(0, _stillness) * .14 * inRiad;
+    fountainGain.gain.setTargetAtTime(target, ac.currentTime, .4);
+  }
+}, 80);
+
+/* ────────────────────────── TIME OF DAY ──────────────────────────
+   one continuous lerp from dusk → night → adhan → dawn. fed into
+   the three.js fog/ambient and the css var --tod for any halos. */
+const TOD = [
+  {t:0.00, label:'dusk · غسق',         sky:[0x2a1408,0xe88a3a], fog:0x140a05, amb:0x4a2614, key:[0xffb060,1.2], grade:{hue: 4, sat:114, con:108, bri:104}},
+  {t:0.30, label:'evening · مَساء',    sky:[0x10080a,0x5a1828], fog:0x0a0608, amb:0x2a1018, key:[0xff7050,0.8], grade:{hue: 0, sat: 98, con:114, bri: 96}},
+  {t:0.55, label:'night · ليل',        sky:[0x050810,0x0a0e22], fog:0x05060c, amb:0x10142a, key:[0xa0b8ff,0.5], grade:{hue:-22, sat: 78, con:122, bri: 84}},
+  {t:0.80, label:'adhan · أذان الفجر', sky:[0x100614,0x40225a], fog:0x080612, amb:0x281230, key:[0xd4af37,0.7], grade:{hue:-30, sat: 88, con:118, bri: 90}},
+  {t:1.00, label:'dawn · فَجر',        sky:[0x18141a,0xeac27a], fog:0x1a1410, amb:0x504028, key:[0xffd8a0,1.3], grade:{hue: 8, sat:118, con:108, bri:108}},
+];
+function todGradeAt(p){
+  for(let i=0;i<TOD.length-1;i++){
+    if(p>=TOD[i].t && p<=TOD[i+1].t){
+      const a=TOD[i].grade, b=TOD[i+1].grade;
+      const u=(p-TOD[i].t)/(TOD[i+1].t-TOD[i].t);
+      return { hue: a.hue+(b.hue-a.hue)*u, sat: a.sat+(b.sat-a.sat)*u, con: a.con+(b.con-a.con)*u, bri: a.bri+(b.bri-a.bri)*u };
+    }
+  }
+  return TOD[TOD.length-1].grade;
+}
+function lerp(a,b,t){return a+(b-a)*t}
+function lerpColor(a,b,t){return ((a>>16&255)*(1-t)+(b>>16&255)*t<<16) | ((a>>8&255)*(1-t)+(b>>8&255)*t<<8) | ((a&255)*(1-t)+(b&255)*t)}
+function todAt(p){
+  for(let i=0;i<TOD.length-1;i++){
+    if(p>=TOD[i].t && p<=TOD[i+1].t){
+      const a=TOD[i], b=TOD[i+1];
+      const u=(p-a.t)/(b.t-a.t);
+      return {
+        skyLo: lerpColor(a.sky[0],b.sky[0],u),
+        skyHi: lerpColor(a.sky[1],b.sky[1],u),
+        fog:   lerpColor(a.fog,b.fog,u),
+        amb:   lerpColor(a.amb,b.amb,u),
+        keyC:  lerpColor(a.key[0],b.key[0],u),
+        keyI:  lerp(a.key[1],b.key[1],u),
+        labelA: a.label, labelB: b.label, labelU: u
+      };
+    }
+  }
+  const z=TOD[TOD.length-1]; return {skyLo:z.sky[0],skyHi:z.sky[1],fog:z.fog,amb:z.amb,keyC:z.key[0],keyI:z.key[1],labelA:z.label,labelB:z.label,labelU:0};
+}
+
+/* ────────────────────────── THREE.JS — one world ──────────────────────────
+   chambers strung along a path. camera dollies down the path as the user
+   scrolls. nothing teleports. nothing fades to black. */
+const canvas = document.getElementById('canvas');
+const scene = new THREE.Scene();
+const cam   = new THREE.PerspectiveCamera(56, innerWidth/innerHeight, 0.1, 600);
+const renderer = new THREE.WebGLRenderer({canvas, antialias:true, alpha:true});
+renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+function resize(){renderer.setSize(innerWidth,innerHeight,false); cam.aspect=innerWidth/innerHeight; cam.updateProjectionMatrix();}
+resize(); addEventListener('resize',resize);
+
+scene.fog = new THREE.FogExp2(0x140a05, 0.025);
+const amb = new THREE.AmbientLight(0x4a2614, .9); scene.add(amb);
+const key = new THREE.SpotLight(0xffb060, 1.6, 80, .9, .55, 1.2); key.position.set(0,8,12); scene.add(key);
+
+/* ─────────────────────────── THE SKY — v12 ───────────────────────────
+   the world had no heaven. now it does. a dome around the camera, gradient
+   shader fed by TOD, with a sun-as-billboard sinking through the journey,
+   a moon rising at night, and a few hundred stars fading in for the adhan
+   beat. when the camera looks up, there is somewhere to look. */
+const skyMat = new THREE.ShaderMaterial({
+  side: THREE.BackSide,
+  depthWrite: false,
+  uniforms: {
+    uLow:  { value: new THREE.Color(0x2a1408) },
+    uHigh: { value: new THREE.Color(0xe88a3a) },
+    uHorizon: { value: new THREE.Color(0x6a2818) },
+  },
+  vertexShader: 'varying vec3 vP; void main(){ vP = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }',
+  fragmentShader: 'varying vec3 vP; uniform vec3 uLow; uniform vec3 uHigh; uniform vec3 uHorizon; void main(){ float y = vP.y; float t1 = smoothstep(-0.05, 0.6, y); float t2 = smoothstep(-0.10, 0.05, y); vec3 c = mix(uHorizon, uLow, t2); c = mix(c, uHigh, t1); gl_FragColor = vec4(c, 1.0); }'
+});
+const skyDome = new THREE.Mesh(new THREE.SphereGeometry(220, 48, 28), skyMat);
+skyDome.renderOrder = -10;
+scene.add(skyDome);
+
+// sun — a soft disc that sinks through dusk and is gone by night
+const sunMat = new THREE.MeshBasicMaterial({color:0xffb060, transparent:true, depthWrite:false, blending:THREE.AdditiveBlending, fog:false});
+const sun = new THREE.Mesh(new THREE.CircleGeometry(7, 32), sunMat);
+sun.renderOrder = -5;
+scene.add(sun);
+// halo around the sun
+const sunHalo = new THREE.Mesh(new THREE.CircleGeometry(16, 32), new THREE.MeshBasicMaterial({color:0xe8a13a, transparent:true, opacity:.0, depthWrite:false, blending:THREE.AdditiveBlending, fog:false}));
+sunHalo.renderOrder = -6;
+scene.add(sunHalo);
+
+// moon — appears at night, sets at dawn
+const moonMat = new THREE.MeshBasicMaterial({color:0xe6e0c8, transparent:true, opacity:0, depthWrite:false, fog:false});
+const moon = new THREE.Mesh(new THREE.CircleGeometry(4.5, 32), moonMat);
+moon.renderOrder = -5;
+scene.add(moon);
+// crescent cut-out — a slightly offset dark disc darkens one side of the moon
+const moonCrescent = new THREE.Mesh(new THREE.CircleGeometry(4.0, 32), new THREE.MeshBasicMaterial({color:0x05060c, transparent:true, opacity:0, depthWrite:false, fog:false}));
+moonCrescent.renderOrder = -4;
+scene.add(moonCrescent);
+
+// stars — a dome of points, fading in across night & adhan
+const starG = new THREE.BufferGeometry();
+const STN = 700;
+const stpos = new Float32Array(STN*3);
+for(let i=0;i<STN;i++){
+  const a = Math.random()*Math.PI*2;
+  const e = Math.acos(Math.random()*.85 + .05);  // bias toward upper hemisphere
+  const r = 200;
+  stpos[i*3]   = r * Math.sin(e) * Math.cos(a);
+  stpos[i*3+1] = r * Math.cos(e);
+  stpos[i*3+2] = r * Math.sin(e) * Math.sin(a);
+}
+starG.setAttribute('position', new THREE.BufferAttribute(stpos, 3));
+const starMat = new THREE.PointsMaterial({color:0xeae3c8, size:.7, transparent:true, opacity:0, depthWrite:false, sizeAttenuation:false, fog:false});
+const stars = new THREE.Points(starG, starMat);
+stars.renderOrder = -3;
+scene.add(stars);
+const lamp = new THREE.PointLight(0xd4af37, 1.0, 14); scene.add(lamp);
+
+/* the path the camera travels — a single curve through every chamber */
+const PATH = new THREE.CatmullRomCurve3([
+  new THREE.Vector3( 0, 1.6,   8),   // t=0    threshold (manifesto)
+  new THREE.Vector3( 0, 1.6,   2),
+  new THREE.Vector3( 0, 1.6,  -4),   // t≈.15  three thresholds (the houses pass)
+  new THREE.Vector3( 0, 1.6, -10),
+  new THREE.Vector3( 0, 1.6, -18),   // t≈.35  arabic-as-architecture
+  new THREE.Vector3( 0, 1.6, -28),   // t≈.50  the arch tunnel
+  new THREE.Vector3( 0, 1.7, -42),
+  new THREE.Vector3(.3, 1.7, -56),   // t≈.70  zellige
+  new THREE.Vector3( 0, 1.6, -70),   // t≈.85  alchemy / atrium
+  new THREE.Vector3(-.6, 1.4, -80),
+  new THREE.Vector3(-.4, 1.3, -83.2), // REST waypoint
+  new THREE.Vector3( 0, 1.3, -86),
+  new THREE.Vector3( 0, 1.2, -90),
+]);
+const REST_T = 0.83;
+
+/* materials */
+const tileMat = new THREE.MeshStandardMaterial({color:0x6b4f2a,roughness:.95,metalness:.05});
+const wallMat = new THREE.MeshStandardMaterial({color:0x2a1f12,roughness:.85,metalness:.05,emissive:0x140a05,emissiveIntensity:.3});
+const goldMat = new THREE.MeshStandardMaterial({color:0xd4af37,emissive:0x6a5510,emissiveIntensity:.5,roughness:.4,metalness:.7});
+const lampMat = new THREE.MeshStandardMaterial({color:0xe8a13a,emissive:0xd4af37,emissiveIntensity:1.6,roughness:.5});
+
+/* runner — the floor we walk */
+const runner = new THREE.Mesh(new THREE.PlaneGeometry(4, 220), tileMat);
+runner.rotation.x = -Math.PI/2; runner.position.set(0,-2,-50); scene.add(runner);
+
+/* helper — a horseshoe arch as an extruded shape */
+function archShape(w=2.6,h=4.4,th=.18){
+  const s=new THREE.Shape();
+  const r=w/2;
+  s.moveTo(-r-th,0);
+  s.lineTo(-r-th,h-r);
+  s.absarc(0,h-r,r+th,Math.PI,0,false);
+  s.lineTo(r+th,0);
+  s.lineTo(r,0);
+  s.lineTo(r,h-r);
+  s.absarc(0,h-r,r,0,Math.PI,true);
+  s.lineTo(-r,0);
+  s.closePath();
+  return s;
+}
+const archGeom = new THREE.ExtrudeGeometry(archShape(), {depth:.3, bevelEnabled:false});
+
+/* CHAMBER 1: threshold — three side doorways. v12: now active gaze targets.
+   the inner light per region becomes the commit signal: brighten the gazed-at,
+   dim the others on commit. */
+const doorLights = {};
+const doorPositions = {};
+function makeDoor(z, x, region){
+  const door = new THREE.Mesh(archGeom, wallMat);
+  door.scale.set(.65,.65,.65);
+  door.position.set(x, -2, z);
+  door.rotation.y = x>0 ? -Math.PI/2 : Math.PI/2;
+  scene.add(door);
+  const c = region==='lebanon'?0x2d3a8c : region==='gulf'?0xd4af37 : 0x8d1b2d;
+  const inner = new THREE.PointLight(c, .8, 5);
+  inner.position.set(x*.8, 0, z);
+  scene.add(inner);
+  doorLights[region] = inner;
+  doorPositions[region] = new THREE.Vector3(x, 0, z);
+}
+makeDoor(-6,  -3.2, 'lebanon');
+makeDoor(-9,   3.2, 'gulf');
+makeDoor(-12, -3.2, 'morocco');
+
+/* CHAMBER 2: the arabic-as-architecture corridor — v12: the columns ARE
+   الألفات. slightly tapered shafts, leaning a hair toward the spine, with
+   a small serifed head (the calligrapher's kashida) at top. */
+const colMat = new THREE.MeshStandardMaterial({color:0x3a2818,roughness:.92});
+for(let i=0;i<6;i++){
+  const z = -16 - i*2.2;
+  // shaft: thinner, more tapered — reads as a stroke, not a column
+  const colL = new THREE.Mesh(new THREE.CylinderGeometry(.13,.20,5.0,18), colMat);
+  colL.position.set(-2.6, .45, z); colL.rotation.z = .025; scene.add(colL);
+  const colR = colL.clone(); colR.position.x=2.6; colR.rotation.z = -.025; scene.add(colR);
+  // base — modest, square
+  const baseL = new THREE.Mesh(new THREE.BoxGeometry(.52,.08,.52), colMat); baseL.position.set(-2.6,-1.96,z); scene.add(baseL);
+  const baseR = baseL.clone(); baseR.position.x=2.6; scene.add(baseR);
+  // alif's serifed head — a slim horizontal block with a gold kashida tip on top
+  const headL  = new THREE.Mesh(new THREE.BoxGeometry(.30,.05,.16), colMat); headL.position.set(-2.6, 2.99, z); scene.add(headL);
+  const headR  = headL.clone();  headR.position.x = 2.6; scene.add(headR);
+  const tipL   = new THREE.Mesh(new THREE.ConeGeometry(.045, .14, 6), goldMat); tipL.position.set(-2.6, 3.10, z); scene.add(tipL);
+  const tipR   = tipL.clone();   tipR.position.x = 2.6; scene.add(tipR);
+}
+
+/* CHAMBER 3: the arch tunnel — v11: muqarnas spandrels above each arch.
+   the central arch carries a calligraphic keystone, بسم الله — readable
+   only when the camera is close enough that the persistent visitor catches it. */
+const muqarnasTex = (()=>{
+  const w=1024, h=384;
+  const c = document.createElement('canvas'); c.width=w; c.height=h;
+  const ctx = c.getContext('2d');
+  const grad = ctx.createLinearGradient(0,0,0,h);
+  grad.addColorStop(0,'#15090a'); grad.addColorStop(.6,'#241510'); grad.addColorStop(1,'#1a0e08');
+  ctx.fillStyle=grad; ctx.fillRect(0,0,w,h);
+  function alcove(cx, cy, sz){
+    const ah = sz*1.15;
+    ctx.fillStyle='rgba(0,0,0,.7)';
+    ctx.beginPath();
+    ctx.moveTo(cx-sz*.46, cy+ah*.46);
+    ctx.quadraticCurveTo(cx-sz*.46, cy-ah*.38, cx, cy-ah*.50);
+    ctx.quadraticCurveTo(cx+sz*.46, cy-ah*.38, cx+sz*.46, cy+ah*.46);
+    ctx.closePath(); ctx.fill();
+    ctx.fillStyle='#070302';
+    ctx.beginPath();
+    ctx.moveTo(cx-sz*.36, cy+ah*.36);
+    ctx.quadraticCurveTo(cx-sz*.36, cy-ah*.30, cx, cy-ah*.42);
+    ctx.quadraticCurveTo(cx+sz*.36, cy-ah*.30, cx+sz*.36, cy+ah*.36);
+    ctx.closePath(); ctx.fill();
+    ctx.strokeStyle='rgba(232,161,58,.55)'; ctx.lineWidth=1.6;
+    ctx.beginPath();
+    ctx.moveTo(cx-sz*.46, cy-ah*.04);
+    ctx.quadraticCurveTo(cx-sz*.46, cy-ah*.38, cx, cy-ah*.50);
+    ctx.stroke();
+    ctx.fillStyle='#d4af37';
+    ctx.beginPath(); ctx.arc(cx, cy-ah*.50, 2.2, 0, Math.PI*2); ctx.fill();
+  }
+  const big = w/6;
+  for(let k=0;k<6;k++) alcove(big/2 + k*big, h*.62, big*.95);
+  for(let k=0;k<5;k++) alcove(big + k*big, h*.30, big*.78);
+  for(let k=0;k<4;k++) alcove(big*1.5 + k*big, h*.10, big*.55);
+  ctx.fillStyle='rgba(0,0,0,.18)';
+  ctx.fillRect(0, h*.78, w, h*.22);
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
+  return tex;
+})();
+const muqarnasMat = new THREE.MeshStandardMaterial({map:muqarnasTex, roughness:.92, metalness:.0});
+const muqarnasGeom = new THREE.PlaneGeometry(2.8, 1.05);
+
+const bismillahTex = (()=>{
+  const w=1024, h=512;
+  const c = document.createElement('canvas'); c.width=w; c.height=h;
+  const ctx = c.getContext('2d');
+  ctx.clearRect(0,0,w,h);
+  ctx.font = '220px "Amiri", "Noto Kufi Arabic", serif';
+  ctx.textAlign='center'; ctx.textBaseline='middle';
+  ctx.shadowColor='rgba(212,175,55,.45)'; ctx.shadowBlur=36;
+  ctx.fillStyle='#d4af37';
+  ctx.fillText('بسم الله', w/2, h/2);
+  ctx.shadowBlur = 0;
+  ctx.strokeStyle='rgba(212,175,55,.4)'; ctx.lineWidth=2.5;
+  ctx.beginPath(); ctx.moveTo(w*.22, h*.78); ctx.lineTo(w*.78, h*.78); ctx.stroke();
+  const tex = new THREE.CanvasTexture(c);
+  return tex;
+})();
+const bismillahMat = new THREE.MeshBasicMaterial({map:bismillahTex, transparent:true, depthWrite:false, opacity:0});
+const bismillahMesh = new THREE.Mesh(new THREE.PlaneGeometry(2.4, 1.2), bismillahMat);
+
+const archGroup = new THREE.Group(); scene.add(archGroup);
+const CENTRAL_ARCH_I = 4;
+let centralArchZ = -28 - CENTRAL_ARCH_I*2.6;
+for(let i=0;i<10;i++){
+  const az = -28 - i*2.6;
+  const m = new THREE.Mesh(archGeom, wallMat);
+  m.position.set(0, -2, az);
+  archGroup.add(m);
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(1.3, .012, 8, 64, Math.PI), goldMat);
+  ring.position.set(0, .2, az + .16);
+  ring.rotation.z = Math.PI;
+  archGroup.add(ring);
+  // muqarnas frieze above the arch — reads as carved relief at distance
+  const muq = new THREE.Mesh(muqarnasGeom, muqarnasMat);
+  muq.position.set(0, 2.55, az + .12);
+  archGroup.add(muq);
+  // a tiny gold knot at the keystone (visual punctuation between arches)
+  const knot = new THREE.Mesh(new THREE.SphereGeometry(.03, 10, 10), goldMat);
+  knot.position.set(0, 2.05, az + .18);
+  archGroup.add(knot);
+  if(i === CENTRAL_ARCH_I){
+    bismillahMesh.position.set(0, 1.50, az + .19);
+    archGroup.add(bismillahMesh);
+    // v12 — the keystone IS a ر, carved in stone-relief, lit by a slim accent.
+    const raTex = (()=>{
+      const c2 = document.createElement('canvas'); c2.width=512; c2.height=512;
+      const ctx = c2.getContext('2d');
+      // stone ground that matches the wall
+      ctx.fillStyle='#2a1f12'; ctx.fillRect(0,0,512,512);
+      // dark drop-shadow stroke (carved sunken)
+      ctx.strokeStyle='#070302'; ctx.lineCap='round'; ctx.lineJoin='round'; ctx.lineWidth=48;
+      ctx.beginPath();
+      ctx.moveTo(124,250); ctx.quadraticCurveTo(180,108,300,108);
+      ctx.quadraticCurveTo(412,108,412,250);
+      ctx.quadraticCurveTo(412,348,322,388); ctx.lineTo(116,388);
+      ctx.stroke();
+      // gold highlight rim where the dusk light catches the upper-left edge
+      ctx.strokeStyle='rgba(232,161,58,.65)'; ctx.lineWidth=4;
+      ctx.beginPath();
+      ctx.moveTo(118,246); ctx.quadraticCurveTo(176,102,298,102);
+      ctx.quadraticCurveTo(408,102,408,250);
+      ctx.stroke();
+      // a calligraphic dot above (ر has none, but a sigil settles the eye)
+      ctx.fillStyle='#d4af37';
+      ctx.beginPath(); ctx.arc(265,60,4,0,Math.PI*2); ctx.fill();
+      return new THREE.CanvasTexture(c2);
+    })();
+    const raMat = new THREE.MeshStandardMaterial({map:raTex, roughness:.85, metalness:.05, emissive:0x1a1006, emissiveIntensity:.25});
+    const raMesh = new THREE.Mesh(new THREE.PlaneGeometry(1.45, 1.45), raMat);
+    raMesh.position.set(0, 2.30, az + .195);
+    archGroup.add(raMesh);
+  }
+}
+
+/* CHAMBER 4: zellige floor — v11: worn. grout darkens between tiles, the
+   centre runway has dimmed under foot traffic, chips show the bisque underneath,
+   dust has settled into the cracks. the eight-point star is still here — just not new. */
+const zellTex = (() => {
+  const w=1024, h=1024;
+  const c = document.createElement('canvas'); c.width=w; c.height=h;
+  const ctx = c.getContext('2d');
+  ctx.fillStyle='#ecdfba'; ctx.fillRect(0,0,w,h);
+  const tile = 128;
+  for(let y=0;y<h;y+=tile){
+    for(let x=0;x<w;x+=tile){
+      const cx=x+tile/2, cy=y+tile/2;
+      const v = (Math.sin((x*73 + y*131)*.001)+1)/2;
+      ctx.fillStyle = v>.5 ? '#e9d9b0' : '#e6d4a6';
+      ctx.fillRect(x+2,y+2,tile-4,tile-4);
+      ctx.save(); ctx.translate(cx,cy);
+      ctx.strokeStyle='#7a1a26'; ctx.lineWidth=3;
+      ctx.beginPath();
+      for(let k=0;k<8;k++){
+        const a=k*Math.PI/4, r=k%2 ? 18 : 52;
+        const X=Math.cos(a)*r, Y=Math.sin(a)*r;
+        k? ctx.lineTo(X,Y) : ctx.moveTo(X,Y);
+      }
+      ctx.closePath(); ctx.stroke();
+      ctx.strokeStyle='#27347a'; ctx.lineWidth=2;
+      ctx.beginPath(); ctx.arc(0,0,16,0,Math.PI*2); ctx.stroke();
+      ctx.fillStyle='#c89a2c'; ctx.beginPath(); ctx.arc(0,0,5,0,Math.PI*2); ctx.fill();
+      ctx.restore();
+      ctx.fillStyle='rgba(40,22,12,.65)';
+      ctx.fillRect(x, y, tile, 2);
+      ctx.fillRect(x, y, 2, tile);
+      const seed = (x*13 + y*17) % 11;
+      if(seed < 2){
+        ctx.fillStyle='rgba(50,30,14,.55)';
+        ctx.beginPath();
+        const cx2 = x + (seed===0 ? 6 : tile-6);
+        const cy2 = y + 6;
+        ctx.moveTo(cx2, cy2); ctx.lineTo(cx2+18, cy2); ctx.lineTo(cx2, cy2+18);
+        ctx.closePath(); ctx.fill();
+      }
+    }
+  }
+  const patina = ctx.createLinearGradient(w*.5-160, 0, w*.5+160, 0);
+  patina.addColorStop(0,'rgba(0,0,0,0)');
+  patina.addColorStop(.5,'rgba(20,10,4,.32)');
+  patina.addColorStop(1,'rgba(0,0,0,0)');
+  ctx.fillStyle = patina; ctx.fillRect(0,0,w,h);
+  ctx.fillStyle='rgba(110,80,40,.18)';
+  for(let i=0;i<800;i++){
+    const x = Math.random()*w, y = Math.random()*h;
+    if(Math.abs((x%tile)-1)<4 || Math.abs((y%tile)-1)<4){
+      ctx.fillRect(x,y,1.5,1.5);
+    }
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS=tex.wrapT=THREE.RepeatWrapping; tex.repeat.set(3,4);
+  tex.anisotropy = 8;
+  return tex;
+})();
+const zellMat = new THREE.MeshStandardMaterial({map:zellTex,roughness:.6,metalness:.05});
+const zellPanel = new THREE.Mesh(new THREE.PlaneGeometry(8, 10), zellMat);
+zellPanel.rotation.x = -Math.PI/2; zellPanel.position.set(0, -1.99, -58); scene.add(zellPanel);
+
+/* CHAMBER 5: alchemy — particles drifting toward دار */
+const dustG = new THREE.BufferGeometry();
+const DN = 1400; const dpos = new Float32Array(DN*3); const dtgt = new Float32Array(DN*3);
+// build target positions sampled from 'دار' rendered to canvas
+(()=>{
+  const c = document.createElement('canvas'); c.width=480; c.height=200;
+  const ctx = c.getContext('2d');
+  ctx.fillStyle='#fff';
+  ctx.font = '180px "Noto Kufi Arabic", serif'; ctx.textAlign='center'; ctx.textBaseline='middle';
+  ctx.fillText('دار', 240, 110);
+  const im = ctx.getImageData(0,0,c.width,c.height).data;
+  const tgts=[];
+  for(let y=0;y<c.height;y+=3) for(let x=0;x<c.width;x+=3){
+    if(im[(y*c.width+x)*4+3]>128) tgts.push([x,y]);
+  }
+  for(let i=0;i<DN;i++){
+    const t = tgts[Math.floor(Math.random()*tgts.length)] || [240,100];
+    // map text canvas → world space at z≈-72
+    const wx = (t[0]-240)/40;
+    const wy = -(t[1]-110)/40 + .8;
+    dtgt[i*3]=wx; dtgt[i*3+1]=wy; dtgt[i*3+2]=-72;
+    dpos[i*3]=(Math.random()-.5)*8;
+    dpos[i*3+1]=(Math.random()-.5)*4 + .8;
+    dpos[i*3+2]=-72 + (Math.random()-.5)*4;
+  }
+})();
+dustG.setAttribute('position', new THREE.BufferAttribute(dpos, 3));
+const dust = new THREE.Points(dustG, new THREE.PointsMaterial({color:0xd4af37,size:.04,transparent:true,opacity:.85}));
+scene.add(dust);
+
+/* ────────────────────────── THE HELD BEAT — v9. brass kettle, dusk shaft, suspended dust. */
+const beat = new THREE.Group();
+beat.position.set(0, -1.0, -84);
+const tray = new THREE.Mesh(new THREE.CylinderGeometry(.7, .68, .04, 48), new THREE.MeshStandardMaterial({color:0x9c7a32, roughness:.3, metalness:.85, emissive:0x231405, emissiveIntensity:.4}));
+beat.add(tray);
+const kettleMat = new THREE.MeshStandardMaterial({color:0xb8902f, roughness:.28, metalness:.9, emissive:0x3a2510, emissiveIntensity:.55});
+const kBody = new THREE.Mesh(new THREE.SphereGeometry(.22, 28, 22, 0, Math.PI*2, 0, Math.PI*0.78), kettleMat);
+kBody.position.set(0,.18,0); kBody.scale.set(1,.85,1); beat.add(kBody);
+const kCap  = new THREE.Mesh(new THREE.CylinderGeometry(.07,.10,.05,18), kettleMat); kCap.position.set(0,.34,0); beat.add(kCap);
+const kKnob = new THREE.Mesh(new THREE.SphereGeometry(.026,12,10), kettleMat); kKnob.position.set(0,.38,0); beat.add(kKnob);
+const kSpout = new THREE.Mesh(new THREE.CylinderGeometry(.025,.045,.22,12), kettleMat); kSpout.position.set(.22,.22,0); kSpout.rotation.z = -1.0; beat.add(kSpout);
+const kHand = new THREE.Mesh(new THREE.TorusGeometry(.10,.018,8,18,Math.PI), kettleMat); kHand.position.set(0,.36,0); kHand.rotation.x=Math.PI/2; beat.add(kHand);
+const shaftMat = new THREE.MeshBasicMaterial({color:0xe8a13a, transparent:true, opacity:.18, blending:THREE.AdditiveBlending, depthWrite:false, side:THREE.DoubleSide, toneMapped:false});
+const shaft = new THREE.Mesh(new THREE.ConeGeometry(.55, 4.5, 24, 1, true), shaftMat);
+shaft.position.set(.4, 1.4, 0); shaft.rotation.z = .14; beat.add(shaft);
+const beatDustG = new THREE.BufferGeometry(); const BDN = 240; const bdpos = new Float32Array(BDN*3);
+for(let i=0;i<BDN;i++){ bdpos[i*3]=(Math.random()-.5)*1.0+.35; bdpos[i*3+1]=Math.random()*3.0-.2; bdpos[i*3+2]=(Math.random()-.5)*.6; }
+beatDustG.setAttribute('position', new THREE.BufferAttribute(bdpos, 3));
+const beatDust = new THREE.Points(beatDustG, new THREE.PointsMaterial({color:0xe8c060,size:.014,transparent:true,opacity:.7,depthWrite:false,blending:THREE.AdditiveBlending}));
+beat.add(beatDust);
+const steamG = new THREE.BufferGeometry(); const SN = 80; const spos = new Float32Array(SN*3);
+for(let i=0;i<SN;i++){ spos[i*3]=.42+(Math.random()-.5)*.05; spos[i*3+1]=.25+Math.random()*.6; spos[i*3+2]=(Math.random()-.5)*.05; }
+steamG.setAttribute('position', new THREE.BufferAttribute(spos, 3));
+const steam = new THREE.Points(steamG, new THREE.PointsMaterial({color:0xf3ead2,size:.022,transparent:true,opacity:.5,depthWrite:false,blending:THREE.AdditiveBlending}));
+beat.add(steam);
+const kettleLight = new THREE.PointLight(0xffb060, 0, 4); kettleLight.position.set(.35, 1.4, 0); beat.add(kettleLight);
+beat.visible = false; scene.add(beat);
+
+/* ────────────────────────────────── HUMANS — v10 ──────────────────────────────────
+   the world is no longer empty. someone has been here. someone still is.
+   each culture's side door carries a silhouette — sea-shutter swinging on
+   a wind, hand placing a tray, slippers paused at a doorway — drawn to a
+   canvas and lit by its region's pointlight. at the held beat a hand
+   enters, pours, withdraws. the visitor is a guest, not a tourist. */
+
+const ghosts = {};
+function makeSilhouetteTex(draw, w=512, h=512){
+  const c = document.createElement('canvas'); c.width=w; c.height=h;
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#000'; ctx.lineCap='round'; ctx.lineJoin='round';
+  draw(ctx, w, h);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace || tex.colorSpace;
+  tex.magFilter = THREE.LinearFilter;
+  tex.anisotropy = 4;
+  return tex;
+}
+
+// LEBANON — louvered shutter, hinged on its outer edge, swinging on a sea-wind
+ghosts.lebanon = (()=>{
+  const tex = makeSilhouetteTex((ctx,w,h)=>{
+    // outer frame
+    ctx.fillStyle='#000';
+    ctx.fillRect(40,40,w-80,h-80);
+    // cut the louver gaps so the doorway light bleeds through
+    ctx.globalCompositeOperation='destination-out';
+    for(let y=80;y<h-80;y+=34){ ctx.fillRect(64,y,w-128,16); }
+    ctx.globalCompositeOperation='source-over';
+    // hinge studs
+    ctx.fillRect(28,92,18,38);
+    ctx.fillRect(28,h-130,18,38);
+  });
+  const geom = new THREE.PlaneGeometry(.95, 1.85);
+  const mat  = new THREE.MeshBasicMaterial({map:tex, transparent:true, depthWrite:false, side:THREE.DoubleSide});
+  const pivot = new THREE.Group();
+  // door is at x=-3.2, z=-6, opening faces the corridor (+x). hinge on its outer edge.
+  pivot.position.set(-3.2 + .05, .55, -6 + .35);
+  const mesh = new THREE.Mesh(geom, mat);
+  mesh.position.set(.45, 0, 0);  // panel offset so pivot is the hinge
+  pivot.add(mesh);
+  pivot.rotation.y = -Math.PI*.42;
+  scene.add(pivot);
+  return { pivot, mesh, region:'lebanon' };
+})();
+
+// GULF — a hand placing a tray with two glasses, paused mid-gesture
+ghosts.gulf = (()=>{
+  const tex = makeSilhouetteTex((ctx,w,h)=>{
+    ctx.fillStyle='#000';
+    // forearm coming from upper-right (off-canvas)
+    ctx.beginPath();
+    ctx.moveTo(w, 50); ctx.quadraticCurveTo(380, 90, 250, 210);
+    ctx.lineTo(250, 280); ctx.quadraticCurveTo(380, 220, w, 190);
+    ctx.closePath(); ctx.fill();
+    // hand cupped under tray rim
+    ctx.beginPath();
+    ctx.ellipse(220, 250, 72, 56, .2, 0, Math.PI*2); ctx.fill();
+    for(let i=0;i<4;i++){ ctx.fillRect(168+i*22, 198, 16, 62); }
+    // tray
+    ctx.beginPath();
+    ctx.ellipse(w/2, 318, w/3, 22, 0, 0, Math.PI*2); ctx.fill();
+    // two tea glasses
+    for(let i=-1;i<=1;i+=2){
+      const cx = w/2 + i*64;
+      ctx.beginPath();
+      ctx.moveTo(cx-14, 308); ctx.lineTo(cx-10, 268);
+      ctx.lineTo(cx+10, 268); ctx.lineTo(cx+14, 308);
+      ctx.closePath(); ctx.fill();
+    }
+  }, 512, 384);
+  const geom = new THREE.PlaneGeometry(1.6, 1.2);
+  const mat  = new THREE.MeshBasicMaterial({map:tex, transparent:true, depthWrite:false, side:THREE.DoubleSide});
+  const mesh = new THREE.Mesh(geom, mat);
+  // door at x=+3.2, z=-9, opening faces -x. silhouette sits at the opening.
+  mesh.position.set(3.2 - .2, .6, -9 + .25);
+  mesh.rotation.y = -Math.PI/2;
+  scene.add(mesh);
+  return { mesh, region:'gulf' };
+})();
+
+// MOROCCO — a pair of pointed-toe slippers paused at the threshold
+ghosts.morocco = (()=>{
+  const tex = makeSilhouetteTex((ctx,w,h)=>{
+    ctx.fillStyle='#000';
+    function slipper(cx, cy){
+      ctx.beginPath();
+      ctx.moveTo(cx-82, cy);
+      ctx.quadraticCurveTo(cx-94, cy-42, cx-30, cy-44);
+      ctx.quadraticCurveTo(cx+52, cy-52, cx+82, cy-22);
+      ctx.quadraticCurveTo(cx+98, cy+10, cx+50, cy+24);
+      ctx.quadraticCurveTo(cx-30, cy+26, cx-82, cy);
+      ctx.closePath(); ctx.fill();
+      // upturned toe lift
+      ctx.beginPath();
+      ctx.moveTo(cx+74, cy-24);
+      ctx.quadraticCurveTo(cx+118, cy-66, cx+76, cy-46);
+      ctx.closePath(); ctx.fill();
+    }
+    slipper(210, 220);
+    slipper(330, 270);
+  }, 512, 384);
+  const geom = new THREE.PlaneGeometry(1.4, 1.05);
+  const mat  = new THREE.MeshBasicMaterial({map:tex, transparent:true, depthWrite:false, side:THREE.DoubleSide});
+  const mesh = new THREE.Mesh(geom, mat);
+  // door at x=-3.2, z=-12. slippers lie on the floor of the doorway opening.
+  mesh.position.set(-3.2 + .35, -1.85, -12 + .15);
+  mesh.rotation.x = -Math.PI/2 + .05;
+  scene.add(mesh);
+  return { mesh, region:'morocco' };
+})();
+
+/* group kettle parts so we can tilt them together during the pour */
+const kettleGroup = new THREE.Group();
+kettleGroup.position.set(0,0,0);
+[kBody, kCap, kKnob, kSpout, kHand].forEach(m => kettleGroup.add(m));
+beat.add(kettleGroup);
+
+/* tea glass: narrow waist, flared rim. one on the tray now, one fills during the pour. */
+const glassMat = new THREE.MeshStandardMaterial({
+  color:0xe8a13a, roughness:.18, metalness:.0,
+  transparent:true, opacity:.55,
+  emissive:0x6a4810, emissiveIntensity:.4
+});
+const teaMat = new THREE.MeshStandardMaterial({color:0x6b3a14, roughness:.45, emissive:0x2a1408, emissiveIntensity:.3});
+function makeGlass(x, filled){
+  const g = new THREE.Group();
+  const lower = new THREE.Mesh(new THREE.CylinderGeometry(.04, .055, .055, 18), glassMat);
+  const upper = new THREE.Mesh(new THREE.CylinderGeometry(.07, .04, .075, 18), glassMat);
+  lower.position.y = .03; upper.position.y = .10;
+  g.add(lower); g.add(upper);
+  if(filled){
+    const tea = new THREE.Mesh(new THREE.CylinderGeometry(.055, .04, .045, 14), teaMat);
+    tea.position.y = .10;
+    g.add(tea);
+  }
+  g.position.set(x, 0.04, .05);
+  return g;
+}
+const glassA = makeGlass(-.30, true);  beat.add(glassA);
+const glassB = makeGlass(-.16, false); glassB.visible = false; beat.add(glassB);
+// glassB's tea is added at fill-time so we can grow it during the pour
+const glassB_tea = new THREE.Mesh(new THREE.CylinderGeometry(.055, .04, .045, 14), teaMat);
+glassB_tea.position.y = .10; glassB_tea.scale.y = 0; glassB_tea.visible = false;
+glassB.add(glassB_tea);
+
+/* mint curl — three small leaves resting next to glassB, appears at the hold */
+const mintMat = new THREE.MeshStandardMaterial({color:0x3a6b32, roughness:.6, emissive:0x102810, emissiveIntensity:.25});
+const mint = new THREE.Group();
+for(let i=0;i<3;i++){
+  const leaf = new THREE.Mesh(new THREE.SphereGeometry(.022, 10, 8), mintMat);
+  leaf.scale.set(1, .35, 1.4);
+  leaf.position.set(-.10 + (Math.random()-.5)*.03, .045, .03 - i*.025);
+  leaf.rotation.y = Math.random()*Math.PI;
+  mint.add(leaf);
+}
+mint.visible = false;
+beat.add(mint);
+
+/* the pouring hand — silhouette plane, billboarded, slides in from camera-right.
+   the hand-set silhouette reads as a hand on a brass handle, not a 3D model. */
+const handTex = makeSilhouetteTex((ctx,w,h)=>{
+  ctx.fillStyle='#000';
+  // sleeve / forearm tapering toward the wrist
+  ctx.beginPath();
+  ctx.moveTo(w, 30); ctx.quadraticCurveTo(380, 90, 250, 220);
+  ctx.lineTo(230, 330); ctx.quadraticCurveTo(380, 240, w, 200);
+  ctx.closePath(); ctx.fill();
+  // thin gold cuff embroidery hint — just two slashes
+  ctx.strokeStyle='#d4af37'; ctx.lineWidth=5;
+  ctx.beginPath(); ctx.moveTo(360, 130); ctx.lineTo(400, 108); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(372, 172); ctx.lineTo(412, 152); ctx.stroke();
+  // hand, palm down, curling around the kettle handle
+  ctx.fillStyle='#000';
+  ctx.beginPath();
+  ctx.ellipse(210, 295, 74, 56, .2, 0, Math.PI*2); ctx.fill();
+  // four curled fingers
+  for(let i=0;i<4;i++){
+    ctx.beginPath();
+    ctx.moveTo(150+i*22, 322);
+    ctx.quadraticCurveTo(142+i*22, 392, 162+i*22, 398);
+    ctx.quadraticCurveTo(180+i*22, 388, 170+i*22, 322);
+    ctx.closePath(); ctx.fill();
+  }
+  // thumb wrapping around
+  ctx.beginPath();
+  ctx.ellipse(258, 274, 38, 18, -.4, 0, Math.PI*2); ctx.fill();
+}, 512, 480);
+const handGeom = new THREE.PlaneGeometry(1.7, 1.6);
+const handMat  = new THREE.MeshBasicMaterial({map:handTex, transparent:true, depthWrite:false, side:THREE.DoubleSide});
+const handMesh = new THREE.Mesh(handGeom, handMat);
+handMesh.visible = false;
+beat.add(handMesh);
+
+/* a faint warm rim around the kettle handle once the hand is on it — contact warmth */
+const handGlow = new THREE.PointLight(0xffc170, 0, 1.6); handGlow.position.set(.05, .35, .1);
+beat.add(handGlow);
+
+/* the keyhole at z≈-90 — the camera's destination */
+const kh = new THREE.Group();
+const khArch = new THREE.Mesh(archGeom, wallMat);
+khArch.scale.set(1.4,1.4,1.4); khArch.position.set(0,-2,-90); kh.add(khArch);
+const khRing = new THREE.Mesh(new THREE.TorusGeometry(1.6, .02, 12, 64), goldMat);
+khRing.position.set(0, 1.6, -90); kh.add(khRing);
+scene.add(kh);
+
+/* THE PHOTO PLANE — lives inside the keyhole, hidden until a room is dropped.
+   when revealed, the camera dollies INTO it. there is no upload page. the
+   photo IS the next camera. */
+const photoMat = new THREE.MeshBasicMaterial({color:0x000000, transparent:true, opacity:0, toneMapped:false});
+const photoMesh = new THREE.Mesh(new THREE.PlaneGeometry(2.6, 1.74), photoMat);
+photoMesh.position.set(0, 1.6, -91.4);
+scene.add(photoMesh);
+// gold viewfinder ring that rises with the photo — the keyhole becoming a lens
+const vfRing = new THREE.Mesh(new THREE.TorusGeometry(1.55, .015, 16, 96), goldMat);
+vfRing.position.set(0, 1.6, -91.35);
+vfRing.scale.set(0,0,0);
+scene.add(vfRing);
+
+/* faint lantern that swings near the camera, lit through the journey */
+const lantern = new THREE.Mesh(new THREE.SphereGeometry(.06, 12, 12), lampMat);
+scene.add(lantern);
+
+/* ambient dust motes filling the whole world, drifting */
+const moteG = new THREE.BufferGeometry();
+const MN = 700; const mpos = new Float32Array(MN*3);
+for(let i=0;i<MN;i++){ mpos[i*3]=(Math.random()-.5)*10; mpos[i*3+1]=Math.random()*5-1; mpos[i*3+2]=-Math.random()*100; }
+moteG.setAttribute('position', new THREE.BufferAttribute(mpos, 3));
+const motes = new THREE.Points(moteG, new THREE.PointsMaterial({color:0xd4af37,size:.018,transparent:true,opacity:.45}));
+scene.add(motes);
+
+three_ready = true;
+
+/* ────────────────────────── ر — THE PROTAGONIST ──────────────────────────
+   one continuous gold stroke. eight transformations along the journey.
+   we lerp between hand-authored path keyframes so it never disappears. */
+const RA_KEYS = [
+  // 0 — at load, the seal stroke (small, top-center)
+  { d:'M 880 480 Q 920 360 1040 360 Q 1180 360 1180 480 Q 1180 580 1080 620 L 880 620', op:.8, y:0 },
+  // 1 — the keystone curve of the first arch
+  { d:'M 700 540 Q 800 360 960 360 Q 1120 360 1220 540', op:.9, y:0 },
+  // 2 — a hand passing tea: a low S
+  { d:'M 380 720 Q 600 660 800 720 Q 1000 780 1200 720', op:.7, y:0 },
+  // 3 — the swing of a lantern (pendulum)
+  { d:'M 960 200 Q 960 400 880 540 Q 960 660 1040 720', op:.85, y:0 },
+  // 4 — the keystone of the central horseshoe arch (large)
+  { d:'M 540 720 Q 680 280 960 280 Q 1240 280 1380 720', op:1, y:0 },
+  // 5 — water rippling over zellige (long horizontal sine)
+  { d:'M 240 600 Q 480 540 720 600 Q 960 660 1200 600 Q 1440 540 1680 600', op:.8, y:0 },
+  // 6 — the path of a swallow at dawn, rising
+  { d:'M 240 880 Q 600 740 900 760 Q 1200 780 1400 540 Q 1560 380 1700 320', op:.9, y:0 },
+  // 7 — THE REST. a single low horizontal stroke. the actor breathes.
+  { d:'M 760 700 Q 880 700 960 700 Q 1040 700 1160 700', op:.55, y:0 },
+  // 8 — the keystone of the keyhole (small, centered, awaiting the user)
+  { d:'M 860 600 Q 900 480 960 480 Q 1020 480 1060 600', op:1, y:0 },
+  // 8 — the line the user draws to upload (a steady horizontal underline, anticipating)
+  { d:'M 760 720 L 1160 720', op:.7, y:0 },
+];
+const raPath = document.getElementById('raPath');
+function tweenPaths(a, b, u){
+  // assume same number of commands; same letters; only numbers differ
+  // -> parse out numbers and lerp them.
+  const re = /-?\d+(?:\.\d+)?/g;
+  const an = a.match(re).map(Number);
+  const bn = b.match(re).map(Number);
+  let i=0; const out = a.replace(re, ()=>{ const v = an[i] + (bn[i]-an[i])*u; i++; return v.toFixed(1); });
+  return out;
+}
+// hand-set anchors so each keyframe lands where the camera does.
+// 7 (rest) sits exactly across [.90,.96] — the actor breathes and holds.
+const RA_ANCH = [0, .08, .20, .34, .48, .62, .78, .90, .98, 1.0];
+function raAt(p){
+  const px = Math.max(0, Math.min(1,p));
+  // pin to the rest pose for the entire held beat
+  if(px >= .90 && px < .96){
+    raPath.setAttribute('d', RA_KEYS[7].d);
+    raPath.style.opacity = RA_KEYS[7].op.toFixed(2);
+    return;
+  }
+  let i = 0;
+  while(i < RA_ANCH.length-2 && px > RA_ANCH[i+1]) i++;
+  const u = (px - RA_ANCH[i]) / (RA_ANCH[i+1] - RA_ANCH[i]);
+  const e = u<.5 ? 2*u*u : 1 - Math.pow(-2*u+2,2)/2;
+  raPath.setAttribute('d', tweenPaths(RA_KEYS[i].d, RA_KEYS[i+1].d, e));
+  const op = lerp(RA_KEYS[i].op, RA_KEYS[i+1].op, e);
+  raPath.style.opacity = op.toFixed(2);
+}
+raAt(0);
+
+/* ────────────────────────── SCROLL → SCENE ────────────────────────── */
+const prog = document.getElementById('prog');
+const todLabel = document.getElementById('todLabel');
+const voices = [...document.querySelectorAll('.voice')];
+
+let p = 0;        // [0..1] journey position
+let pTarget = 0;
+function onScroll(){
+  const max = document.body.scrollHeight - innerHeight;
+  pTarget = Math.max(0, Math.min(1, scrollY / max));
+}
+addEventListener('scroll', onScroll, {passive:true}); onScroll();
+
+/* THE REST — v9. when scroll-p enters [.90,.96], camera-t holds at REST_T. */
+const REST_IN = .90, REST_OUT = .96;
+let restEntered = false, restEnteredAt = 0;
+function pathTAt(p){
+  if(p < REST_IN) return p / REST_IN * REST_T;
+  if(p < REST_OUT) return REST_T;
+  return REST_T + (p - REST_OUT) / (1 - REST_OUT) * (1 - REST_T);
+}
+function inRest(p){ return p >= REST_IN && p < REST_OUT; }
+
+const tmpDir = new THREE.Vector3();
+function tick(now){
+  // smooth scroll → camera (a real dolly, not a snap)
+  p += (pTarget - p) * 0.07;
+  const pt = pathTAt(p);
+
+  // PORTAL PHASE — once a room is dropped, the camera continues forward
+  // into the keyhole, the photo grows to fill the viewport, the world dims.
+  // a single, unbroken motion to the next camera.
+  if(portaling){
+    const dt = (now - portalStart) / 4200; // 4.2s
+    portalP = Math.min(1, dt);
+    const e = portalP<.5 ? 2*portalP*portalP : 1 - Math.pow(-2*portalP+2,2)/2;
+    // camera into the photo, fov narrows (zoom)
+    cam.position.set(0, 1.6 + (1.6 - 1.6)*e, -90 + (-91.3 - (-90))*e);
+    cam.lookAt(0, 1.6, -91.4);
+    cam.fov = 56 - e*32;
+    cam.updateProjectionMatrix();
+    photoMat.opacity = e;
+    photoMat.color.setRGB(1,1,1);
+    vfRing.scale.setScalar(0.4 + e*1.6);
+    vfRing.material = goldMat;
+    scene.fog.density = 0.025 + e*0.10;
+    // dust accelerates inward toward the photo as if drawn through the keyhole
+    const dpA = dust.geometry.attributes.position.array;
+    for(let i=0;i<DN;i++){
+      dpA[i*3]   *= (1 - e*0.012);
+      dpA[i*3+1] += (1.6 - dpA[i*3+1])*0.02*e;
+      dpA[i*3+2] += (-91.4 - dpA[i*3+2])*0.02*e;
+    }
+    dust.geometry.attributes.position.needsUpdate = true;
+    // mid-portal: the gold flash blooms; full-bloom at the end
+    if(portalP > .80) document.getElementById('flash').classList.add('on');
+    if(portalP >= 1 && !portalDone){
+      portalDone = true;
+      // hand off — redirect to /transform on the bloom's peak
+      setTimeout(() => { try{ location.href='/transform'; }catch(e){} }, 900);
+    }
+    renderer.render(scene, cam);
+    requestAnimationFrame(tick);
+    return;
+  }
+
+  const here = PATH.getPoint(pt);
+  const ahead = PATH.getPoint(Math.min(1, pt + .01));
+  cam.position.copy(here);
+  if(inRest(p)){
+    cam.lookAt(0, .1, -84);
+    if(!restEntered){ restEntered = true; restEnteredAt = now; onRestEnter(); }
+  } else if(inThresholdWindow(p)){
+    // v12 — during the threshold window the visitor steers the camera with
+    // mouse + gyro. their gaze IS the gesture. there is no "click here".
+    const aimX = ahead.x + thresholdMouseX * 5.5;     // wide horizontal sweep
+    const aimY = ahead.y + (-thresholdMouseY) * 1.4;  // vertical look
+    cam.lookAt(aimX, aimY - .05, ahead.z);
+  } else {
+    cam.lookAt(ahead.x, ahead.y - .05, ahead.z);
+    if(restEntered && p >= REST_OUT){ onRestExit(); restEntered = false; }
+  }
+  // beat scene visibility & breath
+  const beatLive = p > .82 && p < .99;
+  beat.visible = beatLive;
+
+  // v13 — the revelation. only inside the held beat, only on first visit.
+  if(inRest(p)) maybeShowVerse(now);
+
+  // bismillah keystone — readable only when camera is close to the central arch
+  if(bismillahMat){
+    const dz = Math.abs(cam.position.z - centralArchZ);
+    const op = Math.max(0, Math.min(.95, 1 - dz/3.0));
+    bismillahMat.opacity = op*op;
+  }
+  if(beatLive){
+    const e = inRest(p) ? 1 : Math.max(0, 1 - Math.min(Math.abs(p-.93)/.04,1));
+    kettleLight.intensity = .9 * e;
+    shaftMat.opacity = .12 + .14*e;
+    const sp = steam.geometry.attributes.position.array;
+    for(let i=0;i<SN;i++){ sp[i*3+1] += 0.0024 + Math.random()*.0008; sp[i*3] += Math.sin(now*.0015 + i)*.0006; if(sp[i*3+1] > .9){ sp[i*3+1] = .25; sp[i*3] = .42 + (Math.random()-.5)*.05; } }
+    steam.geometry.attributes.position.needsUpdate = true;
+    const bp = beatDust.geometry.attributes.position.array;
+    for(let i=0;i<BDN;i++){ bp[i*3+1] -= 0.00045; bp[i*3] += Math.sin(now*.0004 + i*.7)*.0002; if(bp[i*3+1] < -.4){ bp[i*3+1] = 2.6; } }
+    beatDust.geometry.attributes.position.needsUpdate = true;
+
+    /* ── POUR CHOREOGRAPHY (v10) — 0.5s enter · 1.6s pour · 1.0s withdraw · 0.9s hold */
+    if(inRest(p)){
+      const tSec = (now - restEnteredAt) / 1000;
+      let handX, handVisible=true, kettleTilt=0, steamBoost=0, fillU=0;
+      if(tSec < 0.5){
+        const u = tSec/0.5;
+        handX = -1.7 + u*1.25;          // slide in from camera-right
+        kettleTilt = 0;
+      } else if(tSec < 2.1){
+        const u = (tSec-0.5)/(2.1-0.5);
+        handX = -0.45;
+        kettleTilt = -Math.sin(u*Math.PI) * 0.55;  // tilt forward then back
+        steamBoost = Math.sin(u*Math.PI) * 0.35;
+        fillU = u;                       // glass fills 0→1 over the pour
+      } else if(tSec < 3.1){
+        const u = (tSec-2.1)/(3.1-2.1);
+        handX = -0.45 - u*1.6;
+        kettleTilt = 0;
+        fillU = 1;
+      } else {
+        handVisible = false;
+        fillU = 1;
+      }
+      handMesh.visible = handVisible;
+      if(handVisible){
+        handMesh.position.set(handX, 0.85, 0.25);
+        handMesh.lookAt(cam.position);
+      }
+      kettleGroup.rotation.z = kettleTilt;
+      handGlow.intensity = (tSec > .4 && tSec < 2.3) ? 0.7 : 0;
+      steam.material.opacity = 0.50 + steamBoost;
+      // glassB appears as soon as the hand is in place and fills with the pour
+      glassB.visible = tSec > .55;
+      glassB_tea.visible = tSec > .9;
+      glassB_tea.scale.y = Math.max(0, Math.min(1, fillU));
+      glassB_tea.position.y = .10 - (1 - glassB_tea.scale.y) * .022; // grows from the bottom
+      // mint curl appears at the hold (after the hand withdraws)
+      mint.visible = tSec > 3.05;
+    } else {
+      handMesh.visible = false;
+      kettleGroup.rotation.z = 0;
+      handGlow.intensity = 0;
+    }
+  }
+
+  /* ghosts — the sea-shutter sways perpetually; non-committed regions dim to memory */
+  if(ghosts.lebanon){
+    const sway = Math.sin(now*.00085) * 0.22 + Math.sin(now*.0021 + 1.3) * 0.07;
+    ghosts.lebanon.pivot.rotation.y = -Math.PI*.42 + sway;
+  }
+  if(HOUSE){
+    const dim = .22;
+    if(ghosts.lebanon) ghosts.lebanon.mesh.material.opacity = (HOUSE==='lebanon') ? 1 : dim;
+    if(ghosts.gulf)    ghosts.gulf.mesh.material.opacity    = (HOUSE==='gulf')    ? 1 : dim;
+    if(ghosts.morocco) ghosts.morocco.mesh.material.opacity = (HOUSE==='morocco') ? 1 : dim;
+    [ghosts.lebanon, ghosts.gulf, ghosts.morocco].forEach(g=>{ if(g && g.mesh.material) g.mesh.material.transparent = true; });
+  }
+
+  // time of day → fog, ambient, key
+  const t = todAt(p);
+  scene.fog.color.setHex(t.fog);
+  amb.color.setHex(t.amb);
+  key.color.setHex(t.keyC); key.intensity = t.keyI;
+  // sky dome reads the TOD too
+  skyMat.uniforms.uLow.value.setHex(t.skyLo);
+  skyMat.uniforms.uHigh.value.setHex(t.skyHi);
+  // a horizon glow band between the two, warming the bottom of the dome
+  skyMat.uniforms.uHorizon.value.setRGB(
+    ((t.skyLo>>16&255)*.5 + (t.skyHi>>16&255)*.5)/255,
+    ((t.skyLo>>8&255)*.5 + (t.skyHi>>8&255)*.5)/255,
+    ((t.skyLo&255)*.5 + (t.skyHi&255)*.5)/255,
+  );
+  // sun/moon orbit overhead through the journey — anchored to camera so they stay 'on the dome'
+  const sunAngle = Math.PI*.55 - p*Math.PI*1.0; // arc from W high → down across
+  sun.position.set(
+    cam.position.x + Math.cos(sunAngle)*140,
+    cam.position.y + Math.sin(sunAngle)*70 + 18,
+    cam.position.z - 60
+  );
+  sun.lookAt(cam.position);
+  sunHalo.position.copy(sun.position);
+  sunHalo.lookAt(cam.position);
+  // sun opacity — visible dusk → evening, gone night
+  const sunVis = Math.max(0, 1 - p/.42);
+  sun.material.opacity = sunVis * .95;
+  sunHalo.material.opacity = sunVis * .35;
+  // moon climbs from p≈.45 to p≈.95, rises east, sets west
+  const moonU = Math.max(0, Math.min(1, (p - .42) / .55));
+  const moonAngle = Math.PI - moonU*Math.PI;
+  moon.position.set(
+    cam.position.x + Math.cos(moonAngle)*120,
+    cam.position.y + Math.sin(moonAngle)*55 + 14,
+    cam.position.z - 50
+  );
+  moon.lookAt(cam.position);
+  moonCrescent.position.copy(moon.position);
+  moonCrescent.position.x += 1.4; moonCrescent.position.y += .3;
+  moonCrescent.lookAt(cam.position);
+  const moonVis = (p>.40 && p<.96) ? Math.sin((moonU)*Math.PI) : 0;
+  moon.material.opacity = moonVis * .88;
+  moonCrescent.material.opacity = moonVis * .92;
+  // stars — ramp up at night, hold through adhan, fade at dawn
+  let starOp = 0;
+  if(p > .42 && p < .94){
+    const a = Math.min(1, (p - .42)/.12);
+    const b = Math.min(1, (.94 - p)/.10);
+    starOp = Math.min(a, b) * .9;
+  }
+  stars.material.opacity = starOp;
+  // sky dome follows the camera so it never gets behind
+  skyDome.position.copy(cam.position);
+  // sky background — the clear is what shows through the open arch at the end
+  renderer.setClearColor(t.fog, 1);
+
+  // lamp dangles near the camera, swinging slowly
+  lantern.position.set(
+    here.x + Math.sin(now*.0008) * .7,
+    here.y + .9 + Math.cos(now*.0008) * .05,
+    here.z - 1.6
+  );
+  lamp.position.copy(lantern.position); lamp.color.setHex(t.keyC); lamp.intensity = t.keyI*1.4;
+
+  // dust drift
+  const ap = motes.geometry.attributes.position.array;
+  for(let i=0;i<MN;i++){ ap[i*3+1] += Math.sin(now*.0006 + i)*.0008; }
+  motes.geometry.attributes.position.needsUpdate = true;
+
+  // alchemy particles — assemble دار only as the camera enters that chamber
+  const assembleP = Math.max(0, Math.min(1, (p - .65) / .15));
+  const dpA = dust.geometry.attributes.position.array;
+  for(let i=0;i<DN;i++){
+    const tx = dtgt[i*3], ty = dtgt[i*3+1], tz = dtgt[i*3+2];
+    const sx = (Math.random()-.5)*.02, sy=(Math.random()-.5)*.02;
+    dpA[i*3]   += (tx - dpA[i*3])  * (.005 + assembleP*.06) + sx*.4;
+    dpA[i*3+1] += (ty - dpA[i*3+1])* (.005 + assembleP*.06) + sy*.4;
+    dpA[i*3+2] += (tz - dpA[i*3+2])* (.005 + assembleP*.06);
+  }
+  dust.geometry.attributes.position.needsUpdate = true;
+
+  // the ر, on screen always, transforming
+  raAt(p);
+
+  // voices bloom in their windows
+  const restWindow = p >= .85 && p < .98;
+  for(const v of voices){
+    const a = +v.dataset.from, b = +v.dataset.to;
+    v.classList.toggle('on', !restWindow && p >= a && p <= b);
+  }
+
+  // tod label crossfades + chrome restraint (v14): the label only shows when it changes
+  const newLabel = t.labelU < .5 ? t.labelA : t.labelB;
+  if(newLabel !== todLabel.textContent){
+    todLabel.textContent = newLabel;
+    const tw = todLabel.closest('.toworld');
+    if(tw){ tw.classList.add('on'); clearTimeout(window._twTo); window._twTo = setTimeout(()=>tw.classList.remove('on'), 3400); }
+  }
+
+  // ── COLOR GRADE — v14. a real cinema LUT lerped from the same TOD waypoints
+  // that drive fog & ambient. applied as a CSS filter on the canvas — cheap, real. */
+  const grade = todGradeAt(p);
+  canvas.style.filter = `hue-rotate(${grade.hue.toFixed(2)}deg) saturate(${grade.sat.toFixed(1)}%) contrast(${grade.con.toFixed(1)}%) brightness(${grade.bri.toFixed(1)}%)`;
+
+  // ── LETTERBOX — v14. anamorphic 2.35:1 bars cinch the frame during the held beat,
+  // and again during the portal dolly. they do nothing else. they don't 'live' on the page. */
+  const wantLetter = (p > .865 && p < .975) || portaling;
+  document.getElementById('lbTop').classList.toggle('on', wantLetter);
+  document.getElementById('lbBot').classList.toggle('on', wantLetter);
+
+  // ── RACK FOCUS — v14. as the camera passes the central arch (ر keystone),
+  // the fog briefly thickens then clears — a depth-of-field shift on the bismillah. */
+  if(Math.abs(p - .50) < .02){
+    const u = 1 - Math.abs(p - .50)/.02;
+    scene.fog.density = 0.025 + u*u * 0.035;
+  }
+
+  // ── CONVERGENCE — v14. just before the keyhole reveals itself, the three
+  // culture glyphs converge into a single دار; the chosen one steps forward. */
+  if(typeof _convergedSet === 'undefined'){
+    window._convergedSet = false;
+  }
+  const convEl = document.getElementById('convergence');
+  if(convEl){
+    const showConv = p > .974 && p < .991;
+    if(showConv && !window._convergedSet){
+      window._convergedSet = true;
+      convEl.classList.add('on');
+      const chosen = HOUSE || 'gulf';
+      convEl.querySelectorAll('.glyph').forEach(g => {
+        g.classList.toggle('chosen', g.dataset.h === chosen);
+        g.classList.toggle('dim',    g.dataset.h !== chosen);
+      });
+    } else if(!showConv && window._convergedSet){
+      window._convergedSet = false;
+      convEl.classList.remove('on');
+    }
+  }
+
+  // ── FOLEY — v14. a bird passes overhead just before the riad; a vendor's
+  // call drifts past during the souk crossing. each fires exactly once. */
+  if(droneOn){
+    if(!window._birdFired && p > .78 && p < .82){ window._birdFired = true; birdCall(); }
+    if(!window._vendorFired && p > .24 && p < .28){ window._vendorFired = true; vendorCall(); }
+  }
+
+  // per-chamber reverb + scroll-cadenced footsteps
+  updateChamberReverb(p);
+  scrollFootsteps(p);
+
+  // adhan whisper, played once when crossing the dawn-beat (p ≈ .82) with audio on
+  if(!adhanPlayed && droneOn && p > .82){ adhanPlayed = true; try{ adhanWhisper(); }catch(e){} }
+
+  // progress hairline
+  prog.style.transform = `scaleX(${p.toFixed(4)})`;
+
+  // the keyhole reveals itself at the very end
+  const khShow = p > .94;
+  document.getElementById('keyhole').classList.toggle('on', khShow);
+
+  renderer.render(scene, cam);
+  requestAnimationFrame(tick);
+}
+requestAnimationFrame(tick);
+
+/* ────────────────────────── THE THRESHOLD — commitment, not choice ──────────────────────────
+   one of three doors. drawn by hand. once drawn, the thread becomes the
+   keystone curve, the dust hue, the drone's fundamental, the typography's
+   weight. the other two houses do not vanish — they pass as doorways the
+   camera does not take. */
+const HOUSES = {
+  lebanon: { accent:0x2d3a8c, dust:0x6f8ad8, drone:[55,82.41,110,164.81], detune:[-2,4,-3,2], swayHz:.18, archCurve:0.94, name:'beiruti' },
+  gulf:    { accent:0xd4af37, dust:0xe8c060, drone:[36.71,73.42,110,146.83], detune:[1,-1,2,-2], swayHz:.06, archCurve:1.08, name:'najdi' },
+  morocco: { accent:0x8d1b2d, dust:0xc4574a, drone:[49,73.42,98,146.83], detune:[3,-4,5,-5], swayHz:.10, archCurve:1.0, name:'andalusi' },
+};
+let HOUSE = localStorage.getItem('dar.house') || null;
+const threshEl = document.getElementById('threshold');
+const threadSvg = document.getElementById('threadSvg');
+const threadEl  = document.getElementById('thread');
+const seedEl    = document.getElementById('seed');
+const doors = [...document.querySelectorAll('.door')];
+const houseSig = document.getElementById('houseSig');
+const houseSigAr = document.getElementById('houseSigAr');
+
+function applyHouse(h){
+  HOUSE = h;
+  document.documentElement.dataset.house = h;
+  localStorage.setItem('dar.house', h);
+  const cfg = HOUSES[h];
+  goldMat.color.setHex(cfg.accent);
+  goldMat.emissive.setHex(cfg.accent);
+  dust.material.color.setHex(cfg.dust);
+  // re-pigment the inner doorway lights
+  // (skipped — the side doors stay in their original tint as memory of unchosen paths)
+  // re-tune the drone if audio is up
+  if(ac){ retuneDrone(); }
+}
+if(HOUSE && HOUSES[HOUSE]){ applyHouse(HOUSE); doors.forEach(d=>{ if(d.dataset.h===HOUSE) d.classList.add('committed') }); }
+
+/* threshold visibility: v12 — the HTML threshold is gone. the threshold
+   is now a real moment in 3D space: the camera arrives at a junction with
+   three lit corridors. the visitor looks toward one. release at gaze =
+   commit. the other two darken to memory. */
+const threshHTML = document.getElementById('threshold');
+if(threshHTML){ threshHTML.style.display = 'none'; }
+function updateThreshold(p){ /* HTML threshold disabled in v12 — see gaze logic below */ }
+
+/* 3D threshold gaze — active during [.06, .16] when no HOUSE is yet committed.
+   the camera's lookAt is offset by the mouse position; if the gaze lands on
+   one doorway and the visitor clicks, that house is committed. */
+let gazeTarget = null;       // 'lebanon' | 'gulf' | 'morocco' | null
+let thresholdMouseX = 0, thresholdMouseY = 0;
+function inThresholdWindow(pv){ return !HOUSE && pv > .055 && pv < .16; }
+addEventListener('mousemove', e => {
+  thresholdMouseX = (e.clientX / innerWidth - 0.5);
+  thresholdMouseY = (e.clientY / innerHeight - 0.5);
+});
+function tickThresholdGaze(){
+  if(!inThresholdWindow(p)){
+    for(const r of ['lebanon','gulf','morocco']){
+      const l = doorLights[r];
+      if(l && !HOUSE){ l.intensity = .8; }
+    }
+    gazeTarget = null;
+    const ring = document.getElementById('gazeRing'); if(ring) ring.classList.remove('on');
+    window._gazeSince = 0;
+    return;
+  }
+  const camForward = new THREE.Vector3();
+  cam.getWorldDirection(camForward);
+  let best = null, bestDot = .65;
+  for(const r of ['lebanon','gulf','morocco']){
+    const pos = doorPositions[r]; if(!pos) continue;
+    const to = pos.clone().sub(cam.position); to.y = 0; to.normalize();
+    const fwd = camForward.clone(); fwd.y = 0; fwd.normalize();
+    const dot = to.dot(fwd);
+    if(dot > bestDot){ bestDot = dot; best = r; }
+  }
+  gazeTarget = best;
+  for(const r of ['lebanon','gulf','morocco']){
+    const l = doorLights[r]; if(!l) continue;
+    l.intensity = (r === gazeTarget) ? 2.4 : .35;
+  }
+  // v14 — auto-commit. holding gaze for 1.4s fills the gold ring; release = commit.
+  const ring = document.getElementById('gazeRing');
+  if(gazeTarget){
+    if(window._gazeLast !== gazeTarget){ window._gazeLast = gazeTarget; window._gazeSince = performance.now(); }
+    const held = performance.now() - (window._gazeSince || performance.now());
+    const u = Math.min(1, held / 1400);
+    if(ring){
+      ring.classList.add('on');
+      // project the door's world position to screen
+      const proj = doorPositions[gazeTarget].clone().project(cam);
+      const x = (proj.x*.5 + .5) * innerWidth;
+      const y = (-proj.y*.5 + .5) * innerHeight;
+      ring.style.left = x + 'px'; ring.style.top = y + 'px';
+      const circ = ring.querySelector('circle');
+      if(circ) circ.style.strokeDashoffset = (339.3 * (1 - u)).toFixed(2);
+    }
+    if(u >= 1 && !HOUSE){
+      applyHouse(gazeTarget);
+      if(doorLights[gazeTarget]) doorLights[gazeTarget].intensity = 4.0;
+      setTimeout(()=>{ if(doorLights[gazeTarget]) doorLights[gazeTarget].intensity = 1.2; }, 800);
+      for(const r of ['lebanon','gulf','morocco']){
+        if(r !== gazeTarget && doorLights[r]) doorLights[r].intensity = 0.18;
+      }
+      if(ac && droneOn){ pluck(523.25, ac.currentTime, 2.0, .12, 0); pluck(659.25, ac.currentTime+.25, 2.0, .10, .15); }
+      if(ring) ring.classList.remove('on');
+    }
+  } else {
+    window._gazeLast = null; window._gazeSince = 0;
+    if(ring) ring.classList.remove('on');
+  }
+}
+addEventListener('pointerdown', e => {
+  if(!inThresholdWindow(p) || !gazeTarget) return;
+  // commit
+  applyHouse(gazeTarget);
+  // briefly punch the inner light, then settle
+  if(doorLights[gazeTarget]) doorLights[gazeTarget].intensity = 4.0;
+  setTimeout(()=>{ if(doorLights[gazeTarget]) doorLights[gazeTarget].intensity = 1.2; }, 800);
+  // dim the others permanently to memory
+  for(const r of ['lebanon','gulf','morocco']){
+    if(r !== gazeTarget && doorLights[r]) doorLights[r].intensity = 0.18;
+  }
+  // soft chime on commit
+  if(ac && droneOn){ pluck(523.25, ac.currentTime, 2.0, .12, 0); pluck(659.25, ac.currentTime+.25, 2.0, .10, .15); }
+});
+
+/* gesture: pointer-down inside threshold → drag thread → release near a door */
+let drawing=false, lastTarget=null;
+threshEl.addEventListener('pointerdown', e => {
+  if(HOUSE) return;
+  drawing = true;
+  drawTo(e.clientX, e.clientY);
+});
+addEventListener('pointermove', e => {
+  if(!drawing) return;
+  drawTo(e.clientX, e.clientY);
+  // detect proximity to a door
+  let near=null, best=180;
+  for(const d of doors){
+    const r = d.getBoundingClientRect();
+    const cx = r.left + r.width/2, cy = r.top + r.height/2;
+    const dx = e.clientX - cx, dy = e.clientY - cy;
+    const dist = Math.hypot(dx,dy);
+    if(dist < best){ best = dist; near = d; }
+  }
+  doors.forEach(d => d.classList.toggle('near', d===near));
+  lastTarget = near;
+});
+addEventListener('pointerup', () => {
+  if(!drawing) return;
+  drawing = false;
+  if(lastTarget){
+    const h = lastTarget.dataset.h;
+    lastTarget.classList.add('committed');
+    applyHouse(h);
+    setTimeout(()=>{ threshEl.classList.remove('on'); threshEl.classList.add('gone'); }, 1100);
+  } else {
+    // release without commitment — let thread retract
+    threadEl.setAttribute('d','');
+    doors.forEach(d=>d.classList.remove('near'));
+  }
+});
+function drawTo(x,y){
+  // svg coords (the svg is xMidYMid slice 1920x1080, mapped to viewport)
+  const vw = innerWidth, vh = innerHeight;
+  const scale = Math.max(vw/1920, vh/1080);
+  const ox = (vw - 1920*scale)/2, oy = (vh - 1080*scale)/2;
+  const sx = (x - ox)/scale, sy = (y - oy)/scale;
+  // bezier from seed (960,540) toward the pointer with a midpoint sag
+  const mx = 960 + (sx-960)*.5 + (Math.random()-.5)*4;
+  const my = 540 + (sy-540)*.5 + 30 + (Math.random()-.5)*4;
+  threadEl.setAttribute('d', `M 960 540 Q ${mx.toFixed(1)} ${my.toFixed(1)} ${sx.toFixed(1)} ${sy.toFixed(1)}`);
+}
+
+/* re-tune drone on commit (called from applyHouse if audio is alive) */
+function retuneDrone(){
+  // teardown & rebuild the small oscillator stack with house-specific freqs
+  // (cheap — only 4 oscs)
+  const oldNodes = ac._darNodes || [];
+  oldNodes.forEach(n => { try{ n.stop && n.stop() }catch(e){} try{ n.disconnect() }catch(e){} });
+  ac._darNodes = [];
+  const cfg = HOUSES[HOUSE];
+  cfg.drone.forEach((f,i)=>{
+    const o=ac.createOscillator(); o.type=i%2?'sine':'triangle'; o.frequency.value=f;
+    o.detune.value = cfg.detune[i] || 0;
+    const g=ac.createGain(); g.gain.value = 0.06/(i+1);
+    const lfo=ac.createOscillator(); lfo.frequency.value = cfg.swayHz + i*.02;
+    const lg=ac.createGain(); lg.gain.value = 2.5;
+    lfo.connect(lg); lg.connect(o.detune);
+    o.connect(g); g.connect(master); g.connect(_verb);
+    o.start(); lfo.start();
+    ac._darNodes.push(o, lfo, g);
+  });
+}
+
+/* re-pigment the witness sigil */
+function updateHouseSigil(){
+  if(!HOUSE){ houseSig.style.display='none'; houseSigAr.style.display='none'; return; }
+  houseSig.style.display=''; houseSigAr.style.display='';
+}
+updateHouseSigil();
+
+/* hook into the existing tick — extend the original via wrapper */
+const _origTick_p_check = setInterval(()=>{ updateThreshold(p); updateHouseSigil(); tickThresholdGaze(); }, 70);
+
+/* override the audio path so it boots with the house, not stock freqs */
+const _origMute = muteBtn.onclick;
+muteBtn.addEventListener('click', () => {
+  // ensureAudio() in the original handler builds the stock drone. if a house
+  // is committed and we just opened audio, retune now.
+  setTimeout(() => { if(HOUSE && ac && !ac._darHouseTuned){ ac._darHouseTuned = true; retuneDrone(); } }, 60);
+});
+
+/* the camera bends toward the picked culture's keystone curve in the arch tunnel.
+   we lerp the y-position of the camera by a tiny amount based on archCurve. */
+const _origPath = PATH; // keep the curve, but allow per-house micro-bend
+// (left as a hook — the visible signal already lives in goldMat color, dust, drone) */
+
+/* ────────────────────────── KEYHOLE — coda as portal ──────────────────────────
+   v5 wires the upload; v8 turns the photo's preview into a continuous zoom that
+   becomes the next page's camera. */
+/* ────────────────────────── KEYHOLE — coda as portal
+   v8: the upload IS the portal. when a room is dropped, the camera does not
+   stop. it continues forward into the keyhole; the photo blooms inside; the
+   keyhole becomes the viewfinder; the viewfinder becomes the camera the
+   next page inherits. one motion. no reload spinner. no spell-break. */
+/* THE BEAT — sound only. distant adhan, held oud, one kettle clink. */
+function onRestEnter(){
+  if(!ac || !droneOn) return;
+  const t0 = ac.currentTime;
+  try{
+    const o = ac.createOscillator(); o.type='sine'; o.frequency.value = 174.61;
+    const o2= ac.createOscillator(); o2.type='sine'; o2.frequency.value = 174.61*2.97;
+    const fmt = ac.createBiquadFilter(); fmt.type='peaking'; fmt.frequency.value=720; fmt.Q.value=4; fmt.gain.value=10;
+    const fmt2= ac.createBiquadFilter(); fmt2.type='peaking'; fmt2.frequency.value=1180; fmt2.Q.value=4; fmt2.gain.value=7;
+    const g = ac.createGain(); g.gain.value=0;
+    g.gain.linearRampToValueAtTime(.018, t0+.6);
+    g.gain.linearRampToValueAtTime(.022, t0+2.2);
+    g.gain.exponentialRampToValueAtTime(.0001, t0+3.6);
+    const wob = ac.createOscillator(); wob.frequency.value=4.4;
+    const wobG = ac.createGain(); wobG.gain.value=2.0;
+    wob.connect(wobG); wobG.connect(o.detune); wobG.connect(o2.detune);
+    const lp = ac.createBiquadFilter(); lp.type='lowpass'; lp.frequency.value=1200; lp.Q.value=.6;
+    const pan = ac.createStereoPanner(); pan.pan.value = -.92;
+    o.connect(fmt); fmt.connect(fmt2); o2.connect(fmt2); fmt2.connect(lp); lp.connect(g);
+    g.connect(pan); pan.connect(_convoNode);
+    o.start(t0); o2.start(t0); wob.start(t0);
+    o.stop(t0+3.7); o2.stop(t0+3.7); wob.stop(t0+3.7);
+  }catch(e){}
+  try{ pluck(73.42, t0+.1, 4.0, .14, 0); pluck(110, t0+.6, 3.6, .10, .15); }catch(e){}
+  setTimeout(()=>{
+    if(!ac) return;
+    const t = ac.currentTime;
+    const o1 = ac.createOscillator(); o1.type='sine'; o1.frequency.value = 1840;
+    const o2 = ac.createOscillator(); o2.type='sine'; o2.frequency.value = 2750;
+    const o3 = ac.createOscillator(); o3.type='sine'; o3.frequency.value = 4140;
+    const g = ac.createGain(); g.gain.value=0;
+    g.gain.linearRampToValueAtTime(.10, t+.004);
+    g.gain.exponentialRampToValueAtTime(.0001, t+1.6);
+    const pan = ac.createStereoPanner(); pan.pan.value = -.05;
+    o1.connect(g); o2.connect(g); o3.connect(g); g.connect(pan); pan.connect(_convoNode); pan.connect(master);
+    o1.start(t); o2.start(t); o3.start(t);
+    o1.stop(t+1.7); o2.stop(t+1.7); o3.stop(t+1.7);
+  }, 1400);
+  try{ master.gain.cancelScheduledValues(t0); master.gain.linearRampToValueAtTime(.22, t0+.6); }catch(e){}
+}
+function onRestExit(){
+  if(!ac || !droneOn) return;
+  master.gain.cancelScheduledValues(ac.currentTime);
+  master.gain.linearRampToValueAtTime(.34, ac.currentTime+1.2);
+}
+
+let portaling = false, portalStart = 0, portalP = 0, portalDone = false;
+
+/* ─────────────────────────── THE VERSE — v13 ───────────────────────────
+   one detail the visitor does not predict. seven words. it appears once
+   per visitor, ever, and only if they stop moving inside the held beat
+   for six seconds. it is the work's only secret. it does not come back. */
+const VERSE_DELAY_MS = 6000;
+const VERSE_HOLD_MS  = 3000;
+let verseShown = false;
+let verseEverShown = false;
+try{ verseEverShown = !!localStorage.getItem('dar.verse.seen'); }catch(e){}
+let stillSinceMs = 0;
+let lastMoveX = 0, lastMoveY = 0;
+function recordMovement(x,y){
+  // only count significant movement (a 12px deadzone keeps trembling from resetting)
+  const dx = x - lastMoveX, dy = y - lastMoveY;
+  if(Math.hypot(dx,dy) > 12){
+    stillSinceMs = performance.now();
+    lastMoveX = x; lastMoveY = y;
+  }
+}
+addEventListener('mousemove',  e => recordMovement(e.clientX, e.clientY));
+addEventListener('touchmove',   e => { const t = e.touches[0]; if(t) recordMovement(t.clientX, t.clientY); }, {passive:true});
+addEventListener('scroll',      ()=> { stillSinceMs = performance.now(); }, {passive:true});
+function maybeShowVerse(now){
+  if(verseEverShown || verseShown) return;
+  if(!inRest(p)) return;
+  // require both: in the held beat AND still for >= delay
+  const stillFor = now - stillSinceMs;
+  if(stillFor >= VERSE_DELAY_MS){
+    verseShown = true; verseEverShown = true;
+    try{ localStorage.setItem('dar.verse.seen','1'); }catch(e){}
+    const v = document.getElementById('verse'); if(v) v.classList.add('on');
+    // a saffron breath through the dust — the medium that carried the line
+    try{ beatDust.material.color.setHex(0xf3c478); }catch(e){}
+    // one soft, distant pluck — a high harmonic, like a single oud-string sympathetic resonance
+    if(ac && droneOn){ pluck(880, ac.currentTime+.1, 4.4, .07, .0); }
+    setTimeout(()=>{
+      if(v) v.classList.remove('on');
+      try{ beatDust.material.color.setHex(0xe8c060); }catch(e){}
+    }, VERSE_HOLD_MS);
+  }
+}
+function startPortal(url){
+  const img = new Image();
+  img.crossOrigin = 'anonymous';
+  img.onload = () => {
+    const tex = new THREE.Texture(img);
+    tex.colorSpace = THREE.SRGBColorSpace || tex.colorSpace;
+    tex.needsUpdate = true;
+    photoMat.map = tex; photoMat.color.setRGB(1,1,1);
+    photoMat.needsUpdate = true;
+    // size the plane to the photo's aspect ratio
+    const ar = img.width / img.height;
+    photoMesh.geometry.dispose();
+    photoMesh.geometry = new THREE.PlaneGeometry(2.6, 2.6/ar);
+    portaling = true;
+    portalStart = performance.now();
+    document.body.style.overflow = 'hidden';
+    // a small chime arpeggio resolving up: the next room arriving
+    if(ac && droneOn){
+      pluck(523.25, ac.currentTime,        3.6, .14, -.2);
+      pluck(659.25, ac.currentTime + .35,  3.4, .12,  .15);
+      pluck(783.99, ac.currentTime + .70,  3.4, .12,  .25);
+      pluck(1046.5, ac.currentTime + 1.20, 3.6, .14,  0);
+    }
+  };
+  img.src = url;
+}
+
+document.getElementById('upload').addEventListener('change', e=>{
+  const f = e.target.files[0]; if(!f) return;
+  startPortal(URL.createObjectURL(f));
+});
+
+/* ────────────────────────── EASTER EGG: pull the seal at boot ──────────────────────────
+   pointer-down on the seal during boot, drag downward — the colophon lifts. */
+let bootDown=false, bootDY=0;
+const _bootEl_v14 = document.getElementById('boot');
+if(_bootEl_v14){
+  _bootEl_v14.addEventListener('pointerdown', e=>{ bootDown=true; bootDY=e.clientY; });
+}
+addEventListener('pointermove', e=>{
+  if(!bootDown) return;
+  const dy = e.clientY - bootDY;
+  if(dy > 80){ document.getElementById('colophon').classList.add('on'); bootDown=false; }
+});
+addEventListener('pointerup',()=>bootDown=false);
+document.getElementById('colophon').addEventListener('click',()=>document.getElementById('colophon').classList.remove('on'));
+
+/* ────────────────────────── MOBILE — gyro tilts the world like a brass tray ────────────────────────── */
+const isTouch = matchMedia('(pointer:coarse)').matches;
+let gyroX=0, gyroY=0;
+if(isTouch){
+  // ask permission on first interaction
+  function enableGyro(){
+    const grant = (typeof DeviceOrientationEvent !== 'undefined' && DeviceOrientationEvent.requestPermission)
+      ? DeviceOrientationEvent.requestPermission() : Promise.resolve('granted');
+    grant.then(r => {
+      if(r === 'granted'){
+        addEventListener('deviceorientation', e => {
+          const b = (e.beta || 0) - 30; // pitch (front-back)
+          const g = (e.gamma || 0);     // roll (left-right)
+          gyroX = Math.max(-12, Math.min(12, g)) / 12;
+          gyroY = Math.max(-12, Math.min(12, b)) / 12;
+        });
+      }
+    }).catch(()=>{});
+    removeEventListener('touchstart', enableGyro);
+  }
+  addEventListener('touchstart', enableGyro, {once:true});
+}
+// fold gyro into the camera's micro-orientation each frame
+(function gyroLoop(){
+  if(isTouch && cam){
+    const ahead = PATH.getPoint(Math.min(1, p + .01));
+    const tx = ahead.x + gyroX * .35;
+    const ty = ahead.y - .05 + gyroY * .25;
+    cam.lookAt(tx, ty, ahead.z);
+  }
+  requestAnimationFrame(gyroLoop);
+})();
+
+/* ────────────────────────── SCENT + HAPTIC — long-press on the fountain area ────────────────────────── */
+const scentEl = document.getElementById('scent');
+const scentAr = document.getElementById('scentAr');
+const scentEn = document.getElementById('scentEn');
+const SCENTS = [
+  { ar:'نَعناع', en:'mint' },
+  { ar:'زَهر', en:'orange blossom' },
+  { ar:'عَنبَر', en:'amber' },
+  { ar:'وَرد', en:'rose' },
+];
+let pressTimer=null;
+function onPressStart(e){
+  // only meaningful when the camera is in the riad/atrium
+  if(p < .72) return;
+  clearTimeout(pressTimer);
+  pressTimer = setTimeout(()=>{
+    const s = SCENTS[Math.floor(Math.random()*SCENTS.length)];
+    scentAr.textContent = s.ar; scentEn.textContent = s.en;
+    scentEl.classList.add('on');
+    if(navigator.vibrate) navigator.vibrate([12, 40, 18]);
+    // a soft chime in audio
+    if(ac && droneOn){ pluck(523.25, ac.currentTime, 2.4, .08, 0); pluck(659.25, ac.currentTime+.18, 2.4, .06, .2); }
+    setTimeout(()=>scentEl.classList.remove('on'), 2400);
+  }, 700);
+}
+function onPressEnd(){ clearTimeout(pressTimer); }
+addEventListener('pointerdown', onPressStart);
+addEventListener('pointerup', onPressEnd);
+addEventListener('pointercancel', onPressEnd);
+</script>
+</body></html>

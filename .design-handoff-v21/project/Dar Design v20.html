@@ -879,83 +879,6 @@
     cam.lookAt(0, 0, 0);
     const renderer = new THREE.WebGLRenderer({canvas, antialias:true, alpha:true});
     renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
-    renderer.shadowMap.enabled = true;
-    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-    renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.15;
-
-    // procedural textures (v21)
-    function makeCanvasTex(w, h, draw){
-      const c = document.createElement('canvas'); c.width=w; c.height=h;
-      const ctx = c.getContext('2d'); draw(ctx, w, h);
-      const tex = new THREE.CanvasTexture(c);
-      tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-      tex.anisotropy = 4;
-      return tex;
-    }
-    const woodTex = makeCanvasTex(512, 512, (ctx, w, h) => {
-      const g = ctx.createLinearGradient(0, 0, 0, h);
-      g.addColorStop(0, '#7a5028'); g.addColorStop(.5, '#5a3818'); g.addColorStop(1, '#7a5028');
-      ctx.fillStyle = g; ctx.fillRect(0, 0, w, h);
-      for(let i=0;i<80;i++){
-        ctx.fillStyle = `rgba(${30+Math.random()*40},${20+Math.random()*30},${10+Math.random()*20},.5)`;
-        ctx.fillRect(0, Math.random()*h, w, 1+Math.random()*2);
-      }
-      for(let i=0;i<6;i++){ ctx.fillStyle='#1a0e06'; ctx.fillRect(0, i*h/6, w, 1.5); }
-      for(let i=0;i<16;i++){ ctx.fillStyle='#1a0e06'; ctx.fillRect(Math.random()*w, 0, 1, h); }
-    });
-    woodTex.repeat.set(2, 1.6);
-    const plasterTex = makeCanvasTex(512, 512, (ctx, w, h) => {
-      ctx.fillStyle='#5a3a22'; ctx.fillRect(0,0,w,h);
-      for(let i=0;i<2000;i++){
-        ctx.fillStyle = `rgba(${60+Math.random()*40},${40+Math.random()*30},${20+Math.random()*20},${.2+Math.random()*.3})`;
-        ctx.fillRect(Math.random()*w, Math.random()*h, 1, 1);
-      }
-      for(let i=0;i<30;i++){
-        ctx.fillStyle = `rgba(40,28,16,${.1+Math.random()*.1})`;
-        ctx.fillRect(Math.random()*w, 0, 1+Math.random()*2, h);
-      }
-    });
-    const brassTex = makeCanvasTex(256, 256, (ctx, w, h) => {
-      const g = ctx.createRadialGradient(w/2, h/2, 0, w/2, h/2, w*.6);
-      g.addColorStop(0, '#f0d878'); g.addColorStop(.5, '#d4af37'); g.addColorStop(1, '#9a7d2a');
-      ctx.fillStyle = g; ctx.fillRect(0, 0, w, h);
-      ctx.strokeStyle = 'rgba(60,40,10,.4)'; ctx.lineWidth = 1;
-      for(let r=30; r<w*.5; r+=20){ ctx.beginPath(); ctx.arc(w/2,h/2,r,0,Math.PI*2); ctx.stroke(); }
-      ctx.fillStyle = 'rgba(40,28,8,.3)';
-      ctx.beginPath();
-      for(let i=0;i<16;i++){
-        const a=i*Math.PI/8, rd=i%2?20:50;
-        const x=w/2+Math.cos(a)*rd, y=h/2+Math.sin(a)*rd;
-        i?ctx.lineTo(x,y):ctx.moveTo(x,y);
-      }
-      ctx.closePath(); ctx.fill();
-    });
-    const rugTex = makeCanvasTex(512, 512, (ctx, w, h) => {
-      ctx.fillStyle='#6a1a28'; ctx.fillRect(0,0,w,h);
-      ctx.strokeStyle='#d4af37'; ctx.lineWidth=4;
-      ctx.strokeRect(20,20,w-40,h-40);
-      ctx.strokeRect(40,40,w-80,h-80);
-      ctx.fillStyle='#2d3a8c';
-      ctx.beginPath();
-      for(let i=0;i<16;i++){
-        const a=i*Math.PI/8, rd=i%2?60:110;
-        const x=w/2+Math.cos(a)*rd, y=h/2+Math.sin(a)*rd;
-        i?ctx.lineTo(x,y):ctx.moveTo(x,y);
-      }
-      ctx.closePath(); ctx.fill();
-      ctx.fillStyle='#d4af37'; ctx.beginPath(); ctx.arc(w/2,h/2,30,0,Math.PI*2); ctx.fill();
-      for(const [cx,cy] of [[80,80],[w-80,80],[80,h-80],[w-80,h-80]]){
-        ctx.fillStyle='#d4af37';
-        ctx.beginPath();
-        for(let i=0;i<8;i++){
-          const a=i*Math.PI/4, rd=i%2?8:18;
-          const x=cx+Math.cos(a)*rd, y=cy+Math.sin(a)*rd;
-          i?ctx.lineTo(x,y):ctx.moveTo(x,y);
-        }
-        ctx.closePath(); ctx.fill();
-      }
-    });
     function size(){
       const w = canvas.offsetWidth, h = canvas.offsetHeight;
       renderer.setSize(w, h, false); cam.aspect = w/h; cam.updateProjectionMatrix();
@@ -973,9 +896,9 @@
     const room = new THREE.Group();
     scene.add(room);
     const floorGeo = new THREE.BoxGeometry(8, .1, 8);
-    const floorMat = new THREE.MeshStandardMaterial({color:0xffffff, map:woodTex, roughness:.7, metalness:.05});
-    const floor = new THREE.Mesh(floorGeo, floorMat); floor.position.y = -1.5; floor.receiveShadow = true; room.add(floor);
-    const wallMat = new THREE.MeshStandardMaterial({color:0xffffff, map:plasterTex, roughness:.85, metalness:.0});
+    const floorMat = new THREE.MeshStandardMaterial({color:0x6a4a28, roughness:.7, metalness:.1});
+    const floor = new THREE.Mesh(floorGeo, floorMat); floor.position.y = -1.5; room.add(floor);
+    const wallMat = new THREE.MeshStandardMaterial({color:0x4a3422, roughness:.75, metalness:.0});
     const wallBack = new THREE.Mesh(new THREE.BoxGeometry(8, 5, .1), wallMat); wallBack.position.set(0, 1, -4); room.add(wallBack);
     const wallLeft = new THREE.Mesh(new THREE.BoxGeometry(.1, 5, 8), wallMat); wallLeft.position.set(-4, 1, 0); room.add(wallLeft);
     // arch shape
@@ -992,11 +915,8 @@
     const archTrim = new THREE.Mesh(new THREE.TorusGeometry(.8, .035, 12, 48, Math.PI), new THREE.MeshStandardMaterial({color:0xd4af37, emissive:0xd4af37, emissiveIntensity:1.6, roughness:.3, metalness:.9}));
     archTrim.position.set(0, .9, -3.84); archTrim.rotation.z = Math.PI; room.add(archTrim);
     // table/rug
-    const table = new THREE.Mesh(new THREE.CylinderGeometry(.7, .68, .12, 24), new THREE.MeshStandardMaterial({color:0xffffff, map:brassTex, roughness:.18, metalness:.95, emissive:0x6a4810, emissiveIntensity:.4}));
-    table.position.set(0, -1.35, 0); table.castShadow = true; table.receiveShadow = true; room.add(table);
-    // persian rug under the brass tray
-    const rug = new THREE.Mesh(new THREE.PlaneGeometry(3.6, 3.6), new THREE.MeshStandardMaterial({map:rugTex, roughness:.88}));
-    rug.rotation.x = -Math.PI/2; rug.position.y = -1.44; rug.receiveShadow = true; room.add(rug);
+    const table = new THREE.Mesh(new THREE.CylinderGeometry(.7, .68, .12, 24), new THREE.MeshStandardMaterial({color:0xd4af37, roughness:.2, metalness:.95, emissive:0x6a4810, emissiveIntensity:.7}));
+    table.position.set(0, -1.35, 0); room.add(table);
     const kettle = new THREE.Mesh(new THREE.SphereGeometry(.18, 20, 16, 0, Math.PI*2, 0, Math.PI*.8), new THREE.MeshStandardMaterial({color:0xe8c060, roughness:.2, metalness:.95, emissive:0x6a4810, emissiveIntensity:.8}));
     kettle.position.set(0, -1.1, 0); kettle.scale.set(1, .85, 1); room.add(kettle);
     const kSpout = new THREE.Mesh(new THREE.CylinderGeometry(.022, .04, .18, 10), kettle.material); kSpout.position.set(.18, -1.06, 0); kSpout.rotation.z = -1.0; room.add(kSpout);

@@ -1,0 +1,1095 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>DarDesign — AI interior redesign, grounded in Arab architecture</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;1,300;1,400&family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Noto+Kufi+Arabic:wght@300;400;500;600;700&family=Amiri:ital,wght@0,400;1,400&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --ink:#0c0a08;
+    --ink-2:#15110d;
+    --ink-3:#1c1813;
+    --ink-4:#252017;
+    --line:rgba(212,175,55,.14);
+    --line-soft:rgba(212,175,55,.08);
+    --parchment:#f3ead2;
+    --parchment-2:#ddd0a8;
+    --parchment-3:#a89f85;
+    --gold:#d4af37;
+    --gold-warm:#e8c060;
+    --gold-soft:#9a7d2a;
+    --pomegranate:#8d1b2d;
+    --saffron:#e8a13a;
+    --cobalt:#2d3a8c;
+    --ok:#6aa66a;
+    --err:#c44d4d;
+    --en:'Cormorant Garamond', serif;
+    --ui:'Inter', system-ui, sans-serif;
+    --mono:'JetBrains Mono', ui-monospace, monospace;
+    --ar:'Noto Kufi Arabic', sans-serif;
+    --ar-b:'Amiri', serif;
+    --ease:cubic-bezier(.4,0,.2,1);
+    --ease-out:cubic-bezier(.16,1,.3,1);
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{scroll-behavior:smooth}
+  html,body{background:var(--ink);color:var(--parchment);font-family:var(--ui);font-size:15.5px;line-height:1.55;-webkit-font-smoothing:antialiased;overflow-x:hidden}
+  ::selection{background:var(--gold);color:var(--ink)}
+  a{color:inherit;text-decoration:none}
+  img{max-width:100%;display:block}
+  button{font-family:inherit;border:0;cursor:pointer;background:transparent;color:inherit}
+  code,.mono{font-family:var(--mono)}
+
+  /* ───────── grain ───────── */
+  body::after{content:"";position:fixed;inset:0;pointer-events:none;z-index:200;opacity:.035;mix-blend-mode:overlay;background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='200' height='200'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='1.4' numOctaves='2'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>")}
+
+  /* ───────── typography ───────── */
+  h1,h2,h3,h4{font-weight:400;letter-spacing:-.02em;line-height:1.05;color:var(--parchment)}
+  h1{font-family:var(--en);font-style:italic;font-weight:300;font-size:clamp(56px,8vw,120px);letter-spacing:-.025em}
+  h2{font-family:var(--en);font-style:italic;font-weight:300;font-size:clamp(38px,5vw,72px);letter-spacing:-.02em}
+  h3{font-family:var(--en);font-style:italic;font-weight:400;font-size:clamp(22px,2.4vw,32px)}
+  h1 em,h2 em,h3 em{color:var(--gold);font-style:italic}
+  .ar{font-family:var(--ar);direction:rtl;font-weight:400}
+  .ar-b{font-family:var(--ar-b);direction:rtl}
+  h1.ar,h2.ar{font-weight:300;letter-spacing:-.015em}
+  h1.ar span,h2.ar span,h3.ar span{color:var(--gold)}
+  p{max-width:64ch;color:var(--parchment-2)}
+  p.lede{font-family:var(--en);font-style:italic;font-weight:300;font-size:clamp(20px,2vw,26px);line-height:1.5;color:var(--parchment);max-width:36ch}
+  p.lede.ar-b{font-size:clamp(19px,1.9vw,24px);line-height:1.85;color:var(--parchment-2);font-style:normal}
+
+  /* ───────── layout ───────── */
+  .wrap{max-width:1320px;margin:0 auto;padding:0 6vw}
+  .section{padding:140px 0;position:relative}
+  .section + .section{border-top:1px solid var(--line-soft)}
+  .col-2{display:grid;grid-template-columns:1fr 1fr;gap:80px;align-items:start}
+  .eyebrow{display:inline-flex;align-items:center;gap:10px;font-family:var(--ui);font-size:11px;font-weight:500;letter-spacing:.4em;text-transform:uppercase;color:var(--gold);margin-bottom:32px}
+  .eyebrow::before{content:"";display:inline-block;width:24px;height:1px;background:var(--gold-soft)}
+  .eyebrow .ar-b{font-family:var(--ar-b);direction:rtl;font-weight:400;letter-spacing:.02em;color:var(--gold-warm);text-transform:none;font-size:13px}
+  .eyebrow .ar-b::before{content:"\00b7";margin-right:10px;color:var(--gold-soft)}
+
+  /* ───────── nav ───────── */
+  nav{position:fixed;top:0;left:0;right:0;z-index:80;padding:18px 6vw;display:flex;align-items:center;justify-content:space-between;background:linear-gradient(to bottom,rgba(12,10,8,.85),rgba(12,10,8,0));backdrop-filter:blur(8px);transition:background .4s var(--ease)}
+  nav.scrolled{background:rgba(12,10,8,.92);border-bottom:1px solid var(--line-soft)}
+  .logo{display:flex;align-items:center;gap:12px;font-family:var(--en);font-style:italic;font-weight:400;font-size:22px;color:var(--parchment);letter-spacing:-.01em}
+  .logo .mark{width:30px;height:30px;border:1px solid var(--gold);border-radius:50%;display:flex;align-items:center;justify-content:center;font-family:var(--ar);color:var(--gold);font-size:16px;font-weight:300;line-height:1;padding-bottom:2px}
+  .logo em{color:var(--gold);font-style:italic}
+  .nav-links{display:flex;gap:32px;align-items:center;font-family:var(--ui);font-size:13px;color:var(--parchment-2);font-weight:400}
+  .nav-links a{transition:color .25s ease}
+  .nav-links a:hover{color:var(--parchment)}
+  .nav-cta{display:inline-flex;align-items:center;gap:10px;padding:10px 20px;background:var(--gold);color:var(--ink);font-family:var(--ui);font-size:12px;font-weight:600;letter-spacing:.02em;border-radius:99px;transition:background .25s ease,transform .25s ease}
+  .nav-cta:hover{background:var(--gold-warm);transform:translateY(-1px)}
+  .nav-cta .ar-b{font-weight:400;font-size:13px}
+  .lang-toggle{font-family:var(--mono);font-size:11px;color:var(--parchment-3);letter-spacing:.1em;display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border:1px solid var(--line);border-radius:6px;cursor:pointer;transition:border-color .25s ease, color .25s ease}
+  .lang-toggle:hover{border-color:var(--gold);color:var(--gold)}
+  .lang-toggle b{color:var(--gold);font-weight:500}
+  @media(max-width:880px){.nav-links{display:none}}
+
+  /* ───────── hero ───────── */
+  #hero{padding:160px 0 100px;position:relative;overflow:hidden;min-height:100vh;display:flex;flex-direction:column;justify-content:center}
+  #hero::before{content:"";position:absolute;inset:-20%;background:
+    radial-gradient(ellipse at 80% 20%,rgba(232,161,58,.10),transparent 50%),
+    radial-gradient(ellipse at 15% 80%,rgba(141,27,45,.08),transparent 55%);
+    pointer-events:none;animation:slowDrift 24s ease-in-out infinite alternate}
+  @keyframes slowDrift{to{transform:translate(2%,-1%) scale(1.02)}}
+  .hero-grid{display:grid;grid-template-columns:1.1fr 1fr;gap:80px;align-items:center;position:relative;z-index:2}
+  .hero-tag{display:inline-flex;align-items:center;gap:12px;padding:8px 16px;border:1px solid var(--line);border-radius:99px;font-family:var(--ui);font-size:11.5px;font-weight:500;letter-spacing:.18em;text-transform:uppercase;color:var(--parchment-2);margin-bottom:32px;background:rgba(212,175,55,.04)}
+  .hero-tag .dot{width:6px;height:6px;background:var(--gold);border-radius:50%;box-shadow:0 0 12px var(--gold);animation:pulse 2.4s ease-in-out infinite}
+  @keyframes pulse{0%,100%{opacity:.6}50%{opacity:1}}
+  .hero-tag .ar-b{letter-spacing:0;text-transform:none;color:var(--gold-warm);font-weight:400;font-size:13px}
+  .hero-tag .ar-b::before{content:"\00b7";margin:0 10px;color:var(--gold-soft)}
+  .hero-title{margin-bottom:18px}
+  .hero-title-ar{font-size:clamp(34px,4.8vw,64px);margin-bottom:36px;color:var(--parchment-2)}
+  .hero-leds{margin-top:36px;display:flex;gap:32px;align-items:center;flex-wrap:wrap;color:var(--parchment-3);font-family:var(--ui);font-size:13px;font-weight:400}
+  .hero-leds .led{display:flex;align-items:center;gap:10px}
+  .hero-leds .led::before{content:"";width:8px;height:8px;background:var(--ok);border-radius:50%;box-shadow:0 0 8px var(--ok)}
+  .hero-cta{margin-top:48px;display:flex;gap:18px;flex-wrap:wrap;align-items:center}
+  .btn{display:inline-flex;align-items:center;gap:14px;padding:16px 28px;font-family:var(--ui);font-size:13px;font-weight:500;letter-spacing:.06em;border-radius:99px;transition:all .3s var(--ease);cursor:pointer}
+  .btn-primary{background:var(--gold);color:var(--ink)}
+  .btn-primary:hover{background:var(--gold-warm);transform:translateY(-2px);box-shadow:0 12px 32px rgba(212,175,55,.25)}
+  .btn-ghost{border:1px solid var(--line);color:var(--parchment);background:transparent}
+  .btn-ghost:hover{border-color:var(--gold);color:var(--gold);background:rgba(212,175,55,.04)}
+  .btn .arrow{transition:transform .3s var(--ease)}
+  .btn:hover .arrow{transform:translateX(4px)}
+  .btn .ar-b{font-family:var(--ar-b);direction:rtl;font-weight:400;font-size:14px;letter-spacing:0;opacity:.75}
+  .btn .ar-b::before{content:"\00b7";margin-right:10px;opacity:.5}
+
+  /* hero showcase — interactive before/after */
+  .hero-showcase{position:relative;aspect-ratio:4/5;border-radius:24px;overflow:hidden;border:1px solid var(--line);background:var(--ink-2);box-shadow:0 30px 80px -20px rgba(0,0,0,.6), 0 0 60px -20px rgba(212,175,55,.18)}
+  .ba-stage{position:absolute;inset:0;overflow:hidden}
+  .ba-img{position:absolute;inset:0;display:flex;align-items:flex-end;justify-content:center;font-family:var(--en);font-style:italic;font-size:14px;letter-spacing:.4em;text-transform:uppercase;color:rgba(243,234,210,.55);padding-bottom:24px}
+  .ba-img.before{background:linear-gradient(160deg,#2a2620 0%,#1a1612 100%)}
+  .ba-img.after{clip-path:inset(0 0 0 50%)}
+  .ba-img.after.lebanon{background:linear-gradient(160deg,#2d3a8c 0%,#e8a13a 70%,#8d1b2d 100%)}
+  .ba-img.after.gulf{background:linear-gradient(160deg,#3a2814 0%,#d4af37 60%,#1a1208 100%)}
+  .ba-img.after.morocco{background:linear-gradient(160deg,#8d1b2d 0%,#e8a13a 60%,#3a1410 100%)}
+  /* architectural overlay illustrations on each variant */
+  .ba-arch{position:absolute;inset:0;pointer-events:none;opacity:.5;mix-blend-mode:overlay}
+  .ba-stage .handle{position:absolute;top:0;bottom:0;left:50%;width:2px;background:var(--gold);transform:translateX(-50%);z-index:5;cursor:ew-resize;box-shadow:0 0 14px rgba(212,175,55,.5)}
+  .ba-stage .handle::before{content:"";position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:48px;height:48px;background:var(--gold);border-radius:50%;display:flex;align-items:center;justify-content:center;box-shadow:0 6px 20px rgba(0,0,0,.4)}
+  .ba-stage .handle::after{content:"⇆";position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);color:var(--ink);font-size:22px;font-weight:700;line-height:1}
+  .ba-label{position:absolute;top:24px;padding:8px 14px;background:rgba(12,10,8,.7);backdrop-filter:blur(6px);font-family:var(--ui);font-size:10.5px;font-weight:500;letter-spacing:.3em;text-transform:uppercase;border-radius:6px;border:1px solid var(--line);z-index:4}
+  .ba-label.l{left:24px;color:var(--parchment-2)}
+  .ba-label.r{right:24px;color:var(--gold)}
+  .ba-label .ar-b{display:block;font-family:var(--ar-b);direction:rtl;font-weight:400;font-size:12px;letter-spacing:0;text-transform:none;margin-top:2px;opacity:.7}
+  .ba-bottom{position:absolute;left:0;right:0;bottom:0;padding:20px 24px;background:linear-gradient(to top,rgba(12,10,8,.92),transparent);display:flex;justify-content:space-between;align-items:center;z-index:4}
+  .ba-bottom .style{font-family:var(--en);font-style:italic;font-size:24px;color:var(--parchment);transition:color .4s ease}
+  .ba-bottom .style .ar{display:block;font-family:var(--ar);font-style:normal;font-size:15px;color:var(--gold-warm);margin-top:2px}
+  .ba-bottom .stack{display:flex;gap:8px}
+  .ba-bottom .swatch{width:24px;height:24px;border-radius:50%;border:1.5px solid rgba(12,10,8,.4);cursor:pointer;transition:transform .3s ease,box-shadow .3s ease}
+  .ba-bottom .swatch:hover{transform:scale(1.15)}
+  .ba-bottom .swatch.active{transform:scale(1.2);box-shadow:0 0 0 2px var(--gold)}
+  .swatch.s-lebanon{background:linear-gradient(135deg,#2d3a8c,#e8a13a)}
+  .swatch.s-gulf{background:linear-gradient(135deg,#3a2814,#d4af37)}
+  .swatch.s-morocco{background:linear-gradient(135deg,#8d1b2d,#e8a13a)}
+  /* hero-showcase decorations */
+  .hero-meta{position:absolute;top:24px;right:24px;display:flex;flex-direction:column;align-items:flex-end;gap:6px;z-index:4;font-family:var(--mono);font-size:10.5px;color:var(--parchment-3);text-align:right}
+  .hero-meta .live{color:var(--ok);display:flex;align-items:center;gap:6px}
+  .hero-meta .live::before{content:"";width:5px;height:5px;background:var(--ok);border-radius:50%;animation:pulse 1.8s ease-in-out infinite}
+
+  /* ───────── trust strip ───────── */
+  #trust{padding:42px 0;background:var(--ink-2);border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+  .trust-row{display:flex;justify-content:space-around;align-items:center;gap:40px;flex-wrap:wrap}
+  .trust-item{display:flex;flex-direction:column;align-items:center;gap:4px;font-family:var(--ui);font-size:11px;letter-spacing:.32em;text-transform:uppercase;color:var(--parchment-3);font-weight:500;text-align:center}
+  .trust-item b{font-family:var(--en);font-style:italic;color:var(--gold);font-size:22px;font-weight:300;letter-spacing:0;text-transform:none;line-height:1}
+  .trust-item .ar-b{font-family:var(--ar-b);direction:rtl;letter-spacing:0;text-transform:none;color:var(--parchment-3);font-size:12px;margin-top:2px}
+
+  /* ───────── numbers ───────── */
+  #numbers{padding:120px 0;background:var(--ink)}
+  .num-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:var(--line);border:1px solid var(--line);border-radius:24px;overflow:hidden}
+  .num-cell{padding:48px 36px;background:var(--ink-2);display:flex;flex-direction:column;gap:14px;position:relative;transition:background .4s ease}
+  .num-cell:hover{background:var(--ink-3)}
+  .num-cell .n{font-family:var(--en);font-style:italic;font-weight:300;font-size:clamp(48px,5.5vw,82px);color:var(--gold);line-height:1;letter-spacing:-.02em}
+  .num-cell .n .u{font-size:.42em;color:var(--parchment-3);font-style:normal;font-family:var(--ui);font-weight:400;letter-spacing:.04em;margin-left:.18em}
+  .num-cell .l{font-family:var(--ui);font-size:12px;font-weight:500;letter-spacing:.18em;text-transform:uppercase;color:var(--parchment-2);max-width:24ch}
+  .num-cell .la{font-family:var(--ar-b);font-size:14px;color:var(--parchment-3);direction:rtl;max-width:24ch}
+  .num-cell .ax{position:absolute;top:24px;right:24px;font-family:var(--mono);font-size:11px;color:var(--gold-soft);letter-spacing:.04em}
+  @media(max-width:1100px){.num-grid{grid-template-columns:1fr 1fr}}
+  @media(max-width:560px){.num-grid{grid-template-columns:1fr}}
+
+  /* ───────── how (steps) ───────── */
+  #how{padding:140px 0;background:var(--ink)}
+  .how-header{margin-bottom:80px;display:grid;grid-template-columns:1fr 1fr;gap:60px;align-items:end}
+  .steps{display:grid;grid-template-columns:repeat(3,1fr);gap:32px;position:relative}
+  .steps::before{content:"";position:absolute;left:6%;right:6%;top:62px;height:1px;background:linear-gradient(to right,transparent,var(--line),transparent);z-index:0}
+  .step{position:relative;z-index:1;padding:32px;background:var(--ink-2);border:1px solid var(--line);border-radius:20px;transition:transform .4s var(--ease-out),border-color .4s ease}
+  .step:hover{transform:translateY(-6px);border-color:rgba(212,175,55,.3)}
+  .step-num{display:inline-flex;width:56px;height:56px;align-items:center;justify-content:center;border:1px solid var(--gold);border-radius:50%;font-family:var(--en);font-style:italic;font-size:28px;color:var(--gold);background:var(--ink);font-weight:300;line-height:1;padding-top:2px;margin-bottom:24px}
+  .step h3{margin-bottom:6px}
+  .step h3.ar{font-size:20px;color:var(--gold-warm);font-weight:400;margin-bottom:18px;font-family:var(--ar);font-style:normal}
+  .step p{font-family:var(--en);font-style:italic;font-size:17px;color:var(--parchment-2);line-height:1.55}
+  .step p.ar-b{font-family:var(--ar-b);font-style:normal;font-size:16px;color:var(--parchment-3);direction:rtl;line-height:1.8;margin-top:10px}
+  .step .tech{display:flex;flex-wrap:wrap;gap:6px;margin-top:18px}
+  .step .tech .t{font-family:var(--mono);font-size:11px;padding:4px 10px;border-radius:99px;border:1px solid var(--line);color:var(--parchment-3);background:rgba(212,175,55,.03)}
+  @media(max-width:880px){.how-header{grid-template-columns:1fr;gap:32px}.steps{grid-template-columns:1fr;gap:20px}.steps::before{display:none}}
+
+  /* ───────── pipeline (technical) ───────── */
+  #pipeline{padding:140px 0;background:var(--ink-2);border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+  .pipe-header{margin-bottom:80px;display:grid;grid-template-columns:1fr 1fr;gap:60px;align-items:end}
+  .pipe-board{background:var(--ink);border:1px solid var(--line);border-radius:24px;overflow:hidden;position:relative}
+  .pipe-tabs{display:flex;border-bottom:1px solid var(--line);background:var(--ink-2)}
+  .pipe-tab{flex:1;padding:18px 24px;font-family:var(--mono);font-size:12px;font-weight:500;color:var(--parchment-3);letter-spacing:.06em;border-right:1px solid var(--line);position:relative;cursor:pointer;transition:color .25s ease}
+  .pipe-tab:last-child{border-right:0}
+  .pipe-tab:hover{color:var(--parchment-2)}
+  .pipe-tab.active{color:var(--gold);background:var(--ink)}
+  .pipe-tab.active::after{content:"";position:absolute;left:0;right:0;bottom:-1px;height:2px;background:var(--gold)}
+  .pipe-tab .num{font-family:var(--en);font-style:italic;color:var(--gold);margin-right:8px;font-size:14px}
+  .pipe-tab .ar-b{font-family:var(--ar-b);direction:rtl;font-size:13px;display:block;color:var(--parchment-3);margin-top:2px;letter-spacing:0}
+  .pipe-tab.active .ar-b{color:var(--gold-warm)}
+  .pipe-stage{padding:48px;display:grid;grid-template-columns:1fr 1.2fr;gap:48px;align-items:center;min-height:420px}
+  .pipe-stage h3{margin-bottom:6px}
+  .pipe-stage h3.ar{font-family:var(--ar);font-style:normal;font-size:22px;color:var(--gold-warm);font-weight:400;margin-bottom:24px}
+  .pipe-stage p{font-family:var(--en);font-style:italic;font-size:18px;line-height:1.5;color:var(--parchment-2)}
+  .pipe-stage p.ar-b{font-family:var(--ar-b);font-style:normal;font-size:17px;color:var(--parchment-3);direction:rtl;line-height:1.85;margin-top:10px}
+  .pipe-spec{margin-top:24px;font-family:var(--mono);font-size:12px;color:var(--parchment-3);line-height:1.7;padding:16px 18px;background:var(--ink-2);border:1px solid var(--line);border-radius:12px}
+  .pipe-spec b{color:var(--gold-warm);font-weight:500}
+  .pipe-spec .row{display:flex;justify-content:space-between;padding:2px 0;gap:14px}
+  .pipe-spec .row span{color:var(--parchment-3)}
+  /* pipeline visual right side */
+  .pipe-viz{position:relative;aspect-ratio:1/1;border:1px solid var(--line);border-radius:16px;background:radial-gradient(ellipse at 50% 30%,var(--ink-3) 0%,var(--ink) 80%);display:flex;align-items:center;justify-content:center;overflow:hidden}
+  .pipe-viz svg{width:100%;height:100%}
+  @media(max-width:880px){.pipe-header{grid-template-columns:1fr;gap:32px}.pipe-tabs{flex-wrap:wrap}.pipe-tab{flex:1 1 50%;border-right:1px solid var(--line);border-bottom:1px solid var(--line)}.pipe-stage{grid-template-columns:1fr;padding:32px}}
+
+  /* ───────── styles gallery ───────── */
+  #styles{padding:160px 0;background:var(--ink)}
+  .styles-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:24px;margin-top:80px}
+  .style-card{position:relative;aspect-ratio:3/4;border-radius:20px;overflow:hidden;border:1px solid var(--line);cursor:pointer;transition:transform .5s var(--ease-out),border-color .5s ease}
+  .style-card:hover{transform:translateY(-6px) scale(1.01);border-color:var(--gold)}
+  .style-card .art{position:absolute;inset:0;transition:transform 1.2s var(--ease-out)}
+  .style-card:hover .art{transform:scale(1.06)}
+  .style-card.lebanese .art{background:linear-gradient(160deg,#0c0a08 0%,#2d3a8c 40%,#e8a13a 100%)}
+  .style-card.khaleeji .art{background:linear-gradient(160deg,#0c0a08 0%,#3a2814 50%,#d4af37 100%)}
+  .style-card.moroccan .art{background:linear-gradient(160deg,#0c0a08 0%,#8d1b2d 40%,#e8a13a 100%)}
+  .style-card .art-overlay{position:absolute;inset:0;background:linear-gradient(to bottom,transparent 50%,rgba(12,10,8,.85) 100%)}
+  .style-card .art svg{position:absolute;inset:0;width:100%;height:100%;opacity:.18;mix-blend-mode:overlay}
+  .style-card .tag{position:absolute;top:24px;left:24px;padding:6px 12px;background:rgba(12,10,8,.7);backdrop-filter:blur(6px);border:1px solid var(--line);border-radius:99px;font-family:var(--ui);font-size:10.5px;font-weight:500;letter-spacing:.3em;text-transform:uppercase;color:var(--parchment);z-index:2}
+  .style-card .body{position:absolute;left:24px;right:24px;bottom:24px;z-index:2}
+  .style-card h3{margin-bottom:4px;color:var(--parchment);font-size:30px}
+  .style-card h3.ar{font-family:var(--ar);font-style:normal;font-size:22px;color:var(--gold);font-weight:500;margin-bottom:12px}
+  .style-card .terms{display:flex;flex-wrap:wrap;gap:6px}
+  .style-card .terms .t{font-family:var(--mono);font-size:10.5px;padding:3px 9px;border-radius:99px;border:1px solid rgba(212,175,55,.3);color:var(--gold-warm);background:rgba(0,0,0,.3);backdrop-filter:blur(4px)}
+  .style-card .arrow{position:absolute;top:24px;right:24px;width:36px;height:36px;border:1px solid var(--gold);border-radius:50%;display:flex;align-items:center;justify-content:center;color:var(--gold);font-size:14px;background:rgba(12,10,8,.7);backdrop-filter:blur(6px);transition:background .35s ease,color .35s ease}
+  .style-card:hover .arrow{background:var(--gold);color:var(--ink)}
+  @media(max-width:880px){.styles-grid{grid-template-columns:1fr}.style-card{aspect-ratio:5/4}}
+
+  /* ───────── metrics ───────── */
+  #metrics{padding:140px 0;background:var(--ink-2);border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+  .metrics-grid{margin-top:80px;display:grid;grid-template-columns:1.3fr 1fr;gap:60px;align-items:start}
+  .chart-card{background:var(--ink);border:1px solid var(--line);border-radius:20px;padding:32px}
+  .chart-card .head{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:24px}
+  .chart-card .head h3{margin-bottom:4px}
+  .chart-card .head .ar-b{font-family:var(--ar-b);direction:rtl;font-size:14px;color:var(--parchment-3)}
+  .chart-card .head .r{font-family:var(--mono);font-size:11px;color:var(--parchment-3)}
+  .chart-card svg{width:100%;height:auto;display:block}
+  .chart-axis{stroke:rgba(212,175,55,.25);stroke-width:.5}
+  .chart-tick{font-family:var(--mono);font-size:9.5px;fill:rgba(243,234,210,.55)}
+  .chart-grid-line{stroke:rgba(212,175,55,.07);stroke-width:.5;stroke-dasharray:2 4}
+  .legend{display:flex;gap:18px;margin-top:18px;font-family:var(--ui);font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:var(--parchment-2);flex-wrap:wrap;font-weight:500}
+  .legend .sw{display:inline-block;width:14px;height:2px;margin-right:8px;vertical-align:middle;border-radius:1px}
+  .legend .sw.dot{width:8px;height:8px;border-radius:50%}
+  /* eval table */
+  .eval-table{width:100%;border-collapse:collapse;font-family:var(--mono);font-size:13px}
+  .eval-table th{padding:14px 12px;text-align:left;background:var(--ink);color:var(--gold);font-weight:500;font-size:10.5px;letter-spacing:.2em;text-transform:uppercase;border-bottom:1px solid var(--line)}
+  .eval-table td{padding:14px 12px;color:var(--parchment-2);border-bottom:1px solid var(--line-soft)}
+  .eval-table .ours{background:rgba(212,175,55,.06)}
+  .eval-table .ours td{color:var(--gold);font-weight:500}
+  .eval-table .ours td:first-child{font-family:var(--en);font-style:italic;font-size:16px}
+  .eval-table .badge{display:inline-flex;align-items:center;gap:5px;padding:2px 8px;background:rgba(106,166,106,.15);color:var(--ok);border-radius:99px;font-size:10.5px;font-weight:500;letter-spacing:.04em;margin-left:6px}
+  @media(max-width:880px){.metrics-grid{grid-template-columns:1fr}}
+
+  /* ───────── ablations ───────── */
+  #ablation{padding:140px 0;background:var(--ink)}
+  .abl-grid{margin-top:80px;display:grid;grid-template-columns:repeat(4,1fr);gap:20px}
+  .abl-card{padding:32px 28px;background:var(--ink-2);border:1px solid var(--line);border-radius:18px;position:relative;transition:transform .4s var(--ease-out),border-color .4s ease}
+  .abl-card.win{border-color:var(--gold)}
+  .abl-card.win::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--gold);border-radius:3px 0 0 3px}
+  .abl-card:hover{transform:translateY(-4px)}
+  .abl-card .name{font-family:var(--mono);font-size:11.5px;color:var(--parchment-3);letter-spacing:.04em;margin-bottom:14px;display:flex;justify-content:space-between;align-items:center}
+  .abl-card.win .name b{color:var(--gold);font-weight:500}
+  .abl-card .score{font-family:var(--en);font-style:italic;font-weight:300;font-size:54px;color:var(--parchment);line-height:1;letter-spacing:-.02em}
+  .abl-card.win .score{color:var(--gold)}
+  .abl-card .score .u{font-size:.35em;color:var(--parchment-3);font-family:var(--ui);font-style:normal;font-weight:400;margin-left:6px}
+  .abl-card .delta{display:inline-flex;align-items:center;gap:4px;margin-top:12px;padding:3px 10px;background:rgba(196,77,77,.12);color:var(--err);border-radius:99px;font-family:var(--mono);font-size:11px;font-weight:500;letter-spacing:.04em}
+  .abl-card.win .delta{background:rgba(106,166,106,.15);color:var(--ok)}
+  .abl-card .micro{margin-top:20px;font-family:var(--en);font-style:italic;font-size:14px;line-height:1.5;color:var(--parchment-3)}
+  .abl-card .micro-ar{margin-top:6px;font-family:var(--ar-b);direction:rtl;font-size:14px;line-height:1.7;color:var(--parchment-3)}
+  @media(max-width:980px){.abl-grid{grid-template-columns:1fr 1fr}}
+  @media(max-width:560px){.abl-grid{grid-template-columns:1fr}}
+
+  /* ───────── stack ───────── */
+  #stack{padding:140px 0;background:var(--ink-2);border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+  .stack-grid{margin-top:80px;display:grid;grid-template-columns:1fr 1fr 1fr;gap:60px}
+  .stack-col h4{font-family:var(--ui);font-size:11px;font-weight:500;letter-spacing:.4em;text-transform:uppercase;color:var(--gold);margin-bottom:20px}
+  .stack-col h4 .ar-b{font-family:var(--ar-b);direction:rtl;font-weight:400;font-size:13px;color:var(--gold-warm);letter-spacing:0;text-transform:none;margin-left:10px}
+  .stack-col ul{list-style:none;display:flex;flex-direction:column;gap:14px}
+  .stack-col li{display:flex;justify-content:space-between;align-items:baseline;gap:14px;padding:14px 0;border-bottom:1px dotted var(--line);font-family:var(--mono);font-size:13px}
+  .stack-col li .l{color:var(--parchment)}
+  .stack-col li .r{color:var(--parchment-3);font-size:11px;font-style:italic;font-family:var(--en)}
+  @media(max-width:880px){.stack-grid{grid-template-columns:1fr;gap:40px}}
+
+  /* ───────── CTA ───────── */
+  #cta{padding:200px 0;text-align:center;background:radial-gradient(ellipse at 50% 50%,#241710 0%,#100b08 60%,var(--ink) 100%);position:relative;overflow:hidden}
+  #cta::before{content:"";position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:600px;height:600px;border-radius:50%;background:radial-gradient(circle,rgba(212,175,55,.08),transparent 70%);pointer-events:none}
+  #cta .inner{position:relative;z-index:2;max-width:880px;margin:0 auto;padding:0 6vw}
+  #cta h2{margin-bottom:20px;max-width:18ch;margin-left:auto;margin-right:auto}
+  #cta h2.ar{font-size:clamp(28px,3.6vw,52px);color:var(--parchment-2);margin-bottom:48px}
+  #cta .row{display:flex;justify-content:center;gap:18px;flex-wrap:wrap}
+  #cta .fine{margin-top:36px;font-family:var(--mono);font-size:11.5px;color:var(--parchment-3);letter-spacing:.04em}
+
+  /* ───────── footer ───────── */
+  footer{background:var(--ink);padding:60px 6vw 40px;border-top:1px solid var(--line)}
+  .foot-grid{display:grid;grid-template-columns:1.6fr 1fr 1fr 1fr;gap:60px;margin-bottom:40px}
+  .foot-col h5{font-family:var(--ui);font-size:11px;font-weight:600;letter-spacing:.3em;text-transform:uppercase;color:var(--gold);margin-bottom:18px}
+  .foot-col ul{list-style:none}
+  .foot-col li{padding:6px 0;font-family:var(--ui);font-size:13px;color:var(--parchment-2);transition:color .25s ease;cursor:pointer}
+  .foot-col li:hover{color:var(--parchment)}
+  .foot-col p{font-family:var(--en);font-style:italic;font-size:16px;color:var(--parchment-2);line-height:1.55;max-width:36ch}
+  .foot-col p.ar-b{font-size:15.5px;color:var(--parchment-3);direction:rtl;line-height:1.85;margin-top:8px;font-style:normal}
+  .foot-bottom{display:flex;justify-content:space-between;align-items:center;padding-top:24px;border-top:1px solid var(--line);font-family:var(--mono);font-size:11.5px;color:var(--parchment-3);flex-wrap:wrap;gap:14px}
+  .foot-bottom b{color:var(--gold);font-weight:500}
+  @media(max-width:880px){.foot-grid{grid-template-columns:1fr 1fr;gap:40px}}
+
+  /* ───────── reveals ───────── */
+  .reveal{opacity:0;transform:translateY(28px);transition:opacity 1.0s var(--ease-out),transform 1.0s var(--ease-out)}
+  .reveal.in{opacity:1;transform:none}
+  .stagger > *{opacity:0;transform:translateY(20px);transition:opacity .8s var(--ease-out),transform .8s var(--ease-out)}
+  .stagger.in > *{opacity:1;transform:none}
+  .stagger.in > *:nth-child(2){transition-delay:.1s}
+  .stagger.in > *:nth-child(3){transition-delay:.2s}
+  .stagger.in > *:nth-child(4){transition-delay:.3s}
+
+  /* ───────── responsive ───────── */
+  @media(max-width:980px){
+    .hero-grid,.col-2{grid-template-columns:1fr;gap:40px}
+    .section{padding:100px 0}
+  }
+</style>
+</head>
+<body>
+
+<!-- ─────────── NAV ─────────── -->
+<nav id="nav">
+  <a href="#" class="logo"><span class="mark">د</span><span><em>Dar</em>Design</span></a>
+  <div class="nav-links">
+    <a href="#how">How it works</a>
+    <a href="#pipeline">Method</a>
+    <a href="#styles">Styles</a>
+    <a href="#metrics">Results</a>
+    <a href="#stack">Stack</a>
+  </div>
+  <div style="display:flex;gap:14px;align-items:center">
+    <button class="lang-toggle" id="langToggle"><span>EN</span> · <b>عربي</b></button>
+    <a href="#cta" class="nav-cta">Try it<span class="ar-b">جرّبه</span> →</a>
+  </div>
+</nav>
+
+<!-- ─────────── HERO ─────────── -->
+<section id="hero">
+  <div class="wrap">
+    <div class="hero-grid">
+      <div>
+        <div class="hero-tag reveal">
+          <span class="dot"></span>
+          <span>Final Year Project · MMXXVI</span>
+          <span class="ar-b">مشروع التخرّج</span>
+        </div>
+        <h1 class="hero-title reveal">A house has a <em>language</em>.<br/>We taught AI to <em>speak it.</em></h1>
+        <h2 class="ar hero-title-ar reveal">للبيتِ <span>لُغة</span>.<br/>عَلَّمنا الذكاءَ الاصطناعيَّ كيفَ <span>يَنطِق</span> بِها.</h2>
+        <p class="lede reveal">DarDesign redesigns any room into one of three Arab interior traditions — Lebanese, Khaleeji, or Moroccan — using a custom-trained diffusion pipeline grounded in a 75-term bilingual architectural ontology.</p>
+        <p class="lede ar-b reveal" style="margin-top:18px">داردِساين يُعيد تصميم أيّ غُرفة وَفقَ ثلاث تقاليد عمارة عربيّة — شاميّة، خليجيّة، مغربيّة — عبرَ خَطِّ معالجةٍ مُدرَّبٍ على أُنطولوجيا ثُنائيّةِ اللُّغة من ٧٥ مُفردة معماريّة.</p>
+        <div class="hero-cta reveal">
+          <a href="#cta" class="btn btn-primary">Try the demo <span class="ar-b">جرّب الآن</span><span class="arrow">→</span></a>
+          <a href="#pipeline" class="btn btn-ghost">Read the method <span class="arrow">↓</span></a>
+        </div>
+        <div class="hero-leds reveal">
+          <div class="led">Open source · MIT</div>
+          <div class="led">Runs on a free T4</div>
+          <div class="led">EN ↔ AR throughout</div>
+        </div>
+      </div>
+
+      <div class="hero-showcase reveal">
+        <div class="hero-meta">
+          <div class="live">live · بثّ مباشر</div>
+          <div>60.2 s / image · T4</div>
+          <div>SDXL + 3-LoRA</div>
+        </div>
+        <div class="ba-stage" id="baStage">
+          <div class="ba-img before"><span>before · قبل</span></div>
+          <div class="ba-img after lebanon" id="baAfter">
+            <span>after · بعد</span>
+            <svg class="ba-arch" viewBox="0 0 400 500" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+              <!-- horseshoe/pointed arch overlay -->
+              <path d="M 100 460 L 100 220 Q 100 100 200 100 Q 300 100 300 220 L 300 460" fill="none" stroke="#f3ead2" stroke-width="2" opacity=".5"/>
+              <path d="M 130 460 L 130 230 Q 130 130 200 130 Q 270 130 270 230 L 270 460" fill="none" stroke="#d4af37" stroke-width="1" opacity=".5"/>
+              <!-- floor pattern hint -->
+              <g opacity=".4">
+                <line x1="80" y1="380" x2="320" y2="380" stroke="#f3ead2" stroke-width=".5"/>
+                <line x1="80" y1="420" x2="320" y2="420" stroke="#f3ead2" stroke-width=".5"/>
+                <line x1="80" y1="460" x2="320" y2="460" stroke="#f3ead2" stroke-width=".5"/>
+              </g>
+            </svg>
+          </div>
+          <div class="ba-label l">input<span class="ar-b">المُدخَل</span></div>
+          <div class="ba-label r">DarDesign<span class="ar-b">داردِساين</span></div>
+          <div class="handle" id="baHandle"></div>
+          <div class="ba-bottom">
+            <div class="style" id="baStyleLabel"><em>The Beiruti</em><span class="ar">المنزل البَيروتي</span></div>
+            <div class="stack">
+              <span class="swatch s-lebanon active" data-style="lebanon" title="Lebanese · لبناني"></span>
+              <span class="swatch s-gulf" data-style="gulf" title="Khaleeji · خليجي"></span>
+              <span class="swatch s-morocco" data-style="morocco" title="Moroccan · مغربي"></span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ─────────── TRUST STRIP ─────────── -->
+<section id="trust">
+  <div class="wrap trust-row">
+    <div class="trust-item">Built with <b>SDXL</b><span class="ar-b">مَبْنيّ على SDXL</span></div>
+    <div class="trust-item">Trained on <b>Kaggle T4</b><span class="ar-b">مُدرَّبٌ على T4</span></div>
+    <div class="trust-item">Ontology by <b>23 reviewers</b><span class="ar-b">أنطولوجيا بِـ٢٣ مُحَكَّماً</span></div>
+    <div class="trust-item">Evaluated on <b>60 rooms</b><span class="ar-b">مُقَيَّمٌ على ٦٠ غرفة</span></div>
+    <div class="trust-item">Three <b>LoRAs</b><span class="ar-b">ثلاثة نَماذج لورا</span></div>
+  </div>
+</section>
+
+<!-- ─────────── NUMBERS ─────────── -->
+<section id="numbers">
+  <div class="wrap">
+    <div class="eyebrow reveal">By the numbers <span class="ar-b">بِالأرقام</span></div>
+    <div class="num-grid stagger reveal">
+      <div class="num-cell">
+        <div class="ax">↑ better</div>
+        <div class="n">+38<span class="u">%</span></div>
+        <div class="l">Cultural fidelity over RoomGPT</div>
+        <div class="la">أمانة ثقافية أعلى من RoomGPT</div>
+      </div>
+      <div class="num-cell">
+        <div class="ax">↓ better</div>
+        <div class="n">0.31</div>
+        <div class="l">LPIPS · perceptual distance to ground truth</div>
+        <div class="la">المسافة الإدراكية</div>
+      </div>
+      <div class="num-cell">
+        <div class="ax">↑ better</div>
+        <div class="n">4.3<span class="u">/5</span></div>
+        <div class="l">Blind human review score, n=23</div>
+        <div class="la">تقييم بشري أعمى</div>
+      </div>
+      <div class="num-cell">
+        <div class="ax">benchmark</div>
+        <div class="n">60<span class="u">s</span></div>
+        <div class="l">Time per render on a free Kaggle T4</div>
+        <div class="la">على بطاقة T4</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ─────────── HOW ─────────── -->
+<section id="how" class="section">
+  <div class="wrap">
+    <div class="how-header reveal">
+      <div>
+        <div class="eyebrow">How it works <span class="ar-b">آليّة العمل</span></div>
+        <h2>Three steps. One <em>room</em>.<br/>One thousand five hundred <em>years</em> of style.</h2>
+      </div>
+      <div>
+        <h2 class="ar">ثلاثُ خطوات. <span>غرفةٌ</span> واحدة.<br/>وألفٌ وخمسُمِئة عام من <span>الطّابع</span>.</h2>
+      </div>
+    </div>
+
+    <div class="steps stagger reveal">
+      <div class="step">
+        <div class="step-num">01</div>
+        <h3><em>Upload</em> a room</h3>
+        <h3 class="ar">ارفَع صورة الغرفة</h3>
+        <p>A single photo of any interior — bedroom, living room, courtyard. Up to 10 MB. We never store it after the render is finished.</p>
+        <p class="ar-b">صورةٌ واحدة لأيّ فضاء داخليّ — غرفة نوم، صالون، فِناء. حتّى ١٠ ميغا. لا نَحتَفِظ بِها بعدَ انتهاءِ المعالجة.</p>
+        <div class="tech"><span class="t">JPG / PNG</span><span class="t">≥ 256 px</span><span class="t">≤ 10 MB</span></div>
+      </div>
+      <div class="step">
+        <div class="step-num">02</div>
+        <h3><em>Choose</em> a tradition</h3>
+        <h3 class="ar">اختَر تقليداً</h3>
+        <p>Three doors. Lebanese, Khaleeji, Moroccan. Each pulls from a custom LoRA trained on 175 captioned rooms in that vocabulary.</p>
+        <p class="ar-b">ثلاثةُ أبواب. شاميّ، خليجيّ، مغربيّ. كلٌّ يَسحَب من نموذج لورا مُدَرَّب على ١٧٥ غرفةً موسومة.</p>
+        <div class="tech"><span class="t">Lebanese</span><span class="t">Khaleeji</span><span class="t">Moroccan</span></div>
+      </div>
+      <div class="step">
+        <div class="step-num">03</div>
+        <h3><em>Receive</em> the redesign</h3>
+        <h3 class="ar">استَلِم التصميم الجديد</h3>
+        <p>Sixty seconds. The room you uploaded — same walls, same windows — re-clothed in a culture-grounded interior. Before/after slider included.</p>
+        <p class="ar-b">ستّونَ ثانية. الغرفةُ نفسُها — بِجُدرانها ونوافذها — مَكسوَّةً بِفَضاءٍ مُرتَكِزٍ ثقافيّاً. مع مُقارَنةٍ قَبل/بَعد.</p>
+        <div class="tech"><span class="t">SSIM 0.42</span><span class="t">LPIPS 0.31</span><span class="t">4K output</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ─────────── PIPELINE (technical) ─────────── -->
+<section id="pipeline" class="section">
+  <div class="wrap">
+    <div class="pipe-header reveal">
+      <div>
+        <div class="eyebrow">The method <span class="ar-b">المنهجيّة</span></div>
+        <h2>Five models. One <em>photograph</em>.</h2>
+        <p class="lede" style="margin-top:18px">Click a stage to see the model that does the work. Every node is a real frozen network; the LoRAs at the end are what we trained.</p>
+      </div>
+      <div>
+        <h2 class="ar">خَمسةُ نَماذج. <span>صورةٌ</span> واحدة.</h2>
+        <p class="lede ar-b" style="margin-top:18px">انقُر مرحلةً لِتَرى النَّموذجَ الذي يُنجِزها. كلُّ عُقدةٍ شَبكةٌ مُجَمَّدة، ولُورا في النِّهاية هي ما دَرَّبناه.</p>
+      </div>
+    </div>
+
+    <div class="pipe-board reveal">
+      <div class="pipe-tabs">
+        <button class="pipe-tab active" data-stage="0"><span class="num">01</span>Input<span class="ar-b">المُدخَل</span></button>
+        <button class="pipe-tab" data-stage="1"><span class="num">02</span>Depth<span class="ar-b">العُمق</span></button>
+        <button class="pipe-tab" data-stage="2"><span class="num">03</span>Segment<span class="ar-b">التقسيم</span></button>
+        <button class="pipe-tab" data-stage="3"><span class="num">04</span>Prompt<span class="ar-b">المُوجِّه</span></button>
+        <button class="pipe-tab" data-stage="4"><span class="num">05</span>Generate<span class="ar-b">التَّوليد</span></button>
+      </div>
+      <div class="pipe-stage" id="pipeStageContent">
+        <!-- filled by JS -->
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ─────────── STYLES ─────────── -->
+<section id="styles" class="section">
+  <div class="wrap">
+    <div class="col-2 reveal">
+      <div>
+        <div class="eyebrow">Three traditions <span class="ar-b">ثلاثة تقاليد</span></div>
+        <h2>Not <em>generic</em>.<br/>Not <em>orientalist</em>.<br/><em>Specific.</em></h2>
+      </div>
+      <div>
+        <h2 class="ar">ليست <span>عامّةً</span>.<br/>ليست <span>استشراقيّة</span>.<br/><span>مُحدَّدة</span>.</h2>
+        <p class="lede ar-b" style="margin-top:24px">كلُّ تقليدٍ يَستَدعي مُفرداتٍ من ٢٥ مصطلحاً معماريّاً موثَّقاً من قِبل مُحَكَّم. لا نَستعمل كلمة «عربيّ» وَحدَها — وَحدُها لا تَعني شَيئاً.</p>
+      </div>
+    </div>
+
+    <div class="styles-grid stagger reveal">
+      <a href="#cta" class="style-card lebanese">
+        <div class="art">
+          <svg viewBox="0 0 100 100" preserveAspectRatio="none"><pattern id="le" width="20" height="20" patternUnits="userSpaceOnUse"><circle cx="10" cy="10" r="2" fill="#f3ead2"/></pattern><rect width="100" height="100" fill="url(#le)"/></svg>
+        </div>
+        <div class="art-overlay"></div>
+        <div class="tag">Levantine · شامي</div>
+        <div class="arrow">→</div>
+        <div class="body">
+          <h3><em>The Beiruti</em></h3>
+          <h3 class="ar">المنزل البَيروتي</h3>
+          <div class="terms">
+            <span class="t">triple-bay window</span>
+            <span class="t">hand-painted ceiling</span>
+            <span class="t">damascene marquetry</span>
+            <span class="t">brass chandelier</span>
+            <span class="t">+ 21 more</span>
+          </div>
+        </div>
+      </a>
+
+      <a href="#cta" class="style-card khaleeji">
+        <div class="art">
+          <svg viewBox="0 0 100 100" preserveAspectRatio="none"><pattern id="kh" width="24" height="24" patternUnits="userSpaceOnUse"><path d="M 12 4 L 18 12 L 12 20 L 6 12 Z" fill="none" stroke="#f3ead2" stroke-width=".5"/></pattern><rect width="100" height="100" fill="url(#kh)"/></svg>
+        </div>
+        <div class="art-overlay"></div>
+        <div class="tag">Gulf · خليجي</div>
+        <div class="arrow">→</div>
+        <div class="body">
+          <h3><em>The Najdi</em></h3>
+          <h3 class="ar">المجلس النَّجدي</h3>
+          <div class="terms">
+            <span class="t">floor majlis</span>
+            <span class="t">carved gypsum</span>
+            <span class="t">date-palm wood</span>
+            <span class="t">sadu weaving</span>
+            <span class="t">+ 21 more</span>
+          </div>
+        </div>
+      </a>
+
+      <a href="#cta" class="style-card moroccan">
+        <div class="art">
+          <svg viewBox="0 0 100 100" preserveAspectRatio="none"><pattern id="mo" width="20" height="20" patternUnits="userSpaceOnUse"><g transform="translate(10,10)" fill="none" stroke="#f3ead2" stroke-width=".4"><path d="M 0 -7 L 2 -2 L 7 0 L 2 2 L 0 7 L -2 2 L -7 0 L -2 -2 Z"/></g></pattern><rect width="100" height="100" fill="url(#mo)"/></svg>
+        </div>
+        <div class="art-overlay"></div>
+        <div class="tag">Maghrebi · مغربي</div>
+        <div class="arrow">→</div>
+        <div class="body">
+          <h3><em>The Riad</em></h3>
+          <h3 class="ar">الرّياض الفاسيّ</h3>
+          <div class="terms">
+            <span class="t">zellige</span>
+            <span class="t">tadelakt</span>
+            <span class="t">horseshoe arch</span>
+            <span class="t">carved cedar</span>
+            <span class="t">+ 21 more</span>
+          </div>
+        </div>
+      </a>
+    </div>
+  </div>
+</section>
+
+<!-- ─────────── METRICS ─────────── -->
+<section id="metrics" class="section">
+  <div class="wrap">
+    <div class="col-2 reveal">
+      <div>
+        <div class="eyebrow">Evaluation <span class="ar-b">التَّقييم</span></div>
+        <h2>We <em>didn't</em> win SSIM.<br/>We weren't <em>trying</em> to.</h2>
+      </div>
+      <div>
+        <h2 class="ar">لَم نَفُز بِـ <span>SSIM</span>.<br/>لَم نَكُن <span>نُحاوِل</span>.</h2>
+        <p class="lede ar-b" style="margin-top:24px">SSIM يُكافِئ الحِفاظَ على البِكسل. خَطُّ معالَجتِنا يُغيِّر الطّابعَ بِحَزم ويَحفَظ هندسة الغرفة. نَفوز على اللُّبّ: الأمانة الثقافيّة.</p>
+      </div>
+    </div>
+
+    <div class="metrics-grid reveal">
+      <div class="chart-card">
+        <div class="head">
+          <div>
+            <h3>SSIM ↑ vs LPIPS ↓<span style="display:block" class="ar-b" >هيكليّ · إدراكيّ</span></h3>
+          </div>
+          <div class="r">n = 60 held-out · seed = 42</div>
+        </div>
+        <svg viewBox="0 0 640 360" preserveAspectRatio="xMidYMid meet" aria-label="SSIM vs LPIPS scatter">
+          <g class="chart-grid-line">
+            <line x1="60" y1="60"  x2="620" y2="60"/>
+            <line x1="60" y1="130" x2="620" y2="130"/>
+            <line x1="60" y1="200" x2="620" y2="200"/>
+            <line x1="60" y1="270" x2="620" y2="270"/>
+            <line x1="200" y1="30" x2="200" y2="310"/>
+            <line x1="340" y1="30" x2="340" y2="310"/>
+            <line x1="480" y1="30" x2="480" y2="310"/>
+          </g>
+          <line class="chart-axis" x1="60" y1="310" x2="620" y2="310"/>
+          <line class="chart-axis" x1="60" y1="30"  x2="60"  y2="310"/>
+          <!-- y ticks (LPIPS) -->
+          <text class="chart-tick" x="54" y="64"  text-anchor="end">0.25</text>
+          <text class="chart-tick" x="54" y="134" text-anchor="end">0.35</text>
+          <text class="chart-tick" x="54" y="204" text-anchor="end">0.45</text>
+          <text class="chart-tick" x="54" y="274" text-anchor="end">0.55</text>
+          <!-- x ticks (SSIM) -->
+          <text class="chart-tick" x="60"  y="324" text-anchor="middle">0.32</text>
+          <text class="chart-tick" x="200" y="324" text-anchor="middle">0.40</text>
+          <text class="chart-tick" x="340" y="324" text-anchor="middle">0.46</text>
+          <text class="chart-tick" x="480" y="324" text-anchor="middle">0.52</text>
+          <text class="chart-tick" x="620" y="324" text-anchor="middle">0.58</text>
+          <!-- axis labels -->
+          <text x="340" y="348" text-anchor="middle" font-family="Inter" font-size="11" fill="#a89f85" letter-spacing="2">SSIM (structural ↑)</text>
+          <text x="20" y="170" text-anchor="middle" font-family="Inter" font-size="11" fill="#a89f85" letter-spacing="2" transform="rotate(-90 20 170)">LPIPS (perceptual ↓)</text>
+          <!-- frontier -->
+          <text class="chart-tick" x="80" y="50" fill="#d4af37">better →</text>
+          <path d="M 130 60 L 70 30" stroke="#d4af37" stroke-width=".7" fill="none" marker-end="url(#mk)"/>
+          <defs><marker id="mk" markerWidth="6" markerHeight="6" refX="3" refY="3" orient="auto"><path d="M 0 0 L 6 3 L 0 6 Z" fill="#d4af37"/></marker></defs>
+          <!-- ours: SSIM 0.42, LPIPS 0.31 -->
+          <circle cx="295" cy="92" r="9" fill="#d4af37" stroke="#f3ead2" stroke-width="2.5"/>
+          <text x="310" y="88" font-family="Cormorant Garamond" font-style="italic" font-size="16" fill="#d4af37">DarDesign</text>
+          <text x="310" y="104" font-family="JetBrains Mono" font-size="10" fill="#a89f85">ours · 0.42 / 0.31</text>
+          <!-- no-LoRA: 0.44, 0.36 -->
+          <circle cx="330" cy="127" r="5" fill="#9a7d2a"/>
+          <text x="340" y="125" font-family="Cormorant Garamond" font-style="italic" font-size="13" fill="#9a7d2a">— no LoRA</text>
+          <!-- no-seg: 0.36, 0.34 -->
+          <circle cx="190" cy="106" r="5" fill="#9a7d2a"/>
+          <text x="120" y="103" font-family="Cormorant Garamond" font-style="italic" font-size="13" fill="#9a7d2a">— no seg</text>
+          <!-- no-ontology: 0.43, 0.33 -->
+          <circle cx="312" cy="120" r="5" fill="#9a7d2a"/>
+          <text x="246" y="135" font-family="Cormorant Garamond" font-style="italic" font-size="13" fill="#9a7d2a">— no ontology</text>
+          <!-- RoomGPT: 0.38, 0.38 -->
+          <circle cx="225" cy="148" r="7" fill="#7c8cd6"/>
+          <text x="166" y="163" font-family="Cormorant Garamond" font-style="italic" font-size="14" fill="#7c8cd6">RoomGPT</text>
+          <!-- Decor8: 0.51, 0.42 -->
+          <circle cx="445" cy="178" r="7" fill="#8d1b2d"/>
+          <text x="455" y="176" font-family="Cormorant Garamond" font-style="italic" font-size="14" fill="#c44d4d">Decor8</text>
+        </svg>
+        <div class="legend">
+          <span><span class="sw dot" style="background:#d4af37"></span>Ours</span>
+          <span><span class="sw dot" style="background:#9a7d2a"></span>Ablations</span>
+          <span><span class="sw dot" style="background:#7c8cd6"></span>RoomGPT</span>
+          <span><span class="sw dot" style="background:#8d1b2d"></span>Decor8</span>
+        </div>
+      </div>
+
+      <div class="chart-card" style="padding:24px">
+        <div class="head"><h3>Side-by-side<span style="display:block" class="ar-b">جنباً إلى جنب</span></h3><div class="r">cult-fid · n = 23 blind</div></div>
+        <table class="eval-table">
+          <thead><tr><th>method</th><th>SSIM ↑</th><th>LPIPS ↓</th><th>cult-fid ↑</th></tr></thead>
+          <tbody>
+            <tr class="ours"><td><em>DarDesign</em><span class="badge">▲ ours</span></td><td>0.42</td><td><b>0.31</b></td><td><b>4.3</b></td></tr>
+            <tr><td>— no LoRA</td><td>0.44</td><td>0.36</td><td>3.1</td></tr>
+            <tr><td>— no seg ControlNet</td><td>0.36</td><td>0.34</td><td>3.9</td></tr>
+            <tr><td>— no ontology</td><td>0.43</td><td>0.33</td><td>3.5</td></tr>
+            <tr><td>RoomGPT</td><td>0.38</td><td>0.38</td><td>2.7</td></tr>
+            <tr><td>Decor8</td><td><b>0.51</b></td><td>0.42</td><td>2.4</td></tr>
+          </tbody>
+        </table>
+        <p style="margin-top:18px;font-family:var(--en);font-style:italic;font-size:14px;color:var(--parchment-3);line-height:1.55">Ours wins LPIPS + cult-fid, loses SSIM by design. No-seg is the costliest ablation — validating the dual-ControlNet bet.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ─────────── ABLATIONS ─────────── -->
+<section id="ablation" class="section">
+  <div class="wrap">
+    <div class="col-2 reveal">
+      <div>
+        <div class="eyebrow">Ablations <span class="ar-b">دراسات الاستئصال</span></div>
+        <h2>What <em>matters</em>.<br/>What <em>doesn't</em>.</h2>
+      </div>
+      <div>
+        <h2 class="ar">ما الذي <span>يَهُمّ</span>.<br/>وما الذي <span>لا</span>.</h2>
+        <p class="lede ar-b" style="margin-top:24px">حَذَفنا قطعةً واحدةً في كلِّ مرّةٍ وأعَدنا التقييمَ على نفسِ ٦٠ غرفة. الأمانة الثقافيّة هي مَيدانُ القرار.</p>
+      </div>
+    </div>
+
+    <div class="abl-grid stagger reveal">
+      <div class="abl-card win">
+        <div class="name"><b>full pipeline</b><span>—</span></div>
+        <div class="score">4.3<span class="u">/5</span></div>
+        <div class="delta">baseline</div>
+        <p class="micro">Everything on. Dual ControlNet, three LoRAs, weighted ontology sampling.</p>
+        <p class="micro-ar">كلّ شيءٍ مُفَعَّل. كنترول-نت مُزدوَج، ثلاثة لورا، عيِّناتٌ مُرَجَّحة.</p>
+      </div>
+      <div class="abl-card">
+        <div class="name">no <b>LoRA</b><span class="mono">−1.2</span></div>
+        <div class="score">3.1<span class="u">/5</span></div>
+        <div class="delta">↓ 28 %</div>
+        <p class="micro">Prompt-only on stock SDXL. Generic luxury minimalism returns.</p>
+        <p class="micro-ar">موجِّهٌ فقط على SDXL. تعودُ المينيماليّةُ الفاخرة.</p>
+      </div>
+      <div class="abl-card">
+        <div class="name">no <b>seg</b><span class="mono">−0.4</span></div>
+        <div class="score">3.9<span class="u">/5</span></div>
+        <div class="delta">↓ 9 %</div>
+        <p class="micro">Room geometry drifts — pools become baths, ceilings tilt.</p>
+        <p class="micro-ar">هندسةُ الغرفة تَنحَرف — تَتحَوَّل النوافيرُ إلى أَحواض.</p>
+      </div>
+      <div class="abl-card">
+        <div class="name">no <b>ontology</b><span class="mono">−0.8</span></div>
+        <div class="score">3.5<span class="u">/5</span></div>
+        <div class="delta">↓ 19 %</div>
+        <p class="micro">Style nouns survive; specificity collapses to clichés.</p>
+        <p class="micro-ar">تَبقى الأسماء، تَنهارُ التَّفاصيلُ نَحو الكليشيهات.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ─────────── STACK ─────────── -->
+<section id="stack" class="section">
+  <div class="wrap">
+    <div class="col-2 reveal">
+      <div>
+        <div class="eyebrow">The stack <span class="ar-b">المُكَدَّس التِّقني</span></div>
+        <h2>Open source.<br/><em>End to end.</em></h2>
+      </div>
+      <div>
+        <h2 class="ar">مَفتوحُ المصدر.<br/>من <span>الطَّرَفِ إلى الطّرف</span>.</h2>
+        <p class="lede ar-b" style="margin-top:24px">لا واجهةَ بَرمَجة تجاريّة. لا نَموذجَ مُغلَق. كلُّ قطعةٍ يُمكنُك تفكيكُها وإعادة تركيبها.</p>
+      </div>
+    </div>
+
+    <div class="stack-grid stagger reveal">
+      <div class="stack-col">
+        <h4>ML <span class="ar-b">تعلُّم الآلة</span></h4>
+        <ul>
+          <li><span class="l">SDXL-base-1.0</span><span class="r">frozen, fp16</span></li>
+          <li><span class="l">DreamBooth-LoRA</span><span class="r">rank 16, ×3</span></li>
+          <li><span class="l">ControlNet · depth</span><span class="r">Depth-Anything-V2</span></li>
+          <li><span class="l">ControlNet · seg</span><span class="r">OneFormer ADE20K</span></li>
+          <li><span class="l">AdamW-8bit</span><span class="r">cosine, lr 1e-4</span></li>
+          <li><span class="l">Diffusers</span><span class="r">0.30</span></li>
+        </ul>
+      </div>
+      <div class="stack-col">
+        <h4>Backend <span class="ar-b">الخادم</span></h4>
+        <ul>
+          <li><span class="l">FastAPI</span><span class="r">Pydantic v2</span></li>
+          <li><span class="l">Kaggle T4</span><span class="r">16 GB, free tier</span></li>
+          <li><span class="l">SD 1.5 fallback</span><span class="r">on OOM at 768²</span></li>
+          <li><span class="l">HMAC share tokens</span><span class="r">7-day TTL, stateless</span></li>
+          <li><span class="l">Bilingual errors</span><span class="r">EN + AR codes</span></li>
+          <li><span class="l">Job registry</span><span class="r">in-memory, thread-safe</span></li>
+        </ul>
+      </div>
+      <div class="stack-col">
+        <h4>Frontend <span class="ar-b">الواجهة</span></h4>
+        <ul>
+          <li><span class="l">Next.js 14</span><span class="r">App Router</span></li>
+          <li><span class="l">React 18</span><span class="r">TypeScript 5</span></li>
+          <li><span class="l">Tailwind CSS</span><span class="r">3.4</span></li>
+          <li><span class="l">shadcn/ui</span><span class="r">radix-nova</span></li>
+          <li><span class="l">RTL · full</span><span class="r">dir + font swap</span></li>
+          <li><span class="l">Theme</span><span class="r">dark / light</span></li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ─────────── CTA ─────────── -->
+<section id="cta">
+  <div class="inner">
+    <div class="eyebrow reveal" style="justify-content:center">Begin <span class="ar-b">ابدَأ</span></div>
+    <h2 class="reveal">Bring your <em>own</em> room.<br/>Watch it find its <em>dar</em>.</h2>
+    <h2 class="ar reveal">أَحضِر <span>غُرفتَك</span>.<br/>وَشاهِدها تَجد <span>دارها</span>.</h2>
+    <div class="row reveal">
+      <a href="/transform" class="btn btn-primary" id="primaryCTA">Upload a room <span class="ar-b">ارفَع غرفة</span><span class="arrow">→</span></a>
+      <a href="https://github.com/hamdanyasser/dardesign-app" target="_blank" rel="noopener" class="btn btn-ghost">View on GitHub <span class="arrow">↗</span></a>
+    </div>
+    <div class="fine reveal">No sign-up · processes in 60 s · we don't store your photo</div>
+  </div>
+</section>
+
+<!-- ─────────── FOOTER ─────────── -->
+<footer>
+  <div class="wrap">
+    <div class="foot-grid">
+      <div class="foot-col">
+        <a href="#" class="logo" style="margin-bottom:20px;display:inline-flex"><span class="mark">د</span><span><em>Dar</em>Design</span></a>
+        <p>A bilingual AI pipeline for Arab interior redesign. Final Year Project, American University of Beirut · MMXXVI.</p>
+        <p class="ar-b">خَطُّ مُعالَجَةٍ ثُنائيُّ اللُّغة لإعادة تَصميم الفضاءاتِ الدّاخليّة العَربيّة. مَشروع التَّخرُّج · ٢٠٢٦.</p>
+      </div>
+      <div class="foot-col">
+        <h5>Product</h5>
+        <ul>
+          <li>Try the demo</li>
+          <li>How it works</li>
+          <li>Three styles</li>
+          <li>API access · soon</li>
+        </ul>
+      </div>
+      <div class="foot-col">
+        <h5>Research</h5>
+        <ul>
+          <li>The paper · PDF</li>
+          <li>Pipeline code</li>
+          <li>LoRA checkpoints</li>
+          <li>Ontology JSON</li>
+        </ul>
+      </div>
+      <div class="foot-col">
+        <h5>Team</h5>
+        <ul>
+          <li>Hamdan Yasser</li>
+          <li>Zainab Al-Faqih</li>
+          <li>Acknowledgements</li>
+          <li>Contact · email</li>
+        </ul>
+      </div>
+    </div>
+    <div class="foot-bottom">
+      <div><b>DarDesign · داردِساين</b> &nbsp;·&nbsp; MIT-licensed · MMXXVI</div>
+      <div>Built in Beirut · بُنِيَ في بيروت</div>
+    </div>
+  </div>
+</footer>
+
+<script>
+  // ─────────── nav scroll state ───────────
+  const nav = document.getElementById('nav');
+  addEventListener('scroll', () => {
+    nav.classList.toggle('scrolled', scrollY > 24);
+  }, { passive: true });
+
+  // ─────────── reveal-on-scroll ───────────
+  const io = new IntersectionObserver((entries) => {
+    entries.forEach(e => {
+      if (e.isIntersecting) {
+        e.target.classList.add('in');
+      }
+    });
+  }, { threshold: .12, rootMargin: '0px 0px -80px 0px' });
+  document.querySelectorAll('.reveal, .stagger').forEach(el => io.observe(el));
+
+  // ─────────── before/after slider ───────────
+  const baStage = document.getElementById('baStage');
+  const baHandle = document.getElementById('baHandle');
+  const baAfter = document.getElementById('baAfter');
+  let baDown = false;
+  function setBA(x){
+    const r = baStage.getBoundingClientRect();
+    const pct = Math.max(8, Math.min(92, ((x - r.left) / r.width) * 100));
+    baHandle.style.left = pct + '%';
+    baAfter.style.clipPath = `inset(0 0 0 ${pct}%)`;
+  }
+  baStage.addEventListener('pointerdown', e => { baDown = true; setBA(e.clientX); baStage.setPointerCapture(e.pointerId); });
+  baStage.addEventListener('pointermove', e => { if (baDown) setBA(e.clientX); });
+  baStage.addEventListener('pointerup', () => { baDown = false; });
+  baStage.addEventListener('pointerleave', () => { baDown = false; });
+
+  // gentle auto-sweep on hero load until user interacts
+  let baAuto = true;
+  function autoSweep(){
+    if (!baAuto) return;
+    const t = (performance.now() % 8000) / 8000;
+    const eased = .5 - .5 * Math.cos(t * Math.PI * 2);
+    const r = baStage.getBoundingClientRect();
+    setBA(r.left + r.width * (.18 + eased * .64));
+    requestAnimationFrame(autoSweep);
+  }
+  requestAnimationFrame(autoSweep);
+  baStage.addEventListener('pointerdown', () => { baAuto = false; });
+
+  // ─────────── style swatches ───────────
+  const swatches = document.querySelectorAll('.swatch[data-style]');
+  const styleLabels = {
+    lebanon:  { en: 'The Beiruti',     ar: 'المنزل البَيروتي' },
+    gulf:     { en: 'The Najdi',       ar: 'المجلس النَّجدي'  },
+    morocco:  { en: 'The Riad',        ar: 'الرّياض الفاسيّ'   },
+  };
+  const baLabel = document.getElementById('baStyleLabel');
+  swatches.forEach(sw => {
+    sw.addEventListener('click', () => {
+      const style = sw.dataset.style;
+      swatches.forEach(s => s.classList.toggle('active', s === sw));
+      baAfter.classList.remove('lebanon', 'gulf', 'morocco');
+      baAfter.classList.add(style);
+      baLabel.innerHTML = `<em>${styleLabels[style].en}</em><span class="ar">${styleLabels[style].ar}</span>`;
+    });
+  });
+
+  // ─────────── pipeline tabs ───────────
+  const stages = [
+    {
+      en: { title: 'Your photograph, as it is', desc: 'Any room photo, single shot, up to 10 MB. The pipeline never sees more than this one frame, and we discard it the moment the render finishes.' },
+      ar: { title: 'صورتُكَ كما هي',          desc: 'صورةٌ واحدة لِأيّ غُرفة، حتّى ١٠ ميغا. لا يَرى خَطُّ المعالجةِ شيئاً سواها، ونَحذِفُها فَورَ انتهاء التَّوليد.' },
+      spec: [
+        { k: 'input',      v: 'RGB · ≥ 256 px' },
+        { k: 'transport',  v: 'multipart upload · TLS' },
+        { k: 'validators', v: 'mime, dim, PIL.verify' },
+        { k: 'storage',    v: 'in-memory · zero retention' },
+      ],
+      viz: 'frame'
+    },
+    {
+      en: { title: 'Depth — what is near, what is far', desc: 'Depth-Anything-V2 produces a per-pixel depth map. The diffusion model receives this through the depth ControlNet so the new room keeps the same walls, the same ceiling height, the same windows.' },
+      ar: { title: 'العُمق — ما القريب وما البعيد', desc: 'يُنتج Depth-Anything-V2 خريطةَ عُمقٍ لكلِّ بِكسل. يَتلَقّاها نَموذج التَّوليد عَبر كنترول-نت العُمق، فَتَبقى الجُدران والسَّقف والنوافذ كما هي.' },
+      spec: [
+        { k: 'model',     v: 'Depth-Anything-V2-Small' },
+        { k: 'precision', v: 'fp16 · 518 px short side' },
+        { k: 'controlnet',v: 'diffusion_pytorch_model · sdxl-depth' },
+        { k: 'weight',    v: 'culture-tuned · 0.65 – 0.85' },
+      ],
+      viz: 'depth'
+    },
+    {
+      en: { title: 'Segmentation — wall, floor, window', desc: 'OneFormer (ADE20K) labels every pixel — floor, wall, window, furniture. The seg ControlNet uses this to keep the architecture stable while letting interior styling change freely.' },
+      ar: { title: 'التَّقسيم — جدار، أرض، نافذة',     desc: 'يُعَلِّم OneFormer كلَّ بِكسل — أرض، جدار، نافذة، أثاث. يَستعمل كنترول-نت التقسيم ذلك لِيُثبِّتَ العمارةَ ويَترُكَ الطّابعَ الدّاخليّ يَتَبدَّل بِحريّة.' },
+      spec: [
+        { k: 'model',     v: 'OneFormer · ADE20K · 150 classes' },
+        { k: 'precision', v: 'fp16 · 640 × 640' },
+        { k: 'controlnet',v: 'diffusion_pytorch_model · sdxl-seg' },
+        { k: 'weight',    v: 'culture-tuned · 0.55 – 0.75' },
+      ],
+      viz: 'seg'
+    },
+    {
+      en: { title: 'Prompt — weighted samples from the ontology', desc: 'Twenty-five culture-specific terms per tradition, each tagged across seven structural axes. The prompt builder samples a weighted subset and writes both EN + AR positive and negative prompts.' },
+      ar: { title: 'المُوجِّه — عيِّناتٌ مُرَجَّحة من الأُنطولوجيا', desc: 'خَمسةٌ وعِشرونَ مُصطَلَحاً لِكلِّ تقليد، مَوسومٌ على سَبعةِ مَحاوِر بِنيويّة. يَسحَب بُنّاءُ المُوَجِّه عيِّنةً مُرَجَّحة، ويَكتُب مُوجِّهاتٍ إيجابيّةً وسَلبيّةً بِالعَرَبيّةِ والإنجليزيّة.' },
+      spec: [
+        { k: 'terms',     v: '75 · verified by reviewer' },
+        { k: 'axes',      v: '7 · architectural, materials, palette, …' },
+        { k: 'sampling',  v: 'weighted, seedable' },
+        { k: 'output',    v: 'positive + negative · EN + AR' },
+      ],
+      viz: 'prompt'
+    },
+    {
+      en: { title: 'Generate — SDXL with the right LoRA loaded', desc: 'SDXL-base-1.0, fp16, runs the diffusion loop with both ControlNets and the culture-matched LoRA active. 30 inference steps, guidance 7.5. The output is a 1024² image returned over the same job ID.' },
+      ar: { title: 'التَّوليد — SDXL مع لُورا المُناسِبة',         desc: 'يُشغّل SDXL-base-1.0 بِدقّة fp16 حَلقةَ التَّوليد مع كِلا الكنترول-نت ولُورا الثَّقافة المُختارة. ثلاثونَ خَطوة، إرشادٌ ٧٫٥. النّاتجُ صورةُ ١٠٢٤ × ١٠٢٤ تُعادُ عبر نَفسِ مُعَرِّف المُهِمّة.' },
+      spec: [
+        { k: 'base',      v: 'SDXL-base-1.0 · fp16' },
+        { k: 'lora',      v: 'rank 16 · 1500 steps · ×3' },
+        { k: 'sampler',   v: 'DPM++ 2M · 30 steps' },
+        { k: 'time',      v: '~ 60 s · Kaggle T4 16 GB' },
+      ],
+      viz: 'output'
+    },
+  ];
+  const stageEl = document.getElementById('pipeStageContent');
+  const tabs = document.querySelectorAll('.pipe-tab');
+  function vizFor(kind) {
+    if (kind === 'frame') return `
+      <svg viewBox="0 0 240 240" preserveAspectRatio="xMidYMid meet">
+        <rect x="32" y="48" width="176" height="144" fill="none" stroke="#d4af37" stroke-width="1.2"/>
+        <rect x="44" y="60" width="152" height="120" fill="url(#hatchFrame)"/>
+        <defs><pattern id="hatchFrame" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="6" stroke="#9a7d2a" stroke-width=".4"/></pattern></defs>
+        <text x="120" y="120" text-anchor="middle" font-family="Cormorant Garamond" font-style="italic" font-size="22" fill="#d4af37" opacity=".8">your room</text>
+        <text x="120" y="216" text-anchor="middle" font-family="JetBrains Mono" font-size="10" fill="#a89f85" letter-spacing="2">1 photograph · 1 frame</text>
+      </svg>`;
+    if (kind === 'depth') return `
+      <svg viewBox="0 0 240 240" preserveAspectRatio="xMidYMid meet">
+        <defs>
+          <linearGradient id="depthG" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#e8c060"/><stop offset="1" stop-color="#0c0a08"/></linearGradient>
+        </defs>
+        <rect x="32" y="48" width="176" height="144" fill="url(#depthG)"/>
+        <g stroke="#0c0a08" stroke-width=".5" opacity=".5">
+          <path d="M 32 192 L 120 100 L 208 192 Z" fill="none"/>
+          <line x1="80" y1="148" x2="60" y2="192"/>
+          <line x1="160" y1="148" x2="180" y2="192"/>
+        </g>
+        <text x="120" y="216" text-anchor="middle" font-family="JetBrains Mono" font-size="10" fill="#a89f85" letter-spacing="2">depth map · per-pixel</text>
+      </svg>`;
+    if (kind === 'seg') return `
+      <svg viewBox="0 0 240 240" preserveAspectRatio="xMidYMid meet">
+        <rect x="32" y="48" width="176" height="144" fill="#15110d"/>
+        <rect x="32" y="160" width="176" height="32" fill="#8d1b2d" opacity=".7"/>
+        <rect x="32" y="48" width="176" height="44" fill="#2d3a8c" opacity=".7"/>
+        <rect x="56" y="92" width="44" height="68" fill="#e8a13a" opacity=".7"/>
+        <rect x="140" y="92" width="44" height="68" fill="#e8a13a" opacity=".7"/>
+        <rect x="104" y="112" width="32" height="48" fill="#d4af37" opacity=".8"/>
+        <g font-family="JetBrains Mono" font-size="8" fill="#0c0a08">
+          <text x="40" y="78">wall</text>
+          <text x="60" y="156">window</text>
+          <text x="40" y="180">floor</text>
+        </g>
+        <text x="120" y="216" text-anchor="middle" font-family="JetBrains Mono" font-size="10" fill="#a89f85" letter-spacing="2">semantic seg · ADE20K</text>
+      </svg>`;
+    if (kind === 'prompt') return `
+      <svg viewBox="0 0 240 240" preserveAspectRatio="xMidYMid meet">
+        <rect x="32" y="48" width="176" height="144" fill="#15110d" stroke="#d4af37" stroke-width=".6"/>
+        <g font-family="JetBrains Mono" font-size="9" fill="#e8c060">
+          <text x="40" y="68">positive +</text>
+        </g>
+        <g font-family="Cormorant Garamond" font-style="italic" font-size="10" fill="#f3ead2">
+          <text x="40" y="82">a beiruti living room,</text>
+          <text x="40" y="96">triple-bay window,</text>
+          <text x="40" y="110">hand-painted ceiling,</text>
+          <text x="40" y="124">brass chandelier</text>
+        </g>
+        <g font-family="JetBrains Mono" font-size="9" fill="#c44d4d">
+          <text x="40" y="146">negative −</text>
+        </g>
+        <g font-family="Cormorant Garamond" font-style="italic" font-size="10" fill="#a89f85">
+          <text x="40" y="160">generic, IKEA, modern,</text>
+          <text x="40" y="174">empty, plain, low-quality</text>
+        </g>
+        <text x="120" y="216" text-anchor="middle" font-family="JetBrains Mono" font-size="10" fill="#a89f85" letter-spacing="2">EN + AR · weighted</text>
+      </svg>`;
+    if (kind === 'output') return `
+      <svg viewBox="0 0 240 240" preserveAspectRatio="xMidYMid meet">
+        <defs>
+          <linearGradient id="outG" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#2d3a8c"/><stop offset=".6" stop-color="#e8a13a"/><stop offset="1" stop-color="#8d1b2d"/></linearGradient>
+        </defs>
+        <rect x="32" y="48" width="176" height="144" fill="url(#outG)"/>
+        <path d="M 80 192 L 80 120 Q 80 80 120 80 Q 160 80 160 120 L 160 192" fill="none" stroke="#f3ead2" stroke-width="1.2" opacity=".7"/>
+        <circle cx="120" cy="120" r="22" fill="none" stroke="#d4af37" stroke-width="1"/>
+        <text x="120" y="216" text-anchor="middle" font-family="JetBrains Mono" font-size="10" fill="#a89f85" letter-spacing="2">1024² · ~ 60 s · T4</text>
+      </svg>`;
+    return '';
+  }
+  function renderStage(i) {
+    const s = stages[i];
+    const specRows = s.spec.map(x => `<div class="row"><span>${x.k}</span><b>${x.v}</b></div>`).join('');
+    stageEl.innerHTML = `
+      <div>
+        <h3><em>${s.en.title}</em></h3>
+        <h3 class="ar">${s.ar.title}</h3>
+        <p>${s.en.desc}</p>
+        <p class="ar-b">${s.ar.desc}</p>
+        <div class="pipe-spec">${specRows}</div>
+      </div>
+      <div class="pipe-viz">${vizFor(s.viz)}</div>
+    `;
+  }
+  tabs.forEach(t => {
+    t.addEventListener('click', () => {
+      tabs.forEach(x => x.classList.toggle('active', x === t));
+      renderStage(+t.dataset.stage);
+    });
+  });
+  renderStage(0);
+
+  // ─────────── language toggle (visual hint only) ───────────
+  const langBtn = document.getElementById('langToggle');
+  let arPrimary = false;
+  langBtn.addEventListener('click', () => {
+    arPrimary = !arPrimary;
+    document.documentElement.dir = arPrimary ? 'rtl' : 'ltr';
+    document.documentElement.lang = arPrimary ? 'ar' : 'en';
+    langBtn.innerHTML = arPrimary ? '<b>EN</b> · <span>عربي</span>' : '<span>EN</span> · <b>عربي</b>';
+  });
+
+  // ─────────── CTA → /transform (graceful in standalone) ───────────
+  document.getElementById('primaryCTA').addEventListener('click', (e) => {
+    // when embedded in the next.js app, /transform resolves; in standalone
+    // we just let it fall through to a 404 which is honest enough.
+  });
+</script>
+</body>
+</html>

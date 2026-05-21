@@ -26,42 +26,6 @@
   button{font-family:inherit;border:0;cursor:pointer;background:transparent;color:inherit}
   body::after{content:"";position:fixed;inset:0;pointer-events:none;z-index:999;opacity:.04;mix-blend-mode:overlay;background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='220' height='220'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='1.4' numOctaves='2'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>")}
 
-  /* 3D ARCH TUNNEL */
-  #tunnel{position:relative;height:280vh;background:var(--ink)}
-  #tunnel .sticky{position:sticky;top:0;height:100vh;overflow:hidden;background:#070504}
-  #tunnel canvas{position:absolute;inset:0;width:100%;height:100%;display:block}
-  #tunnel .overlay{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:0 5vw;z-index:5;pointer-events:none}
-  #tunnel .label{font-family:var(--mono);font-size:11px;color:var(--gold);letter-spacing:.32em;text-transform:uppercase;padding:8px 16px;border:1px solid var(--line);border-radius:99px;background:rgba(10,9,7,.5);backdrop-filter:blur(8px);margin-bottom:32px}
-  #tunnel .label .ar-b{font-family:var(--ar-b);font-size:13px;color:var(--gold-2);letter-spacing:0;margin-left:10px}
-  #tunnel .label .ar-b::before{content:"\00b7";margin-right:10px;opacity:.5}
-  #tunnel h2{font-family:var(--en);font-style:italic;font-weight:300;font-size:clamp(48px,7vw,108px);color:var(--parchment);text-shadow:0 0 40px rgba(0,0,0,.6);margin-bottom:14px}
-  #tunnel h2 em{color:var(--gold)}
-  #tunnel h2.ar{font-family:var(--ar);font-style:normal;font-size:clamp(34px,4.5vw,68px);color:var(--parchment-2)}
-  #tunnel h2.ar span{color:var(--gold)}
-  #tunnel .ticker{position:absolute;bottom:8vh;left:50%;transform:translateX(-50%);font-family:var(--mono);font-size:11px;color:var(--gold-2);letter-spacing:.32em;text-transform:uppercase;display:flex;align-items:center;gap:12px;padding:8px 16px;border:1px solid var(--line);border-radius:99px;background:rgba(10,9,7,.55);backdrop-filter:blur(8px)}
-  #tunnel .ticker .dot{width:6px;height:6px;background:var(--gold);border-radius:50%;animation:pulse 1.6s ease-in-out infinite}
-
-  /* 3D PIPELINE */
-  #pipeline3d{padding:200px 0;background:var(--ink-2);border-top:1px solid var(--line);border-bottom:1px solid var(--line);position:relative;overflow:hidden}
-  .pipe-stage-wrap{position:relative;height:560px;border-radius:32px;border:1px solid var(--line);overflow:hidden;background:radial-gradient(ellipse at 50% 30%,var(--ink-3),var(--ink));box-shadow:0 40px 100px -30px rgba(0,0,0,.7)}
-  .pipe-stage-wrap canvas{position:absolute;inset:0;width:100%;height:100%}
-  .pipe-info-pill{position:absolute;top:24px;left:24px;padding:8px 14px;background:rgba(10,9,7,.7);backdrop-filter:blur(10px);border:1px solid var(--line);border-radius:99px;font-family:var(--mono);font-size:10.5px;color:var(--gold);letter-spacing:.18em;text-transform:uppercase;z-index:5}
-  .pipe-info-pill::before{content:"";display:inline-block;width:6px;height:6px;background:var(--gold);border-radius:50%;margin-right:8px;vertical-align:middle;animation:pulse 1.6s ease-in-out infinite}
-  .pipe-progress{position:absolute;top:24px;right:24px;font-family:var(--mono);font-size:10.5px;color:var(--parchment-3);background:rgba(10,9,7,.65);backdrop-filter:blur(10px);padding:6px 12px;border:1px solid var(--line);border-radius:99px;z-index:5}
-  .pipe-progress b{color:var(--gold);font-weight:500}
-  .pipe-controls{position:absolute;left:24px;right:24px;bottom:24px;z-index:5;display:flex;justify-content:space-between;align-items:flex-end;pointer-events:none;gap:24px;flex-wrap:wrap}
-  .pipe-step-name{font-family:var(--en);font-style:italic;font-size:32px;color:var(--parchment);text-shadow:0 4px 20px rgba(0,0,0,.6)}
-  .pipe-step-name em{color:var(--gold)}
-  .pipe-step-name .ar{display:block;font-family:var(--ar);font-style:normal;font-size:18px;color:var(--gold-2);margin-top:4px}
-  .pipe-tabs{display:flex;gap:6px;padding:6px;background:rgba(10,9,7,.65);backdrop-filter:blur(10px);border:1px solid var(--line);border-radius:99px;pointer-events:auto;flex-wrap:wrap}
-  .pipe-tab{padding:8px 14px;font-family:var(--mono);font-size:11px;color:var(--parchment-3);letter-spacing:.06em;border-radius:99px;cursor:pointer;transition:all .3s ease}
-  .pipe-tab:hover{color:var(--parchment-2)}
-  .pipe-tab.active{background:var(--gold);color:var(--ink);font-weight:600}
-  .pipe-tab .num{font-family:var(--en);font-style:italic;margin-right:6px;opacity:.7}
-
-  .problem-viz{height:480px !important;aspect-ratio:auto !important}
-  .hero-stage{max-height:80vh}
-
   /* CURSOR */
   body{cursor:none}
   .cursor{position:fixed;width:14px;height:14px;background:var(--gold);border-radius:50%;pointer-events:none;z-index:9998;transform:translate(-50%,-50%);mix-blend-mode:difference;transition:width .35s var(--ease),height .35s var(--ease)}
@@ -108,7 +72,7 @@
   .nav-links{display:flex;gap:4px}
   .nav-links a{padding:7px 14px;font-family:var(--ui);font-size:13px;color:var(--parchment-2);border-radius:99px;transition:all .25s ease}
   .nav-links a:hover{color:var(--parchment);background:rgba(212,175,55,.06)}
-  .nav-cta{display:inline-flex;align-items:center;gap:8px;padding:9px 18px;background:var(--gold);color:var(--ink);font-family:var(--ui);font-size:12.5px;font-weight:600;border-radius:99px;transition:all .25s ease;white-space:nowrap}
+  .nav-cta{display:inline-flex;align-items:center;gap:8px;padding:9px 18px;background:var(--gold);color:var(--ink);font-family:var(--ui);font-size:12.5px;font-weight:600;border-radius:99px;transition:all .25s ease}
   .nav-cta:hover{background:var(--gold-2);transform:translateY(-1px)}
   @media(max-width:880px){.nav-links{display:none}}
 
@@ -555,45 +519,6 @@
   </div>
 </section>
 
-<!-- 3D PIPELINE — a real animated walkthrough of the model -->
-<section id="pipeline3d">
-  <div class="wrap">
-    <div class="section-head reveal">
-      <div class="eyebrow" style="justify-content:center">Chapter III½ <span class="ar-b">خلف الكواليس</span></div>
-      <h2>Look <em>inside</em> the model.</h2>
-      <h2 class="ar">انظُر إلى <span>داخل</span> النَّموذج.</h2>
-    </div>
-    <div class="pipe-stage-wrap reveal">
-      <canvas id="pipe3DCanvas"></canvas>
-      <div class="pipe-info-pill">live render</div>
-      <div class="pipe-progress" id="pipeProgress"><b>01</b> / 05</div>
-      <div class="pipe-controls">
-        <div class="pipe-step-name" id="pipeStepName"><em>Your photograph</em><span class="ar">صورتُك</span></div>
-        <div class="pipe-tabs" id="pipeTabs">
-          <button class="pipe-tab active" data-i="0"><span class="num">01</span>Input</button>
-          <button class="pipe-tab" data-i="1"><span class="num">02</span>Depth</button>
-          <button class="pipe-tab" data-i="2"><span class="num">03</span>Segment</button>
-          <button class="pipe-tab" data-i="3"><span class="num">04</span>Diffuse</button>
-          <button class="pipe-tab" data-i="4"><span class="num">05</span>Output</button>
-        </div>
-      </div>
-    </div>
-  </div>
-</section>
-
-<!-- 3D ARCH TUNNEL — scroll-driven cinematic -->
-<section id="tunnel">
-  <div class="sticky">
-    <canvas id="tunnelCanvas"></canvas>
-    <div class="overlay">
-      <div class="label">Chapter IV <span class="ar-b">الفصل الرابع</span></div>
-      <h2>Pass <em>beneath</em>.</h2>
-      <h2 class="ar">مُرَّ <span>مِن تَحت</span>.</h2>
-    </div>
-    <div class="ticker">scroll · <span class="dot"></span> <span style="font-family:var(--ar-b);font-size:13px;letter-spacing:0">تابع التمرير</span></div>
-  </div>
-</section>
-
 <!-- WORD -->
 <section id="word">
   <div class="wrap reveal">
@@ -879,103 +804,25 @@
     cam.lookAt(0, 0, 0);
     const renderer = new THREE.WebGLRenderer({canvas, antialias:true, alpha:true});
     renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
-    renderer.shadowMap.enabled = true;
-    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-    renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.15;
-
-    // procedural textures (v21)
-    function makeCanvasTex(w, h, draw){
-      const c = document.createElement('canvas'); c.width=w; c.height=h;
-      const ctx = c.getContext('2d'); draw(ctx, w, h);
-      const tex = new THREE.CanvasTexture(c);
-      tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-      tex.anisotropy = 4;
-      return tex;
-    }
-    const woodTex = makeCanvasTex(512, 512, (ctx, w, h) => {
-      const g = ctx.createLinearGradient(0, 0, 0, h);
-      g.addColorStop(0, '#7a5028'); g.addColorStop(.5, '#5a3818'); g.addColorStop(1, '#7a5028');
-      ctx.fillStyle = g; ctx.fillRect(0, 0, w, h);
-      for(let i=0;i<80;i++){
-        ctx.fillStyle = `rgba(${30+Math.random()*40},${20+Math.random()*30},${10+Math.random()*20},.5)`;
-        ctx.fillRect(0, Math.random()*h, w, 1+Math.random()*2);
-      }
-      for(let i=0;i<6;i++){ ctx.fillStyle='#1a0e06'; ctx.fillRect(0, i*h/6, w, 1.5); }
-      for(let i=0;i<16;i++){ ctx.fillStyle='#1a0e06'; ctx.fillRect(Math.random()*w, 0, 1, h); }
-    });
-    woodTex.repeat.set(2, 1.6);
-    const plasterTex = makeCanvasTex(512, 512, (ctx, w, h) => {
-      ctx.fillStyle='#5a3a22'; ctx.fillRect(0,0,w,h);
-      for(let i=0;i<2000;i++){
-        ctx.fillStyle = `rgba(${60+Math.random()*40},${40+Math.random()*30},${20+Math.random()*20},${.2+Math.random()*.3})`;
-        ctx.fillRect(Math.random()*w, Math.random()*h, 1, 1);
-      }
-      for(let i=0;i<30;i++){
-        ctx.fillStyle = `rgba(40,28,16,${.1+Math.random()*.1})`;
-        ctx.fillRect(Math.random()*w, 0, 1+Math.random()*2, h);
-      }
-    });
-    const brassTex = makeCanvasTex(256, 256, (ctx, w, h) => {
-      const g = ctx.createRadialGradient(w/2, h/2, 0, w/2, h/2, w*.6);
-      g.addColorStop(0, '#f0d878'); g.addColorStop(.5, '#d4af37'); g.addColorStop(1, '#9a7d2a');
-      ctx.fillStyle = g; ctx.fillRect(0, 0, w, h);
-      ctx.strokeStyle = 'rgba(60,40,10,.4)'; ctx.lineWidth = 1;
-      for(let r=30; r<w*.5; r+=20){ ctx.beginPath(); ctx.arc(w/2,h/2,r,0,Math.PI*2); ctx.stroke(); }
-      ctx.fillStyle = 'rgba(40,28,8,.3)';
-      ctx.beginPath();
-      for(let i=0;i<16;i++){
-        const a=i*Math.PI/8, rd=i%2?20:50;
-        const x=w/2+Math.cos(a)*rd, y=h/2+Math.sin(a)*rd;
-        i?ctx.lineTo(x,y):ctx.moveTo(x,y);
-      }
-      ctx.closePath(); ctx.fill();
-    });
-    const rugTex = makeCanvasTex(512, 512, (ctx, w, h) => {
-      ctx.fillStyle='#6a1a28'; ctx.fillRect(0,0,w,h);
-      ctx.strokeStyle='#d4af37'; ctx.lineWidth=4;
-      ctx.strokeRect(20,20,w-40,h-40);
-      ctx.strokeRect(40,40,w-80,h-80);
-      ctx.fillStyle='#2d3a8c';
-      ctx.beginPath();
-      for(let i=0;i<16;i++){
-        const a=i*Math.PI/8, rd=i%2?60:110;
-        const x=w/2+Math.cos(a)*rd, y=h/2+Math.sin(a)*rd;
-        i?ctx.lineTo(x,y):ctx.moveTo(x,y);
-      }
-      ctx.closePath(); ctx.fill();
-      ctx.fillStyle='#d4af37'; ctx.beginPath(); ctx.arc(w/2,h/2,30,0,Math.PI*2); ctx.fill();
-      for(const [cx,cy] of [[80,80],[w-80,80],[80,h-80],[w-80,h-80]]){
-        ctx.fillStyle='#d4af37';
-        ctx.beginPath();
-        for(let i=0;i<8;i++){
-          const a=i*Math.PI/4, rd=i%2?8:18;
-          const x=cx+Math.cos(a)*rd, y=cy+Math.sin(a)*rd;
-          i?ctx.lineTo(x,y):ctx.moveTo(x,y);
-        }
-        ctx.closePath(); ctx.fill();
-      }
-    });
     function size(){
       const w = canvas.offsetWidth, h = canvas.offsetHeight;
       renderer.setSize(w, h, false); cam.aspect = w/h; cam.updateProjectionMatrix();
     }
     size(); addEventListener('resize', size);
 
-    scene.fog = new THREE.FogExp2(0x1a1411, 0.022);
-    scene.add(new THREE.AmbientLight(0x6a4a28, 1.8));
-    const key = new THREE.PointLight(0xffb060, 4.5, 22); key.position.set(3, 5, 4); scene.add(key);
-    const fill = new THREE.PointLight(0x4a5db8, 2.0, 16); fill.position.set(-4, 3, -3); scene.add(fill);
-    const accent = new THREE.PointLight(0xd4af37, 3.0, 10); accent.position.set(0, 1.2, 0); scene.add(accent);
-    const rim = new THREE.PointLight(0xffd28a, 2.4, 14); rim.position.set(0, 3, 5); scene.add(rim);
+    scene.fog = new THREE.FogExp2(0x100d0a, 0.04);
+    scene.add(new THREE.AmbientLight(0x4a3422, 1.2));
+    const key = new THREE.PointLight(0xffb060, 2.4, 18); key.position.set(3, 5, 4); scene.add(key);
+    const fill = new THREE.PointLight(0x2d3a8c, 1.0, 14); fill.position.set(-4, 3, -3); scene.add(fill);
+    const accent = new THREE.PointLight(0xd4af37, 1.6, 8); accent.position.set(0, 1.2, 0); scene.add(accent);
 
     // ROOM
     const room = new THREE.Group();
     scene.add(room);
     const floorGeo = new THREE.BoxGeometry(8, .1, 8);
-    const floorMat = new THREE.MeshStandardMaterial({color:0xffffff, map:woodTex, roughness:.7, metalness:.05});
-    const floor = new THREE.Mesh(floorGeo, floorMat); floor.position.y = -1.5; floor.receiveShadow = true; room.add(floor);
-    const wallMat = new THREE.MeshStandardMaterial({color:0xffffff, map:plasterTex, roughness:.85, metalness:.0});
+    const floorMat = new THREE.MeshStandardMaterial({color:0x3a2814, roughness:.85, metalness:.05});
+    const floor = new THREE.Mesh(floorGeo, floorMat); floor.position.y = -1.5; room.add(floor);
+    const wallMat = new THREE.MeshStandardMaterial({color:0x2a1f12, roughness:.9, metalness:.0});
     const wallBack = new THREE.Mesh(new THREE.BoxGeometry(8, 5, .1), wallMat); wallBack.position.set(0, 1, -4); room.add(wallBack);
     const wallLeft = new THREE.Mesh(new THREE.BoxGeometry(.1, 5, 8), wallMat); wallLeft.position.set(-4, 1, 0); room.add(wallLeft);
     // arch shape
@@ -987,21 +834,18 @@
       s.lineTo(r, 0); s.closePath();
       return s;
     }
-    const arch = new THREE.Mesh(new THREE.ExtrudeGeometry(archShape(), {depth:.1, bevelEnabled:false}), new THREE.MeshStandardMaterial({color:0x2a1f12, roughness:.85, emissive:0xe88a3a, emissiveIntensity:1.4}));
+    const arch = new THREE.Mesh(new THREE.ExtrudeGeometry(archShape(), {depth:.1, bevelEnabled:false}), new THREE.MeshStandardMaterial({color:0x1a1208, roughness:.95, emissive:0x4a2814, emissiveIntensity:.6}));
     arch.position.set(0, -1.5, -3.95); room.add(arch);
-    const archTrim = new THREE.Mesh(new THREE.TorusGeometry(.8, .035, 12, 48, Math.PI), new THREE.MeshStandardMaterial({color:0xd4af37, emissive:0xd4af37, emissiveIntensity:1.6, roughness:.3, metalness:.9}));
+    const archTrim = new THREE.Mesh(new THREE.TorusGeometry(.8, .025, 8, 32, Math.PI), new THREE.MeshStandardMaterial({color:0xd4af37, emissive:0x6a5510, emissiveIntensity:.7, roughness:.4, metalness:.8}));
     archTrim.position.set(0, .9, -3.84); archTrim.rotation.z = Math.PI; room.add(archTrim);
     // table/rug
-    const table = new THREE.Mesh(new THREE.CylinderGeometry(.7, .68, .12, 24), new THREE.MeshStandardMaterial({color:0xffffff, map:brassTex, roughness:.18, metalness:.95, emissive:0x6a4810, emissiveIntensity:.4}));
-    table.position.set(0, -1.35, 0); table.castShadow = true; table.receiveShadow = true; room.add(table);
-    // persian rug under the brass tray
-    const rug = new THREE.Mesh(new THREE.PlaneGeometry(3.6, 3.6), new THREE.MeshStandardMaterial({map:rugTex, roughness:.88}));
-    rug.rotation.x = -Math.PI/2; rug.position.y = -1.44; rug.receiveShadow = true; room.add(rug);
-    const kettle = new THREE.Mesh(new THREE.SphereGeometry(.18, 20, 16, 0, Math.PI*2, 0, Math.PI*.8), new THREE.MeshStandardMaterial({color:0xe8c060, roughness:.2, metalness:.95, emissive:0x6a4810, emissiveIntensity:.8}));
+    const table = new THREE.Mesh(new THREE.CylinderGeometry(.7, .68, .12, 24), new THREE.MeshStandardMaterial({color:0xb8902f, roughness:.3, metalness:.85, emissive:0x231405, emissiveIntensity:.45}));
+    table.position.set(0, -1.35, 0); room.add(table);
+    const kettle = new THREE.Mesh(new THREE.SphereGeometry(.18, 20, 16, 0, Math.PI*2, 0, Math.PI*.8), new THREE.MeshStandardMaterial({color:0xd4af37, roughness:.28, metalness:.9, emissive:0x3a2510, emissiveIntensity:.55}));
     kettle.position.set(0, -1.1, 0); kettle.scale.set(1, .85, 1); room.add(kettle);
     const kSpout = new THREE.Mesh(new THREE.CylinderGeometry(.022, .04, .18, 10), kettle.material); kSpout.position.set(.18, -1.06, 0); kSpout.rotation.z = -1.0; room.add(kSpout);
     // floor cushions (low majlis)
-    const cushMat = new THREE.MeshStandardMaterial({color:0xc4274a, roughness:.6, emissive:0x6a0a14, emissiveIntensity:.45});
+    const cushMat = new THREE.MeshStandardMaterial({color:0x8d1b2d, roughness:.7});
     for(let i=0; i<4; i++){
       const ang = i * Math.PI/2;
       const c = new THREE.Mesh(new THREE.BoxGeometry(1.4, .25, .8), cushMat);
@@ -1010,7 +854,7 @@
       room.add(c);
     }
     // pendant lamp
-    const lamp = new THREE.Mesh(new THREE.SphereGeometry(.22, 16, 12), new THREE.MeshStandardMaterial({color:0xffe0a0, emissive:0xffb060, emissiveIntensity:5.0, roughness:.4}));
+    const lamp = new THREE.Mesh(new THREE.SphereGeometry(.16, 16, 12), new THREE.MeshStandardMaterial({color:0xe8a13a, emissive:0xd4af37, emissiveIntensity:2.2, roughness:.5}));
     lamp.position.set(0, 2, 0); room.add(lamp);
     // suspended dust
     const dustG = new THREE.BufferGeometry();
@@ -1068,7 +912,6 @@
 
     // render loop
     (function tk(now){
-      now = now || 0;
       // auto-rot when idle > 2s
       if(!isDown && performance.now() - idleT > 2000) autoRot = true;
       if(autoRot) rotY += .003;
@@ -1095,10 +938,9 @@
     r.setPixelRatio(Math.min(devicePixelRatio, 2));
     function size(){ const w = canvas.offsetWidth, h = canvas.offsetHeight; r.setSize(w,h,false); cam.aspect = w/h; cam.updateProjectionMatrix(); }
     size(); addEventListener('resize', size);
-    scene.add(new THREE.AmbientLight(0x888888, 1.6));
-    const l = new THREE.PointLight(0xffd8a0, 3.0, 22); l.position.set(4, 5, 4); scene.add(l);
-    const l2 = new THREE.PointLight(0xd4af37, 2.0, 18); l2.position.set(-3, 2, 3); scene.add(l2);
-    const mat = new THREE.MeshStandardMaterial({color:0xddd0a8, roughness:.4, metalness:.2, emissive:0x4a3422, emissiveIntensity:.3});
+    scene.add(new THREE.AmbientLight(0x444444, 1));
+    const l = new THREE.PointLight(0xffffff, 1.6, 20); l.position.set(4, 5, 4); scene.add(l);
+    const mat = new THREE.MeshStandardMaterial({color:0xa89f85, roughness:.6, metalness:.1});
     const blocks = [];
     for(let i=0; i<14; i++){
       const b = new THREE.Mesh(new THREE.BoxGeometry(.6+Math.random()*.6, .6+Math.random()*.6, .6+Math.random()*.6), mat);
@@ -1114,309 +956,6 @@
       requestAnimationFrame(tk);
     })();
   })();
-  // ─────────────────────────────
-  // THREE.JS — 3D PIPELINE WALKTHROUGH (v20)
-  // five stages, animated, switchable. each stage is a self-contained mini-scene.
-  // ─────────────────────────────
-  (function(){
-    if(!window.THREE) return;
-    const canvas = document.getElementById('pipe3DCanvas'); if(!canvas) return;
-    const scene = new THREE.Scene();
-    scene.fog = new THREE.FogExp2(0x100d0a, 0.025);
-    const cam = new THREE.PerspectiveCamera(45, 1, 0.1, 100);
-    cam.position.set(0, 1.4, 6);
-    const r = new THREE.WebGLRenderer({canvas, antialias:true, alpha:true});
-    r.setPixelRatio(Math.min(devicePixelRatio,2));
-    function size(){ const w=canvas.offsetWidth, h=canvas.offsetHeight; r.setSize(w,h,false); cam.aspect=w/h; cam.updateProjectionMatrix(); }
-    size(); addEventListener('resize', size);
-    scene.add(new THREE.AmbientLight(0x6a4a28, 1.4));
-    const key = new THREE.PointLight(0xffd28a, 3.6, 22); key.position.set(3,4,3); scene.add(key);
-    const gold = new THREE.PointLight(0xd4af37, 2.4, 16); gold.position.set(-3,2,2); scene.add(gold);
-    const rim = new THREE.PointLight(0xffb060, 2.0, 14); rim.position.set(0,2,5); scene.add(rim);
-
-    const groups = [];
-    // STAGE 0 — input: a floating photograph frame
-    const g0 = new THREE.Group();
-    const frame = new THREE.Mesh(new THREE.BoxGeometry(3.4, 2.4, .1), new THREE.MeshStandardMaterial({color:0x4a3422, roughness:.4, metalness:.6, emissive:0xd4af37, emissiveIntensity:.45}));
-    g0.add(frame);
-    const photoG = new THREE.Group(); photoG.position.z = .055;
-    const pBg = new THREE.Mesh(new THREE.PlaneGeometry(3.2, 2.2), new THREE.MeshBasicMaterial({color:0x8a7a5a}));
-    photoG.add(pBg);
-    const pWin = new THREE.Mesh(new THREE.PlaneGeometry(1, 1.4), new THREE.MeshBasicMaterial({color:0xffd28a}));
-    pWin.position.set(.8, .2, .01); photoG.add(pWin);
-    const pFloor = new THREE.Mesh(new THREE.PlaneGeometry(3.2, .7), new THREE.MeshBasicMaterial({color:0x6a4a28}));
-    pFloor.position.set(0, -.75, .01); photoG.add(pFloor);
-    const pBox = new THREE.Mesh(new THREE.PlaneGeometry(.8, .9), new THREE.MeshBasicMaterial({color:0x4a3422}));
-    pBox.position.set(-.7, -.2, .02); photoG.add(pBox);
-    for(let i=0;i<5;i++){
-      const line2 = new THREE.Mesh(new THREE.PlaneGeometry(3.2, .008), new THREE.MeshBasicMaterial({color:0xd4af37, transparent:true, opacity:.5}));
-      line2.position.set(0, -.9+i*.45, .03); photoG.add(line2);
-    }
-    g0.add(photoG);
-    groups.push(g0);
-
-    // STAGE 1 — depth: a 16x12 grid of points with z-displacement
-    const g1 = new THREE.Group();
-    const depthGeo = new THREE.BufferGeometry();
-    const dcols=20, drows=14;
-    const dpos = new Float32Array(dcols*drows*3);
-    const dcol = new Float32Array(dcols*drows*3);
-    for(let r2=0;r2<drows;r2++) for(let c=0;c<dcols;c++){
-      const i = (r2*dcols+c)*3;
-      const x = (c/(dcols-1) - .5) * 3;
-      const y = (r2/(drows-1) - .5) * 2 * -1;
-      // depth = a procedural "room" — center deep, edges shallow
-      const cx = c/(dcols-1) - .5, cy = r2/(drows-1) - .5;
-      const dst = Math.sqrt(cx*cx + cy*cy);
-      const z = Math.cos(dst*Math.PI) * .9;
-      dpos[i]=x; dpos[i+1]=y; dpos[i+2]=z;
-      // color: closer = warmer
-      const t = (z+1)/2;
-      dcol[i]   = .85*(1-t) + .9*t;
-      dcol[i+1] = .55*(1-t) + .7*t;
-      dcol[i+2] = .14*(1-t) + .22*t;
-    }
-    depthGeo.setAttribute('position', new THREE.BufferAttribute(dpos, 3));
-    depthGeo.setAttribute('color', new THREE.BufferAttribute(dcol, 3));
-    const depthPts = new THREE.Points(depthGeo, new THREE.PointsMaterial({size:.08, vertexColors:true, transparent:true, opacity:.95, sizeAttenuation:true}));
-    g1.add(depthPts);
-    groups.push(g1);
-
-    // STAGE 2 — segment: colored rectangles labeling regions
-    const g2 = new THREE.Group();
-    const segs = [
-      { x:0, y:.7, w:3, h:.5, color:0x2d3a8c, label:'wall' },
-      { x:-.9, y:0, w:.9, h:.8, color:0xe8a13a, label:'window' },
-      { x:.9, y:0, w:.9, h:.8, color:0xe8a13a, label:'window' },
-      { x:0, y:-.55, w:3, h:.7, color:0x8d1b2d, label:'floor' },
-      { x:0, y:-.1, w:.6, h:.4, color:0xd4af37, label:'lamp' },
-    ];
-    for(const s of segs){
-      const m = new THREE.Mesh(new THREE.PlaneGeometry(s.w, s.h), new THREE.MeshBasicMaterial({color:s.color, transparent:true, opacity:.78}));
-      m.position.set(s.x, s.y, 0);
-      g2.add(m);
-      // wireframe edge
-      const wire = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.PlaneGeometry(s.w, s.h)), new THREE.LineBasicMaterial({color:0xf3ead2, opacity:.5, transparent:true}));
-      wire.position.set(s.x, s.y, .01);
-      g2.add(wire);
-    }
-    groups.push(g2);
-
-    // STAGE 3 — diffuse: noise particles converging into a room
-    const g3 = new THREE.Group();
-    const NN = 600;
-    const noiseGeo = new THREE.BufferGeometry();
-    const npos = new Float32Array(NN*3);
-    const ntgt = new Float32Array(NN*3);
-    for(let i=0;i<NN;i++){
-      // start: random cloud
-      npos[i*3]   = (Math.random()-.5)*5;
-      npos[i*3+1] = (Math.random()-.5)*3;
-      npos[i*3+2] = (Math.random()-.5)*3;
-      // target: arched room silhouette
-      const t = i/NN;
-      const ang = t * Math.PI;
-      ntgt[i*3]   = Math.cos(ang)*1.4 + (Math.random()-.5)*.2;
-      ntgt[i*3+1] = Math.sin(ang)*1.1 - .3 + (Math.random()-.5)*.2;
-      ntgt[i*3+2] = (Math.random()-.5)*.3;
-    }
-    noiseGeo.setAttribute('position', new THREE.BufferAttribute(npos, 3));
-    const noisePts = new THREE.Points(noiseGeo, new THREE.PointsMaterial({color:0xd4af37, size:.06, transparent:true, opacity:.85, blending:THREE.AdditiveBlending, depthWrite:false}));
-    g3.add(noisePts);
-    g3.userData = { ntgt };
-    groups.push(g3);
-
-    // STAGE 4 — output: a finished mini-room
-    const g4 = new THREE.Group();
-    const fl = new THREE.Mesh(new THREE.BoxGeometry(3, .08, 2.4), new THREE.MeshStandardMaterial({color:0x4a2814, roughness:.85}));
-    fl.position.y = -1; g4.add(fl);
-    const bw = new THREE.Mesh(new THREE.BoxGeometry(3, 2, .08), new THREE.MeshStandardMaterial({color:0x2a1f12, roughness:.9}));
-    bw.position.set(0,0,-1.2); g4.add(bw);
-    function archShape(w=.8, h=1.2){
-      const s = new THREE.Shape(); const r = w/2;
-      s.moveTo(-r,0); s.lineTo(-r,h-r);
-      s.absarc(0,h-r,r,Math.PI,0,false);
-      s.lineTo(r,0); s.closePath();
-      return s;
-    }
-    const arch = new THREE.Mesh(new THREE.ExtrudeGeometry(archShape(), {depth:.08, bevelEnabled:false}), new THREE.MeshStandardMaterial({color:0x1a1208, emissive:0xe8a13a, emissiveIntensity:.7}));
-    arch.position.set(0,-1,-1.15); g4.add(arch);
-    const trim = new THREE.Mesh(new THREE.TorusGeometry(.4, .02, 8, 32, Math.PI), new THREE.MeshStandardMaterial({color:0xd4af37, emissive:0x6a5510, emissiveIntensity:.8, roughness:.4, metalness:.85}));
-    trim.position.set(0, .2, -1.1); trim.rotation.z = Math.PI; g4.add(trim);
-    const tbl = new THREE.Mesh(new THREE.CylinderGeometry(.4,.4,.08,18), new THREE.MeshStandardMaterial({color:0xb8902f, roughness:.3, metalness:.85, emissive:0x231405, emissiveIntensity:.4}));
-    tbl.position.set(0,-.92,0); g4.add(tbl);
-    const lampO = new THREE.Mesh(new THREE.SphereGeometry(.10,12,10), new THREE.MeshStandardMaterial({color:0xe8a13a, emissive:0xd4af37, emissiveIntensity:2.4}));
-    lampO.position.set(0,.8,0); g4.add(lampO);
-    groups.push(g4);
-
-    // hide all then show first
-    groups.forEach(g => { g.visible = false; scene.add(g); });
-    groups[0].visible = true;
-    let currentStage = 0, transition = 0;
-
-    // labels per stage
-    const STAGE_LABELS = [
-      { en:'Your photograph',  ar:'صورتُك', prog:'01' },
-      { en:'A depth map',      ar:'خريطة العُمق', prog:'02' },
-      { en:'A segmentation',   ar:'تَقسيمٌ بالألوان', prog:'03' },
-      { en:'Diffusion · 30 steps', ar:'تَوليدٌ بالانتشار', prog:'04' },
-      { en:'Your new room',    ar:'غُرفَتُكَ الجديدة', prog:'05' },
-    ];
-
-    function setStage(i){
-      groups.forEach((g,j) => g.visible = j === i);
-      currentStage = i;
-      transition = 0;
-      const L = STAGE_LABELS[i];
-      document.getElementById('pipeStepName').innerHTML = `<em>${L.en}</em><span class="ar">${L.ar}</span>`;
-      document.getElementById('pipeProgress').innerHTML = `<b>${L.prog}</b> / 05`;
-      document.querySelectorAll('#pipeTabs .pipe-tab').forEach(t => t.classList.toggle('active', +t.dataset.i === i));
-    }
-
-    document.querySelectorAll('#pipeTabs .pipe-tab').forEach(t => t.addEventListener('click', e => {
-      setStage(+t.dataset.i);
-      confetti(e.clientX, e.clientY, 20);
-    }));
-    // auto-cycle
-    let lockedP = false;
-    document.querySelectorAll('#pipeTabs .pipe-tab').forEach(t => t.addEventListener('click', ()=>lockedP=true));
-    setInterval(()=>{ if(lockedP) return; setStage((currentStage+1)%5); }, 4200);
-
-    // animation loop
-    (function tk(now){
-      now = now || 0;
-      transition = Math.min(1, transition + .02);
-      // stage-specific animation
-      const g = groups[currentStage];
-      if(currentStage === 3){
-        // diffuse: lerp particles toward target
-        const pos = g.children[0].geometry.attributes.position.array;
-        const tgt = g.userData.ntgt;
-        for(let i=0;i<NN;i++){
-          pos[i*3]   += (tgt[i*3]   - pos[i*3])   * .04;
-          pos[i*3+1] += (tgt[i*3+1] - pos[i*3+1]) * .04;
-          pos[i*3+2] += (tgt[i*3+2] - pos[i*3+2]) * .04;
-        }
-        g.children[0].geometry.attributes.position.needsUpdate = true;
-      }
-      if(currentStage === 1){
-        // depth: gentle wave
-        const pos = g.children[0].geometry.attributes.position.array;
-        for(let i=0;i<pos.length;i+=3){
-          pos[i+2] += Math.sin(now*.0008 + i*.01) * .002;
-        }
-        g.children[0].geometry.attributes.position.needsUpdate = true;
-      }
-      // gentle camera orbit
-      const t = now*.00018;
-      cam.position.x = Math.sin(t) * 1.2;
-      cam.position.z = 5.4 + Math.cos(t) * .8;
-      cam.lookAt(0, 0, 0);
-      // group breathe
-      g.rotation.y = Math.sin(now*.0003) * .15;
-      r.render(scene, cam);
-      requestAnimationFrame(tk);
-    })();
-
-    // reset noise positions when entering stage 3
-    const origNoisePos = new Float32Array(noiseGeo.attributes.position.array);
-    document.querySelectorAll('#pipeTabs .pipe-tab').forEach(t => t.addEventListener('click', e => {
-      if(+t.dataset.i === 3){
-        const pos = noiseGeo.attributes.position.array;
-        for(let i=0;i<pos.length;i++) pos[i] = origNoisePos[i];
-        noiseGeo.attributes.position.needsUpdate = true;
-      }
-    }));
-  })();
-
-  // ─────────────────────────────
-  // THREE.JS — ARCH TUNNEL (scroll-driven dolly)
-  // ─────────────────────────────
-  (function(){
-    if(!window.THREE) return;
-    const canvas = document.getElementById('tunnelCanvas'); if(!canvas) return;
-    const section = document.getElementById('tunnel');
-    const scene = new THREE.Scene();
-    scene.fog = new THREE.FogExp2(0x130a06, 0.030);
-    const cam = new THREE.PerspectiveCamera(60, 1, 0.1, 200);
-    cam.position.set(0, 1.6, 8);
-    const r = new THREE.WebGLRenderer({canvas, antialias:true, alpha:true});
-    r.setPixelRatio(Math.min(devicePixelRatio, 2));
-    function size(){ const w=canvas.offsetWidth, h=canvas.offsetHeight; r.setSize(w,h,false); cam.aspect=w/h; cam.updateProjectionMatrix(); }
-    size(); addEventListener('resize', size);
-
-    scene.add(new THREE.AmbientLight(0x6a4a28, 1.6));
-    const spot = new THREE.SpotLight(0xffe0a0, 12, 70, .85, .5, 1.2); spot.position.set(0,5,-30); spot.target.position.set(0,1,-60); scene.add(spot); scene.add(spot.target);
-    const lamp = new THREE.PointLight(0xffb060, 3.6, 14); lamp.position.set(0, 1.5, 2); scene.add(lamp);
-
-    function archShape(w=2.6, h=4.4, th=.2){
-      const s = new THREE.Shape();
-      const rd = w/2;
-      s.moveTo(-rd-th, 0); s.lineTo(-rd-th, h-rd);
-      s.absarc(0, h-rd, rd+th, Math.PI, 0, false);
-      s.lineTo(rd+th, 0); s.lineTo(rd, 0); s.lineTo(rd, h-rd);
-      s.absarc(0, h-rd, rd, 0, Math.PI, true);
-      s.lineTo(-rd, 0); s.closePath();
-      return s;
-    }
-    const archGeom = new THREE.ExtrudeGeometry(archShape(), {depth:.3, bevelEnabled:false});
-    const wallMat = new THREE.MeshStandardMaterial({color:0x4a3422, roughness:.78, metalness:.05, emissive:0xe88a3a, emissiveIntensity:.5});
-    const goldMat = new THREE.MeshStandardMaterial({color:0xe8c060, emissive:0xd4af37, emissiveIntensity:1.4, roughness:.3, metalness:.92});
-    const archGroup = new THREE.Group();
-    const N = 16;
-    for(let i=0;i<N;i++){
-      const m = new THREE.Mesh(archGeom, wallMat); m.position.set(0, -2, -i*3.8); archGroup.add(m);
-      const ring = new THREE.Mesh(new THREE.TorusGeometry(1.3, .025, 12, 64, Math.PI), goldMat);
-      ring.position.set(0, .2, -i*3.8 + .16); ring.rotation.z = Math.PI; archGroup.add(ring);
-      if(i%2===0){
-        const archLamp = new THREE.Mesh(new THREE.SphereGeometry(.10, 12, 10), new THREE.MeshStandardMaterial({color:0xffe0a0, emissive:0xffb060, emissiveIntensity:5}));
-        archLamp.position.set(0, .9, -i*3.8 + .25); archGroup.add(archLamp);
-      }
-    }
-    scene.add(archGroup);
-
-    const floor = new THREE.Mesh(new THREE.PlaneGeometry(5, 220), new THREE.MeshStandardMaterial({color:0x8a6438, roughness:.85, emissive:0x4a2814, emissiveIntensity:.25}));
-    floor.rotation.x = -Math.PI/2; floor.position.set(0, -2, -50); scene.add(floor);
-
-    // dust motes
-    const dustG = new THREE.BufferGeometry();
-    const DN = 700;
-    const dpos = new Float32Array(DN*3);
-    for(let i=0;i<DN;i++){ dpos[i*3]=(Math.random()-.5)*5; dpos[i*3+1]=Math.random()*4-1; dpos[i*3+2]=-Math.random()*N*3.8; }
-    dustG.setAttribute('position', new THREE.BufferAttribute(dpos, 3));
-    const dust = new THREE.Points(dustG, new THREE.PointsMaterial({color:0xd4af37, size:.025, transparent:true, opacity:.7, depthWrite:false, blending:THREE.AdditiveBlending}));
-    scene.add(dust);
-
-    // scroll progress through the section
-    let scrollT = 0, mx = 0, my = 0;
-    function onScroll(){
-      const rct = section.getBoundingClientRect();
-      const total = rct.height - innerHeight;
-      const passed = -rct.top;
-      scrollT = Math.max(0, Math.min(1, passed / total));
-    }
-    addEventListener('scroll', onScroll, {passive:true}); onScroll();
-    canvas.addEventListener('mousemove', e => {
-      const rct = canvas.getBoundingClientRect();
-      mx = (e.clientX - rct.left)/rct.width - .5;
-      my = (e.clientY - rct.top)/rct.height - .5;
-    });
-
-    (function tk(now){
-      now = now || 0;
-      cam.position.z = 8 - scrollT * (N-2) * 3.8;
-      cam.position.x += (-mx*.6 - cam.position.x) * .06;
-      cam.position.y += (1.6 - my*.4 - cam.position.y) * .06;
-      cam.lookAt(0, 1.4, cam.position.z - 1);
-      // dust drift
-      const p = dust.geometry.attributes.position.array;
-      for(let i=0;i<DN;i++){ p[i*3+1] += Math.sin(now*.0008 + i)*.001; }
-      dust.geometry.attributes.position.needsUpdate = true;
-      r.render(scene, cam);
-      requestAnimationFrame(tk);
-    })();
-  })();
-
 </script>
 </body>
 </html>
