@@ -287,7 +287,7 @@ Each style has: `flag`, `name`, `selectorDescription`, `origin`, `landingDescrip
 
 ## Known Decisions
 
-- **No backend yet:** The "after" image is a placeholder gradient SVG. AI generation is not implemented.
+- **Backend lives in [backend/](backend/):** FastAPI service with `/upload`, `/transform`, `/status`, `/result`, `/retry`, `/share`. Real SDXL + dual ControlNet pipeline in [backend/transform.py](backend/transform.py). Set `DARDESIGN_LIGHT=1` for placeholder-PNG mode without a GPU.
 - **No localStorage:** Theme and language state reset on page reload (context-only persistence).
 - **No next/image:** Using `<img>` elements because blob URLs and SVG data URIs are incompatible with Next.js image optimization. ESLint warnings for this are expected.
 - **All client components:** Every page and component uses `"use client"` since they depend on context providers.
