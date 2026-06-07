@@ -7,6 +7,8 @@ This is a thin, opinionated wrapper around diffusers' DreamBooth-LoRA loop. It:
 - writes 5 sample images per checkpoint (grid PNG),
 - falls back to SD 1.5 + LoRA if SDXL OOMs,
 - supports `--smoke` to run with placeholder captions over the 5 test rooms (Kaggle T4 sanity check).
+- modern recipe: LoRA+ (B-matrix LR x16), fused AdamW step, Min-SNR-gamma=5 loss
+  weighting, and the fp16-safe VAE (vae-fp16-fix). All overridable via flags.
 
 Usage (Kaggle T4):
     python scripts/train_lora.py \\
@@ -73,6 +75,9 @@ class TrainArgs:
     base_model: str
     seed: int
     learning_rate: float
+    vae_path: str
+    lora_plus_ratio: float
+    min_snr_gamma: float
     smoke: bool
 
 
@@ -159,7 +164,8 @@ def train(args: TrainArgs) -> Path:
     tokenizer_two = AutoTokenizer.from_pretrained(args.base_model, subfolder="tokenizer_2")
     text_encoder_one = CLIPTextModel.from_pretrained(args.base_model, subfolder="text_encoder")
     text_encoder_two = CLIPTextModelWithProjection.from_pretrained(args.base_model, subfolder="text_encoder_2")
-    vae = AutoencoderKL.from_pretrained(args.base_model, subfolder="vae")
+    # vae-fp16-fix: the stock SDXL VAE overflows to NaN in fp16; this drop-in is fp16-safe.
+    vae = AutoencoderKL.from_pretrained(args.vae_path)
     unet = UNet2DConditionModel.from_pretrained(args.base_model, subfolder="unet")
     noise_scheduler = DDPMScheduler.from_pretrained(args.base_model, subfolder="scheduler")
 
@@ -200,7 +206,20 @@ def train(args: TrainArgs) -> Path:
     ds = DreamBoothLoraDataset(pairs)
     dl = DataLoader(ds, batch_size=1, shuffle=True, num_workers=0)
 
-    optimizer = torch.optim.AdamW([p for p in unet.parameters() if p.requires_grad], lr=args.learning_rate)
+    # LoRA+ : the B matrices should learn faster than A. Split into two LR groups (ratio ~16x).
+    lora_a_params, lora_b_params = [], []
+    for _name, _p in unet.named_parameters():
+        if not _p.requires_grad:
+            continue
+        (lora_b_params if "lora_B" in _name else lora_a_params).append(_p)
+    param_groups = [
+        {"params": lora_a_params, "lr": args.learning_rate},
+        {"params": lora_b_params, "lr": args.learning_rate * args.lora_plus_ratio},
+    ]
+    try:
+        optimizer = torch.optim.AdamW(param_groups, fused=True)  # fused optimizer step (CUDA)
+    except (RuntimeError, ValueError):
+        optimizer = torch.optim.AdamW(param_groups)  # CPU / older-torch fallback
     unet, optimizer, dl = accelerator.prepare(unet, optimizer, dl)
 
     vae.to(device, dtype=torch.float16 if torch.cuda.is_available() else torch.float32)
@@ -239,7 +258,13 @@ def train(args: TrainArgs) -> Path:
                 "time_ids": torch.tensor([[1024, 1024, 0, 0, 1024, 1024]], device=device).repeat(latents.shape[0], 1),
             }
             model_pred = unet(noisy, timesteps, prompt_embeds, added_cond_kwargs=added_cond_kwargs).sample
-            loss = torch.nn.functional.mse_loss(model_pred.float(), target.float())
+            # Min-SNR-gamma loss weighting (epsilon objective): faster, more stable convergence.
+            snr = _compute_snr(noise_scheduler, timesteps)
+            snr_weight = torch.clamp(snr, max=args.min_snr_gamma) / snr
+            per_sample = torch.nn.functional.mse_loss(
+                model_pred.float(), target.float(), reduction="none"
+            ).mean(dim=list(range(1, model_pred.ndim)))
+            loss = (snr_weight.to(per_sample.device) * per_sample).mean()
             accelerator.backward(loss)
             optimizer.step()
             optimizer.zero_grad()
@@ -259,6 +284,14 @@ def train(args: TrainArgs) -> Path:
     final = save_paths[-1] if save_paths else _save_checkpoint(unet, args, args.steps)
     logger.info("training complete -> %s", final)
     return final
+
+
+def _compute_snr(noise_scheduler, timesteps):
+    """Per-timestep signal-to-noise ratio from the scheduler's alphas_cumprod."""
+    alphas_cumprod = noise_scheduler.alphas_cumprod.to(timesteps.device)
+    sqrt_alpha = alphas_cumprod[timesteps] ** 0.5
+    sqrt_one_minus = (1.0 - alphas_cumprod[timesteps]) ** 0.5
+    return (sqrt_alpha / sqrt_one_minus) ** 2
 
 
 def _save_checkpoint(unet, args: TrainArgs, step: int) -> Path:
@@ -321,13 +354,20 @@ def _parse() -> TrainArgs:
     p.add_argument("--base-model", default="stabilityai/stable-diffusion-xl-base-1.0")
     p.add_argument("--seed", type=int, default=42)
     p.add_argument("--lr", type=float, default=1e-4, dest="learning_rate")
+    p.add_argument("--vae", default="madebyollin/sdxl-vae-fp16-fix", dest="vae_path",
+                   help="fp16-safe VAE (vae-fp16-fix); avoids NaNs when training SDXL in fp16")
+    p.add_argument("--lora-plus-ratio", type=float, default=16.0, dest="lora_plus_ratio",
+                   help="LoRA+ : LR multiplier for the B matrices (Kohya-style, ~16x)")
+    p.add_argument("--min-snr-gamma", type=float, default=5.0, dest="min_snr_gamma",
+                   help="Min-SNR-gamma loss weighting (5.0 is the paper default)")
     p.add_argument("--smoke", action="store_true",
                    help="placeholder-caption sanity run; uses any images in --data-dir")
     a = p.parse_args()
     return TrainArgs(
         culture=a.culture, data_dir=a.data_dir, rank=a.rank, steps=a.steps,
         output_dir=a.output_dir, base_model=a.base_model, seed=a.seed,
-        learning_rate=a.learning_rate, smoke=a.smoke,
+        learning_rate=a.learning_rate, vae_path=a.vae_path,
+        lora_plus_ratio=a.lora_plus_ratio, min_snr_gamma=a.min_snr_gamma, smoke=a.smoke,
     )
 
 
