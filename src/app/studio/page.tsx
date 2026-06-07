@@ -8,6 +8,7 @@ import GoldButton from "@/components/gold-button";
 import IslamicPattern from "@/components/islamic-pattern";
 import UploadZone from "@/components/upload-zone";
 import CulturalElementHighlighter, { DEMO_REGIONS } from "@/components/CulturalElementHighlighter";
+import RoomMap2D, { DEMO_MAP } from "@/components/RoomMap2D";
 import { useImage } from "@/context/ImageContext";
 import { useThemeLanguage } from "@/context/ThemeLanguageContext";
 import { ApiError, redesignRoom, type RedesignResult } from "@/lib/api";
@@ -272,20 +273,20 @@ export default function StudioPage() {
               })}
             </div>
 
-            {/* CulturalElementHighlighter — scaffold preview (sample regions). */}
+            {/* Cultural elements + 2D layout — scaffold preview (sample data). */}
             <div className="mt-12 border-t border-gold/15 pt-8">
               <div className={cn("mb-4 flex items-center justify-between gap-3", isArabic && "flex-row-reverse")}>
                 <div className={cn(isArabic ? "text-right" : "text-left")}>
                   <h2 className={cn("text-lg font-semibold text-cream", isArabic ? "font-arabic" : "font-display")}>
-                    {isArabic ? "العناصر الثقافية" : "Cultural elements"}
+                    {isArabic ? "العناصر الثقافية والمخطط" : "Cultural elements & layout"}
                     <span className="ms-2 align-middle text-xs text-cream-muted">
                       {isArabic ? "(تجريبي)" : "(preview)"}
                     </span>
                   </h2>
                   <p className={cn("mt-1 text-xs text-cream-muted", isArabic && "font-arabic")}>
                     {isArabic
-                      ? "مناطق تجريبية — ستتصل بخريطة التجزئة من الخادم لاحقاً. اضغط أي عنصر."
-                      : "Sample regions — will connect to the backend segmentation map later. Click any element."}
+                      ? "عناصر ومخطط تجريبيان — سيتصلان بخريطة التجزئة والإسقاط من الخادم لاحقاً. اضغط أي عنصر."
+                      : "Sample regions + top-down map — will connect to the backend segmentation & projection later. Click any element."}
                   </p>
                 </div>
                 <button
@@ -307,12 +308,23 @@ export default function StudioPage() {
               </div>
 
               {showElements && (
-                <div className="mx-auto max-w-2xl">
-                  <CulturalElementHighlighter
-                    imageSrc={result.original}
-                    regions={DEMO_REGIONS}
-                    alt={isArabic ? "تحليل العناصر الثقافية" : "Cultural element analysis"}
-                  />
+                <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+                  <div>
+                    <p className={cn("mb-2 text-xs font-medium text-cream-soft", isArabic && "font-arabic")}>
+                      {isArabic ? "التظليل على الصورة" : "On-image highlight"}
+                    </p>
+                    <CulturalElementHighlighter
+                      imageSrc={result.original}
+                      regions={DEMO_REGIONS}
+                      alt={isArabic ? "تحليل العناصر الثقافية" : "Cultural element analysis"}
+                    />
+                  </div>
+                  <div>
+                    <p className={cn("mb-2 text-xs font-medium text-cream-soft", isArabic && "font-arabic")}>
+                      {isArabic ? "المخطط العلوي ثنائي الأبعاد" : "2D top-down map"}
+                    </p>
+                    <RoomMap2D objects={DEMO_MAP} />
+                  </div>
                 </div>
               )}
             </div>
