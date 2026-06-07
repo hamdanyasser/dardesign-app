@@ -1,6 +1,16 @@
 import type { Metadata, Viewport } from "next";
-import { Cormorant_Garamond, DM_Sans, Inter, Noto_Kufi_Arabic, Tajawal } from "next/font/google";
+import {
+  Amiri,
+  Cormorant_Garamond,
+  DM_Sans,
+  Inter,
+  JetBrains_Mono,
+  Noto_Kufi_Arabic,
+  Reem_Kufi,
+  Tajawal,
+} from "next/font/google";
 import "./globals.css";
+import "@/components/cinema/cinema.css";
 import { ImageProvider } from "@/context/ImageContext";
 import { ThemeLanguageProvider } from "@/context/ThemeLanguageContext";
 
@@ -36,6 +46,30 @@ const dmSans = DM_Sans({
   subsets: ["latin"],
   weight: ["400", "500", "700"],
   variable: "--font-dm-sans",
+  display: "swap",
+});
+
+// Cinematic display + UI faces (dar-design-2): editorial Arabic serif,
+// Kufi display, and the mono used for eyebrows / chrome labels.
+const amiri = Amiri({
+  subsets: ["arabic", "latin"],
+  weight: ["400", "700"],
+  style: ["normal", "italic"],
+  variable: "--font-amiri",
+  display: "swap",
+});
+
+const reemKufi = Reem_Kufi({
+  subsets: ["arabic", "latin"],
+  weight: ["400", "500", "600", "700"],
+  variable: "--font-reem-kufi",
+  display: "swap",
+});
+
+const jetBrainsMono = JetBrains_Mono({
+  subsets: ["latin"],
+  weight: ["400", "500", "600"],
+  variable: "--font-jetbrains-mono",
   display: "swap",
 });
 
@@ -85,7 +119,7 @@ export default function RootLayout({
       lang="en"
       dir="ltr"
       data-theme="dark"
-      className={`${inter.variable} ${notoKufiArabic.variable} ${tajawal.variable} ${dmSans.variable} ${cormorantGaramond.variable}`}
+      className={`${inter.variable} ${notoKufiArabic.variable} ${tajawal.variable} ${dmSans.variable} ${cormorantGaramond.variable} ${amiri.variable} ${reemKufi.variable} ${jetBrainsMono.variable}`}
       suppressHydrationWarning
     >
       <body className="antialiased">
