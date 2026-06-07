@@ -1,5 +1,5 @@
-import { redirect } from "next/navigation";
+import CinemaLanding from "@/components/cinema/CinemaLanding";
 
-export default function HomePage(): never {
-  redirect("/atelier.html");
+export default function HomePage() {
+  return <CinemaLanding />;
 }
