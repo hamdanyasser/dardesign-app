@@ -132,11 +132,20 @@ export default function UploadZone({
   return (
     <div>
       <div
+        role="button"
+        tabIndex={0}
+        aria-label={isArabic ? "ارفع صورة غرفتك" : "Upload your room photo"}
         className={cn(
           "upload-zone-dashed mx-auto max-w-2xl cursor-pointer rounded-2xl p-12 text-center md:p-16",
           dragOver && "dragover"
         )}
         onClick={() => inputRef.current?.click()}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            inputRef.current?.click();
+          }
+        }}
         onDragOver={(event) => {
           event.preventDefault();
           setDragOver(true);

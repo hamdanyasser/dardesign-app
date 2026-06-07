@@ -581,3 +581,31 @@
     text-wrap: balance;
   }
 }
+
+/* ------------------------------- Accessibility ---------------------------- */
+/* Visible keyboard focus for every interactive element (gold ring). :where()
+   keeps specificity at 0 so it never overrides component styling, only adds a
+   focus outline when navigating by keyboard. */
+@layer base {
+  :where(a, button, [role="button"], input, textarea, select, summary, [tabindex]):focus-visible {
+    outline: 2px solid var(--dd-gold);
+    outline-offset: 2px;
+    border-radius: 6px;
+  }
+}
+
+/* Respect prefers-reduced-motion — neutralise entrance animations + smooth scroll. */
+@media (prefers-reduced-motion: reduce) {
+  .animate-fade-in-up,
+  .animate-fade-in-up-d1,
+  .animate-fade-in-up-d2,
+  .animate-fade-in-up-d3,
+  .animate-fade-in-up-d4,
+  .animate-fade-in-up-d5 {
+    animation: none;
+  }
+
+  html {
+    scroll-behavior: auto;
+  }
+}

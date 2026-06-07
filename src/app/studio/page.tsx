@@ -168,7 +168,7 @@ export default function StudioPage() {
         {/* LOADING — original + skeleton tiles */}
         {phase === "loading" && (
           <section className="animate-fade-in-up">
-            <div className="mb-8 flex flex-col items-center text-center">
+            <div className="mb-8 flex flex-col items-center text-center" role="status" aria-live="polite">
               <Loader2 size={28} className="mb-3 animate-spin text-gold" />
               <p className={cn("text-lg font-semibold text-cream", isArabic ? "font-arabic" : "font-display")}>
                 {isArabic ? "جارٍ التصميم…" : "Designing…"}
@@ -176,7 +176,7 @@ export default function StudioPage() {
               <p className={cn("mt-1 text-sm text-cream-muted", isArabic && "font-arabic")}>
                 {isArabic ? "قد يستغرق ذلك دقيقة إلى دقيقتين" : "This can take a minute or two"}
               </p>
-              <p className="mt-1 font-ui text-xs tabular-nums text-cream-muted" aria-live="polite">
+              <p className="mt-1 font-ui text-xs tabular-nums text-cream-muted" aria-hidden="true">
                 {mmss(elapsed)}
               </p>
             </div>
