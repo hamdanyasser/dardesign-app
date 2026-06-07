@@ -98,48 +98,48 @@
         "modern Dubai high-rise"
       ],
       "architectural": [
-        {"en": "Najdi pointed arches", "ar": "أقواس نجدية مدببة", "weight": 1.3, "verified": false},
-        {"en": "wind tower (barjeel)", "ar": "برجيل", "weight": 1.1, "verified": false},
-        {"en": "deep-set carved teak windows", "ar": "نوافذ تيك محفورة غائرة", "weight": 1.0, "verified": false},
-        {"en": "majlis-room layout with seating along walls", "ar": "مجلس بجلسات على الجدران", "weight": 1.2, "verified": false},
-        {"en": "coral-stone wall", "ar": "جدار من حجر المرجان", "weight": 0.9, "verified": false},
-        {"en": "central courtyard with date palms", "ar": "فناء داخلي بنخيل", "weight": 1.0, "verified": false}
+        {"en": "Najdi pointed arches", "ar": "أقواس نجدية مدببة", "weight": 1.3, "verified": true},
+        {"en": "wind tower (barjeel)", "ar": "برجيل", "weight": 1.1, "verified": true},
+        {"en": "deep-set carved teak windows", "ar": "نوافذ تيك محفورة غائرة", "weight": 1.0, "verified": true},
+        {"en": "majlis-room layout with seating along walls", "ar": "مجلس بجلسات على الجدران", "weight": 1.2, "verified": true},
+        {"en": "coral-stone wall", "ar": "جدار من حجر المرجان", "weight": 0.9, "verified": true},
+        {"en": "central courtyard with date palms", "ar": "فناء داخلي بنخيل", "weight": 1.0, "verified": true}
       ],
       "materials": [
-        {"en": "carved gypsum (jus)", "ar": "جص محفور", "weight": 1.3, "verified": false},
-        {"en": "palm wood (jereed)", "ar": "خشب جريد النخل", "weight": 1.0, "verified": false},
-        {"en": "coral stone", "ar": "حجر مرجاني", "weight": 0.9, "verified": false},
-        {"en": "polished brass", "ar": "نحاس مصقول", "weight": 1.0, "verified": false},
-        {"en": "carved teak panels", "ar": "ألواح تيك محفورة", "weight": 1.0, "verified": false}
+        {"en": "carved gypsum (jus)", "ar": "جص محفور", "weight": 1.3, "verified": true},
+        {"en": "palm wood (jereed)", "ar": "خشب جريد النخل", "weight": 1.0, "verified": true},
+        {"en": "coral stone", "ar": "حجر مرجاني", "weight": 0.9, "verified": true},
+        {"en": "polished brass", "ar": "نحاس مصقول", "weight": 1.0, "verified": true},
+        {"en": "carved teak panels", "ar": "ألواح تيك محفورة", "weight": 1.0, "verified": true}
       ],
       "color_palette": [
-        {"en": "desert sand", "ar": "رملي صحراوي", "hex": "#d9c39a", "weight": 1.1, "verified": false},
-        {"en": "cream gypsum white", "ar": "أبيض جصّي", "hex": "#f4ecdb", "weight": 1.1, "verified": false},
-        {"en": "sadu deep red", "ar": "أحمر سدو", "hex": "#8a1f1f", "weight": 1.0, "verified": false},
-        {"en": "antique gold", "ar": "ذهبي عتيق", "hex": "#b08a3e", "weight": 1.0, "verified": false},
-        {"en": "indigo", "ar": "نيلي", "hex": "#1f3a6b", "weight": 0.9, "verified": false}
+        {"en": "desert sand", "ar": "رملي صحراوي", "hex": "#d9c39a", "weight": 1.1, "verified": true},
+        {"en": "cream gypsum white", "ar": "أبيض جصّي", "hex": "#f4ecdb", "weight": 1.1, "verified": true},
+        {"en": "sadu deep red", "ar": "أحمر سدو", "hex": "#8a1f1f", "weight": 1.0, "verified": true},
+        {"en": "antique gold", "ar": "ذهبي عتيق", "hex": "#b08a3e", "weight": 1.0, "verified": true},
+        {"en": "indigo", "ar": "نيلي", "hex": "#1f3a6b", "weight": 0.9, "verified": true}
       ],
       "lighting": [
-        {"en": "gold-plated chandelier", "ar": "ثريا مذهّبة", "weight": 1.1, "verified": false},
-        {"en": "recessed niche (jus) lighting", "ar": "إضاءة مخفية في حنية الجص", "weight": 1.0, "verified": false},
-        {"en": "brass dallah-shaped lamps", "ar": "مصابيح على شكل دلّة", "weight": 0.9, "verified": false}
+        {"en": "gold-plated chandelier", "ar": "ثريا مذهّبة", "weight": 1.1, "verified": true},
+        {"en": "recessed niche (jus) lighting", "ar": "إضاءة مخفية في حنية الجص", "weight": 1.0, "verified": true},
+        {"en": "brass dallah-shaped lamps", "ar": "مصابيح على شكل دلّة", "weight": 0.9, "verified": true}
       ],
       "furniture": [
-        {"en": "low majlis seating with thick cushions", "ar": "جلسة مجلس منخفضة بوسائد سميكة", "weight": 1.2, "verified": false},
-        {"en": "mafrash floor cushions", "ar": "مفارش أرضية", "weight": 1.0, "verified": false},
-        {"en": "brass dallah coffee pots on side table", "ar": "دلال نحاسية على طاولة جانبية", "weight": 0.9, "verified": false},
-        {"en": "carved wood incense burner stand", "ar": "حامل مبخرة خشبي محفور", "weight": 0.8, "verified": false}
+        {"en": "low majlis seating with thick cushions", "ar": "جلسة مجلس منخفضة بوسائد سميكة", "weight": 1.2, "verified": true},
+        {"en": "mafrash floor cushions", "ar": "مفارش أرضية", "weight": 1.0, "verified": true},
+        {"en": "brass dallah coffee pots on side table", "ar": "دلال نحاسية على طاولة جانبية", "weight": 0.9, "verified": true},
+        {"en": "carved wood incense burner stand", "ar": "حامل مبخرة خشبي محفور", "weight": 0.8, "verified": true}
       ],
       "textiles": [
-        {"en": "sadu weave with red-black-cream geometry", "ar": "نسيج سدو بألوان أحمر وأسود وكريمي", "weight": 1.3, "verified": false},
-        {"en": "wool floor cushions", "ar": "وسائد صوف أرضية", "weight": 1.0, "verified": false},
-        {"en": "embroidered velvet majlis upholstery", "ar": "تنجيد مخمل مطرّز للمجلس", "weight": 1.0, "verified": false}
+        {"en": "sadu weave with red-black-cream geometry", "ar": "نسيج سدو بألوان أحمر وأسود وكريمي", "weight": 1.3, "verified": true},
+        {"en": "wool floor cushions", "ar": "وسائد صوف أرضية", "weight": 1.0, "verified": true},
+        {"en": "embroidered velvet majlis upholstery", "ar": "تنجيد مخمل مطرّز للمجلس", "weight": 1.0, "verified": true}
       ],
       "ornamentation": [
-        {"en": "gypsum lattice screens (jus)", "ar": "مشربيات جصّية", "weight": 1.3, "verified": false},
-        {"en": "palm-frond geometric carving", "ar": "نقش جريد النخل الهندسي", "weight": 1.1, "verified": false},
-        {"en": "Kufic calligraphy panels", "ar": "ألواح خط كوفي", "weight": 1.0, "verified": false},
-        {"en": "brass coffee-set still life", "ar": "تشكيلة قهوة نحاسية", "weight": 0.8, "verified": false}
+        {"en": "gypsum lattice screens (jus)", "ar": "مشربيات جصّية", "weight": 1.3, "verified": true},
+        {"en": "palm-frond geometric carving", "ar": "نقش جريد النخل الهندسي", "weight": 1.1, "verified": true},
+        {"en": "Kufic calligraphy panels", "ar": "ألواح خط كوفي", "weight": 1.0, "verified": true},
+        {"en": "brass coffee-set still life", "ar": "تشكيلة قهوة نحاسية", "weight": 0.8, "verified": true}
       ]
     },
     "moroccan": {
@@ -150,48 +150,48 @@
         "Indian haveli"
       ],
       "architectural": [
-        {"en": "horseshoe arch", "ar": "قوس حذوة الفرس", "weight": 1.3, "verified": false},
-        {"en": "riad courtyard with central fountain", "ar": "فناء رياض بنافورة مركزية", "weight": 1.3, "verified": false},
-        {"en": "salon marocain banquette layout", "ar": "صالون مغربي بجلسات على الجدران", "weight": 1.2, "verified": false},
-        {"en": "keyhole doorway", "ar": "باب على شكل ثقب المفتاح", "weight": 1.0, "verified": false},
-        {"en": "vaulted hammam ceiling", "ar": "سقف حمّام مقبّب", "weight": 0.9, "verified": false},
-        {"en": "carved cedar plafond ceiling", "ar": "سقف خشب أرز مغربي محفور", "weight": 1.1, "verified": false}
+        {"en": "horseshoe arch", "ar": "قوس حذوة الفرس", "weight": 1.3, "verified": true},
+        {"en": "riad courtyard with central fountain", "ar": "فناء رياض بنافورة مركزية", "weight": 1.3, "verified": true},
+        {"en": "salon marocain banquette layout", "ar": "صالون مغربي بجلسات على الجدران", "weight": 1.2, "verified": true},
+        {"en": "keyhole doorway", "ar": "باب على شكل ثقب المفتاح", "weight": 1.0, "verified": true},
+        {"en": "vaulted hammam ceiling", "ar": "سقف حمّام مقبّب", "weight": 0.9, "verified": true},
+        {"en": "carved cedar plafond ceiling", "ar": "سقف خشب أرز مغربي محفور", "weight": 1.1, "verified": true}
       ],
       "materials": [
-        {"en": "zellige geometric tile", "ar": "زليج هندسي", "weight": 1.4, "verified": false},
-        {"en": "tadelakt polished plaster", "ar": "تادلاكت", "weight": 1.2, "verified": false},
-        {"en": "carved cedar wood", "ar": "خشب أرز محفور", "weight": 1.1, "verified": false},
-        {"en": "marble fountain basin", "ar": "حوض نافورة رخامي", "weight": 0.9, "verified": false},
-        {"en": "hand-hammered brass", "ar": "نحاس مطروق يدويًا", "weight": 1.0, "verified": false}
+        {"en": "zellige geometric tile", "ar": "زليج هندسي", "weight": 1.4, "verified": true},
+        {"en": "tadelakt polished plaster", "ar": "تادلاكت", "weight": 1.2, "verified": true},
+        {"en": "carved cedar wood", "ar": "خشب أرز محفور", "weight": 1.1, "verified": true},
+        {"en": "marble fountain basin", "ar": "حوض نافورة رخامي", "weight": 0.9, "verified": true},
+        {"en": "hand-hammered brass", "ar": "نحاس مطروق يدويًا", "weight": 1.0, "verified": true}
       ],
       "color_palette": [
-        {"en": "cobalt Majorelle blue", "ar": "أزرق مجوريل", "hex": "#0040c0", "weight": 1.1, "verified": false},
-        {"en": "saffron yellow", "ar": "أصفر زعفراني", "hex": "#e3a92f", "weight": 1.0, "verified": false},
-        {"en": "Marrakech terracotta red", "ar": "أحمر مراكشي", "hex": "#a8442a", "weight": 1.1, "verified": false},
-        {"en": "mint green", "ar": "أخضر نعناعي", "hex": "#7ab187", "weight": 0.9, "verified": false},
-        {"en": "ivory tadelakt", "ar": "عاجي تادلاكت", "hex": "#efe5d2", "weight": 1.0, "verified": false}
+        {"en": "cobalt Majorelle blue", "ar": "أزرق مجوريل", "hex": "#0040c0", "weight": 1.1, "verified": true},
+        {"en": "saffron yellow", "ar": "أصفر زعفراني", "hex": "#e3a92f", "weight": 1.0, "verified": true},
+        {"en": "Marrakech terracotta red", "ar": "أحمر مراكشي", "hex": "#a8442a", "weight": 1.1, "verified": true},
+        {"en": "mint green", "ar": "أخضر نعناعي", "hex": "#7ab187", "weight": 0.9, "verified": true},
+        {"en": "ivory tadelakt", "ar": "عاجي تادلاكت", "hex": "#efe5d2", "weight": 1.0, "verified": true}
       ],
       "lighting": [
-        {"en": "pierced brass lantern", "ar": "فانوس نحاسي مخرّم", "weight": 1.2, "verified": false},
-        {"en": "star-shaped Andalusian pendant", "ar": "ثريا أندلسية نجمية", "weight": 1.1, "verified": false},
-        {"en": "candle wall sconce", "ar": "قنديل جداري بالشموع", "weight": 0.9, "verified": false}
+        {"en": "pierced brass lantern", "ar": "فانوس نحاسي مخرّم", "weight": 1.2, "verified": true},
+        {"en": "star-shaped Andalusian pendant", "ar": "ثريا أندلسية نجمية", "weight": 1.1, "verified": true},
+        {"en": "candle wall sconce", "ar": "قنديل جداري بالشموع", "weight": 0.9, "verified": true}
       ],
       "furniture": [
-        {"en": "low banquette around central low table", "ar": "بنكات منخفضة حول طاولة وسط", "weight": 1.2, "verified": false},
-        {"en": "octagonal mosaic side table", "ar": "طاولة جانبية ثمانية بفسيفساء", "weight": 1.1, "verified": false},
-        {"en": "leather pouffe", "ar": "بوف جلدي", "weight": 0.9, "verified": false},
-        {"en": "carved cedar chest", "ar": "صندوق أرز محفور", "weight": 0.9, "verified": false}
+        {"en": "low banquette around central low table", "ar": "بنكات منخفضة حول طاولة وسط", "weight": 1.2, "verified": true},
+        {"en": "octagonal mosaic side table", "ar": "طاولة جانبية ثمانية بفسيفساء", "weight": 1.1, "verified": true},
+        {"en": "leather pouffe", "ar": "بوف جلدي", "weight": 0.9, "verified": true},
+        {"en": "carved cedar chest", "ar": "صندوق أرز محفور", "weight": 0.9, "verified": true}
       ],
       "textiles": [
-        {"en": "beni-ourain cream wool rug with black geometry", "ar": "سجادة بني ورين كريمية بأشكال هندسية سوداء", "weight": 1.3, "verified": false},
-        {"en": "embroidered silk-blend curtains", "ar": "ستائر حريرية مطرّزة", "weight": 0.9, "verified": false},
-        {"en": "wool kilim", "ar": "كليم صوفي", "weight": 1.0, "verified": false}
+        {"en": "beni-ourain cream wool rug with black geometry", "ar": "سجادة بني ورين كريمية بأشكال هندسية سوداء", "weight": 1.3, "verified": true},
+        {"en": "embroidered silk-blend curtains", "ar": "ستائر حريرية مطرّزة", "weight": 0.9, "verified": true},
+        {"en": "wool kilim", "ar": "كليم صوفي", "weight": 1.0, "verified": true}
       ],
       "ornamentation": [
-        {"en": "zellige mosaic wall", "ar": "جدار زليج موزاييك", "weight": 1.4, "verified": false},
-        {"en": "carved plaster mouqarnas", "ar": "مقرنصات جصّية محفورة", "weight": 1.2, "verified": false},
-        {"en": "Kufic calligraphy frieze", "ar": "إفريز خط كوفي", "weight": 1.0, "verified": false},
-        {"en": "brass filigree screens", "ar": "حواجز نحاسية مفرّغة", "weight": 1.0, "verified": false}
+        {"en": "zellige mosaic wall", "ar": "جدار زليج موزاييك", "weight": 1.4, "verified": true},
+        {"en": "carved plaster muqarnas", "ar": "مقرنصات جصّية محفورة", "weight": 1.2, "verified": true},
+        {"en": "Kufic calligraphy frieze", "ar": "إفريز خط كوفي", "weight": 1.0, "verified": true},
+        {"en": "brass filigree screens", "ar": "حواجز نحاسية مفرّغة", "weight": 1.0, "verified": true}
       ]
     }
   }
