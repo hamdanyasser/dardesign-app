@@ -430,7 +430,7 @@ export function Manifesto() {
 }
 
 /* ============================================================
-   CODA — final door. CTA routes to /transform (the real upload page).
+   CODA — final door. CTA routes to /studio (the upload + redesign page).
    ============================================================ */
 export function Coda() {
   const ref = useRef<HTMLDivElement>(null);
@@ -480,7 +480,7 @@ export function Coda() {
       <button
         className="coda-cta reveal d3"
         type="button"
-        onClick={() => router.push("/transform")}
+        onClick={() => router.push("/studio")}
       >
         {isArabic ? "احضر غرفة" : "Bring a room"}
         <span style={{ fontSize: 14 }}>{isArabic ? "←" : "→"}</span>

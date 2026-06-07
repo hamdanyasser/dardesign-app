@@ -1,0 +1,66 @@
+{
+  "_meta": {
+    "description": "Arabic interior-design ontology keyed by ADE20K semantic class. The backend's segmentation map (UPerNet/OneFormer on ADE20K) labels each pixel with one of these classes; the CulturalElementHighlighter looks the class up here to show its Arabic term + a short design note. Keys are the canonical ADE20K labels; add more as the seg model's class set grows.",
+    "schema": { "ar": "Arabic term", "en": "English term", "note": "short Arabic design/cultural note" }
+  },
+  "wall": {
+    "ar": "جدار",
+    "en": "Wall",
+    "note": "السطح الرئيسي الذي يحمل الزخارف الجصية والقمريات واللمسات اللونية في الطراز العربي."
+  },
+  "floor": {
+    "ar": "أرضية",
+    "en": "Floor",
+    "note": "قاعدة الغرفة، وغالباً ما تُكسى ببلاط منقوش أو رخام أو زليج مغربي."
+  },
+  "ceiling": {
+    "ar": "سقف",
+    "en": "Ceiling",
+    "note": "السطح العلوي، وقد يحمل نقوشاً خشبية أو جصية مزخرفة على الطراز الأندلسي."
+  },
+  "window": {
+    "ar": "نافذة",
+    "en": "Window",
+    "note": "مصدر الضوء الطبيعي، وكثيراً ما تُزيَّن بالمشربية أو الأقواس المدببة."
+  },
+  "door": {
+    "ar": "باب",
+    "en": "Door",
+    "note": "مدخل مزخرف، أحياناً بأقواس على الطراز الأندلسي أو نقوش نحاسية."
+  },
+  "chair": {
+    "ar": "كرسي",
+    "en": "Chair",
+    "note": "جلسة فردية تعكس طابع الأثاث الشرقي وخاماته الدافئة."
+  },
+  "sofa": {
+    "ar": "أريكة",
+    "en": "Sofa",
+    "note": "جلسة عربية وثيرة، وهي عماد المجالس التقليدية وأكثرها حضوراً."
+  },
+  "table": {
+    "ar": "طاولة",
+    "en": "Table",
+    "note": "طاولة وسطية، غالباً نحاسية أو خشبية مطعّمة بالصدف."
+  },
+  "lamp": {
+    "ar": "مصباح",
+    "en": "Lamp",
+    "note": "إضاءة دافئة عبر فوانيس نحاسية مخرّمة تنثر الضوء بنقوش هندسية."
+  },
+  "rug": {
+    "ar": "سجادة",
+    "en": "Rug",
+    "note": "سجاد مزخرف يحدد مساحة الجلوس ويضيف دفئاً وعمقاً لونياً."
+  },
+  "plant": {
+    "ar": "نبات",
+    "en": "Plant",
+    "note": "لمسة خضراء تكسر صرامة الزخرفة الهندسية وتمنح الغرفة حياة."
+  },
+  "cabinet": {
+    "ar": "خزانة",
+    "en": "Cabinet",
+    "note": "وحدة تخزين خشبية، أحياناً بزخارف محفورة أو أبواب مشغولة باليد."
+  }
+}

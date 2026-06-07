@@ -296,6 +296,41 @@
   animation: fade-in-up 0.8s ease-out 0.5s both;
 }
 
+/* Skeleton shimmer — gold sweep over a charcoal surface, used by the studio
+   loading state while /redesign runs its ~2-minute, three-pass generation. */
+@keyframes dd-skeleton-sweep {
+  0% {
+    background-position: 200% 0;
+  }
+
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+.dd-skeleton {
+  position: relative;
+  overflow: hidden;
+  background-color: var(--dd-surface-strong);
+  background-image: linear-gradient(
+    100deg,
+    transparent 20%,
+    rgba(212, 175, 55, 0.08) 40%,
+    rgba(212, 175, 55, 0.16) 50%,
+    rgba(212, 175, 55, 0.08) 60%,
+    transparent 80%
+  );
+  background-size: 200% 100%;
+  animation: dd-skeleton-sweep 1.6s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dd-skeleton {
+    animation: none;
+  }
+}
+
+
 .animate-spin-slow {
   animation: spin-slow 8s linear infinite;
 }

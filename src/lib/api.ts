@@ -223,3 +223,105 @@ export async function pollStatus(
     await new Promise((r) => setTimeout(r, intervalMs));
   }
 }
+
+/* -------------------------------------------------------------------------- */
+/*  POST /redesign — synchronous, one-shot, all three styles at once.         */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The shape returned by `POST /redesign`. Every value is a base64 PNG
+ * **data URL** (e.g. `data:image/png;base64,…`), so it can be dropped straight
+ * into an `<img src>` or an `<a download href>` — no extra fetch, no
+ * ngrok-header dance like the legacy `/result` blob endpoint needed.
+ */
+export interface RedesignResult {
+  original: string;
+  lebanese: string;
+  khaleeji: string;
+  moroccan: string;
+}
+
+const REDESIGN_KEYS = ["original", "lebanese", "khaleeji", "moroccan"] as const;
+
+/**
+ * Send a room photo to the backend and get back the original plus all three
+ * cultural redesigns in a single request.
+ *
+ * The backend runs three generations sequentially, so a call routinely takes
+ * ~1–2 minutes. We therefore default to a generous 180s timeout (configurable)
+ * and abort cleanly if it's exceeded. A caller-supplied `signal` (e.g. for a
+ * "cancel"/unmount) is honoured in addition to the internal timeout.
+ */
+export async function redesignRoom(
+  file: File,
+  { timeoutMs = 180_000, signal }: { timeoutMs?: number; signal?: AbortSignal } = {},
+): Promise<RedesignResult> {
+  const fd = new FormData();
+  fd.append("file", file);
+
+  // Compose the internal timeout with any caller-provided abort signal.
+  const ctrl = new AbortController();
+  let timedOut = false;
+  const onParentAbort = () => ctrl.abort();
+  if (signal) {
+    if (signal.aborted) ctrl.abort();
+    else signal.addEventListener("abort", onParentAbort, { once: true });
+  }
+  const timer = setTimeout(() => {
+    timedOut = true;
+    ctrl.abort();
+  }, timeoutMs);
+
+  let res: Response;
+  try {
+    res = await safeFetch(`${API_URL}/redesign`, {
+      method: "POST",
+      headers: COMMON_HEADERS,
+      body: fd,
+      signal: ctrl.signal,
+    });
+  } catch (e) {
+    // safeFetch turns an AbortError into a generic network ApiError; recover the
+    // real cause so the UI can show an accurate, bilingual message.
+    if (timedOut) {
+      throw new ApiError(
+        {
+          code: "timeout",
+          message_en: "The design is taking longer than expected. Please try again.",
+          message_ar: "استغرق التصميم وقتاً أطول من المتوقع. يرجى المحاولة مجدداً.",
+        },
+        0,
+      );
+    }
+    if (signal?.aborted) {
+      throw new ApiError(
+        { code: "aborted", message_en: "Request cancelled", message_ar: "تم إلغاء الطلب" },
+        0,
+      );
+    }
+    throw e; // already a typed network ApiError from safeFetch
+  } finally {
+    clearTimeout(timer);
+    if (signal) signal.removeEventListener("abort", onParentAbort);
+  }
+
+  const data = (await unwrap(res)) as Partial<RedesignResult>;
+
+  // Validate the payload so a partial/garbled backend response fails loudly
+  // and predictably instead of rendering broken <img> tags.
+  const missing = REDESIGN_KEYS.filter(
+    (k) => typeof data[k] !== "string" || !data[k]!.startsWith("data:image"),
+  );
+  if (missing.length) {
+    throw new ApiError(
+      {
+        code: "bad_response",
+        message_en: `Server returned an incomplete result (missing: ${missing.join(", ")}).`,
+        message_ar: "أعاد الخادم نتيجة غير مكتملة. يرجى المحاولة مجدداً.",
+      },
+      res.status,
+    );
+  }
+
+  return data as RedesignResult;
+}

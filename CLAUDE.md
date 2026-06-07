@@ -291,3 +291,15 @@ Each style has: `flag`, `name`, `selectorDescription`, `origin`, `landingDescrip
 - **No localStorage:** Theme and language state reset on page reload (context-only persistence).
 - **No next/image:** Using `<img>` elements because blob URLs and SVG data URIs are incompatible with Next.js image optimization. ESLint warnings for this are expected.
 - **All client components:** Every page and component uses `"use client"` since they depend on context providers.
+
+---
+
+## Studio flow + `/redesign` (Week 1 wiring)
+
+Demo path: `/` (Atelier landing, CTA → `/studio`) → **`/studio`** (upload → all three redesigns).
+
+- **`POST /redesign`** (synchronous, ~1–2 min): multipart `file`; returns `{ original, lebanese, khaleeji, moroccan }` as base64 PNG **data URLs**. Client = `redesignRoom()` in `src/lib/api.ts` (≥180s timeout, `AbortController`, typed bilingual errors, response-shape validation). Replaces the old async `/upload`+`/transform`+`/status`+`/result` polling flow.
+- **`/studio`** (`src/app/studio/page.tsx`): drag-drop (`UploadZone`) → skeleton loading (`جارٍ التصميم…` + elapsed timer, `.dd-skeleton` shimmer) → responsive 2-col grid of original + Lebanese/Khaleeji/Moroccan, each labelled AR+EN with a per-image PNG download. Bilingual error + retry. RTL/Tajawal, gold-on-charcoal.
+- **`/transform` and `/result`** are retired — they now `redirect("/studio")`.
+- **CulturalElementHighlighter** (`src/components/CulturalElementHighlighter.tsx` + `src/data/ontology.json`): scaffold that overlays a segmentation mask (SVG + accessible hotspots) and reveals an element's Arabic term + note on click. `fetchSegMap(jobId)` is the `// TODO: connect to backend seg map` hook (returns `[]` today). Shown as an optional "preview" in `/studio` via `DEMO_REGIONS`.
+- **Env:** `NEXT_PUBLIC_API_URL` in `.env.local` (gitignored; template in `.env.example`). ngrok URL rotates each session — keep it swappable.
