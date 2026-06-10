@@ -363,6 +363,92 @@ def _prepare_conditioning(image_path: Path, target_size: tuple[int, int]) -> tup
 
 
 # ----------------------------------------------------------------------------
+# Depth + raw-id segmentation for the 2D object-map projection
+# ----------------------------------------------------------------------------
+
+_PROJECTION_SIZE = 384  # working resolution — the map only needs centroids
+_DEPTH_SEG_CACHE: dict[str, Any] = {}
+
+
+def _synthetic_depth_seg(size: int = _PROJECTION_SIZE) -> tuple[Any, Any]:
+    """DARDESIGN_LIGHT stand-in: a deterministic living-room layout so the
+    /redesign → projection → RoomMap2D wiring is exercisable without a GPU.
+    NOT real detections — same spirit as the PREVIEW placeholder images."""
+    import numpy as np
+
+    h = w = size
+    seg = np.zeros((h, w), dtype=np.int32)  # 0 = wall; ignored by projection
+
+    def put(class_id: int, y0: float, y1: float, x0: float, x1: float) -> None:
+        seg[int(y0 * h):int(y1 * h), int(x0 * w):int(x1 * w)] = class_id
+
+    put(8, 0.05, 0.30, 0.35, 0.65)    # window on the far wall
+    put(14, 0.10, 0.55, 0.86, 0.97)   # door, right
+    put(10, 0.30, 0.55, 0.04, 0.18)   # cabinet, left
+    put(36, 0.32, 0.50, 0.20, 0.28)   # lamp
+    put(28, 0.55, 0.92, 0.22, 0.78)   # rug, centre foreground
+    put(15, 0.58, 0.74, 0.38, 0.62)   # table on the rug
+    put(19, 0.60, 0.78, 0.68, 0.82)   # chair, right of the table
+    put(23, 0.66, 0.95, 0.05, 0.35)   # sofa, near left
+
+    # Disparity-style depth (larger = closer): far wall at top, floor at bottom.
+    depth = np.tile(np.linspace(0.25, 0.95, h, dtype=np.float32)[:, None], (1, w))
+    return depth, seg
+
+
+def compute_depth_seg(image_path: str | Path, *, size: int = _PROJECTION_SIZE) -> tuple[Any, Any]:
+    """Return (depth_array, seg_class_ids) for backend.projection.
+
+    depth_array   — (H, W) float32, Depth Anything convention (larger = closer)
+    seg_class_ids — (H, W) int32 raw ADE20K-150 ids; `_prepare_conditioning`
+                    can't be reused here because it returns the *colorized*
+                    control images, not the id map the projection needs.
+
+    Runs on CPU on purpose: one-shot per request, must not steal VRAM from the
+    SDXL pipeline on the T4.
+    """
+    if _is_light_mode():
+        return _synthetic_depth_seg(size)
+
+    import numpy as np
+    from PIL import Image
+
+    src = Image.open(image_path).convert("RGB").resize((size, size))
+
+    try:
+        from controlnet_aux import DepthAnythingDetector  # type: ignore
+    except ImportError:  # older controlnet_aux
+        from controlnet_aux import MidasDetector as DepthAnythingDetector  # type: ignore
+    if "depth" not in _DEPTH_SEG_CACHE:
+        _DEPTH_SEG_CACHE["depth"] = DepthAnythingDetector.from_pretrained("lllyasviel/Annotators")
+    depth_pil = _DEPTH_SEG_CACHE["depth"](src)
+    depth = np.asarray(depth_pil.convert("L").resize((size, size)), dtype=np.float32)
+
+    # Same checkpoint the seg ControlNet input uses, so the weights are already
+    # in the HF cache by the time /redesign gets here.
+    import torch
+    from transformers import OneFormerForUniversalSegmentation, OneFormerProcessor
+
+    if "seg" not in _DEPTH_SEG_CACHE:
+        ckpt = "shi-labs/oneformer_ade20k_swin_large"
+        _DEPTH_SEG_CACHE["seg"] = (
+            OneFormerProcessor.from_pretrained(ckpt),
+            OneFormerForUniversalSegmentation.from_pretrained(ckpt),
+        )
+    processor, model = _DEPTH_SEG_CACHE["seg"]
+    inputs = processor(images=src, task_inputs=["semantic"], return_tensors="pt")
+    with torch.no_grad():
+        outputs = model(**inputs)
+    seg = (
+        processor.post_process_semantic_segmentation(outputs, target_sizes=[(size, size)])[0]
+        .cpu()
+        .numpy()
+        .astype(np.int32)
+    )
+    return depth, seg
+
+
+# ----------------------------------------------------------------------------
 # Public entry point
 # ----------------------------------------------------------------------------
 

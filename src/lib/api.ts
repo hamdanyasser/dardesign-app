@@ -228,8 +228,34 @@ export async function pollStatus(
 /*  POST /redesign — synchronous, one-shot, all three styles at once.         */
 /* -------------------------------------------------------------------------- */
 
+/** One detected object on the top-down plan (backend/projection.py). */
+export interface ObjectMapObject {
+  classKey: string;
+  labelEn: string;
+  labelAr: string;
+  /** Normalized 0..1; cy=0 is the far wall, matching RoomMap2D. */
+  cx: number;
+  cy: number;
+  w: number;
+  h: number;
+  /** Fraction of image pixels the blob covers. */
+  area: number;
+  /** 0..1 depth-coherence heuristic. */
+  confidence: number;
+}
+
+/** Envelope produced by to_room_map_payload() in backend/projection.py. */
+export interface ObjectMapPayload {
+  jobId: string;
+  style: string;
+  objects: ObjectMapObject[];
+  version: string;
+  /** True when DARDESIGN_LIGHT returned a synthetic layout, not detections. */
+  placeholder?: boolean;
+}
+
 /**
- * The shape returned by `POST /redesign`. Every value is a base64 PNG
+ * The shape returned by `POST /redesign`. Every image value is a base64 PNG
  * **data URL** (e.g. `data:image/png;base64,…`), so it can be dropped straight
  * into an `<img src>` or an `<a download href>` — no extra fetch, no
  * ngrok-header dance like the legacy `/result` blob endpoint needed.
@@ -239,6 +265,8 @@ export interface RedesignResult {
   lebanese: string;
   khaleeji: string;
   moroccan: string;
+  /** 2D top-down object map (Week 2). Null/absent when projection fails. */
+  object_map?: ObjectMapPayload | null;
 }
 
 const REDESIGN_KEYS = ["original", "lebanese", "khaleeji", "moroccan"] as const;

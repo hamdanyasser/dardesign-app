@@ -209,6 +209,12 @@ export default function StudioPage() {
   const lc = copy.loading;
   const rc = copy.result;
 
+  // Week 2: /redesign now ships a backend-computed top-down object map.
+  // Fall back to the illustrative DEMO_MAP for older backends that omit it.
+  const backendMap = result?.object_map;
+  const mapObjects = backendMap?.objects?.length ? backendMap.objects : DEMO_MAP;
+  const hasRealMap = !!backendMap?.objects?.length && !backendMap.placeholder;
+
   const msgIdx = Math.min(lc.messages.length - 1, Math.floor(progress * lc.messages.length));
   const ringR = 90;
   const ringC = 2 * Math.PI * ringR;
@@ -302,6 +308,11 @@ export default function StudioPage() {
                       <h3 className="prompt">{tc.dropPrompt}</h3>
                       <div className="sub">{tc.dropClick}</div>
                       <div className="formats">{tc.formats}</div>
+                      <div className="formats" style={{ marginTop: 6, opacity: 0.75 }}>
+                        {isArabic
+                          ? "صورك تُحذف تلقائيًا بعد ٢٤ ساعة ما لم تحفظها."
+                          : "Your photos are automatically deleted after 24 hours unless you save them."}
+                      </div>
                       {validationErr && (
                         <div style={{ marginTop: "var(--s-4)", color: "var(--error)", fontSize: "0.85rem" }}>
                           {validationErr}
@@ -552,7 +563,7 @@ export default function StudioPage() {
 
             <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
               {TILES.map((t) => {
-                const src = result[t.key as keyof RedesignResult];
+                const src = result[t.key];
                 return (
                   <figure
                     key={t.key}
@@ -595,8 +606,12 @@ export default function StudioPage() {
                   </h2>
                   <p className={cn("mt-1 text-xs text-cream-muted", isArabic && "font-arabic")}>
                     {isArabic
-                      ? "عناصر ومخطط تجريبيان — سيتصلان بخريطة التجزئة والإسقاط من الخادم لاحقاً. اضغط أي عنصر."
-                      : "Sample regions + top-down map — will connect to the backend segmentation & projection later. Click any element."}
+                      ? hasRealMap
+                        ? "التظليل على الصورة تجريبي؛ المخطط العلوي محسوب من الخادم (عمق + تجزئة). اضغط أي عنصر."
+                        : "عناصر ومخطط تجريبيان — سيتصلان بخريطة التجزئة والإسقاط من الخادم لاحقاً. اضغط أي عنصر."
+                      : hasRealMap
+                        ? "Highlight regions are samples; the top-down map is computed by the backend (depth + segmentation). Click any element."
+                        : "Sample regions + top-down map — will connect to the backend segmentation & projection later. Click any element."}
                   </p>
                 </div>
                 <button
@@ -627,7 +642,7 @@ export default function StudioPage() {
                     <p className={cn("mb-2 text-xs font-medium text-cream-soft", isArabic && "font-arabic")}>
                       {isArabic ? "المخطط العلوي ثنائي الأبعاد" : "2D top-down map"}
                     </p>
-                    <RoomMap2D objects={DEMO_MAP} />
+                    <RoomMap2D objects={mapObjects} />
                   </div>
                 </div>
               )}

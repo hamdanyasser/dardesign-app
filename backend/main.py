@@ -3,6 +3,9 @@
 Endpoints
 ---------
 GET  /healthz                       liveness (also reports DARDESIGN_LIGHT)
+POST /redesign                      multipart image -> original + all 3 styles
+                                    as base64 PNG data URLs + 2D object_map
+                                    (synchronous, ~1-2 min on the T4)
 POST /upload                        multipart image -> {job_id}
 POST /transform                     {job_id, style} -> kicks off generation
 GET  /status/{job_id}               polling endpoint
@@ -17,9 +20,12 @@ CORS is permissive in dev; tighten via $DARDESIGN_ALLOWED_ORIGINS in prod.
 from __future__ import annotations
 
 import asyncio
+import base64
+import io
 import logging
 import os
 import shutil
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, UploadFile
@@ -29,15 +35,26 @@ from pydantic import BaseModel
 
 from .errors import (
     ERR_BAD_SHARE_TOKEN,
+    ERR_BAD_STYLE,
+    ERR_FILE_TOO_LARGE,
     ERR_JOB_BAD_STATE,
     ERR_JOB_NOT_FOUND,
+    ERR_NOT_AN_IMAGE,
     ERR_OUTPUT_MISSING,
     ERR_PIPELINE,
     ApiError,
 )
+from .guardrails import (
+    clamp_params,
+    sanitize_prompt_fragment,
+    validate_style as guard_validate_style,
+    validate_upload as guard_validate_upload,
+)
 from .jobs import JobStatus, jobs
+from .projection import project_top_down, to_room_map_payload
 from .share import decode as share_decode, encode as share_encode
-from .transform import PipelineError, StylePack, transform_room
+from .transform import CONFIG, PipelineError, StylePack, compute_depth_seg, transform_room
+from .ttl_cleanup import PRIVACY_NOTICE, start_background_sweeper
 from .validators import ValidationFailure, validate_upload
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -57,7 +74,20 @@ ALLOWED_ORIGINS = (
     else _default_origins
 )
 
-app = FastAPI(title="DarDesign API", version="0.2.0")
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    # Privacy: uploads AND generated PNGs both land in backend/uploads
+    # (DEFAULT_OUT_DIR == UPLOAD_DIR), so one root covers them. saved/ and
+    # *.keep siblings survive the sweep; everything else dies after 24h.
+    stop_sweeper = start_background_sweeper([UPLOAD_DIR], ttl_hours=24, interval_min=60)
+    logger.info("24h TTL sweeper running on %s — %s", UPLOAD_DIR, PRIVACY_NOTICE)
+    try:
+        yield
+    finally:
+        stop_sweeper()
+
+
+app = FastAPI(title="DarDesign API", version="0.3.0", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
@@ -78,6 +108,47 @@ def _light_mode() -> bool:
     return os.environ.get("DARDESIGN_LIGHT", "").lower() in ("1", "true", "yes")
 
 
+def _guard_upload(filename: str | None, raw: bytes) -> None:
+    """Kit guardrail: extension allowlist + magic-byte sniff before the PIL
+    checks in validators.py touch the bytes. max_mb=10 keeps the existing
+    contract (frontend also validates 10 MB)."""
+    ok, reason = guard_validate_upload(filename or "", raw, max_mb=10)
+    if ok:
+        return
+    detail_en, _, detail_ar = reason.partition(" | ")
+    err = ERR_FILE_TOO_LARGE if "larger" in detail_en.lower() else ERR_NOT_AN_IMAGE
+    _raise(err, detail_en=detail_en.strip(), detail_ar=detail_ar.strip() or None)
+
+
+def _clamped_cn_weights(cn_depth: float | None, cn_seg: float | None) -> tuple[float, float] | None:
+    """Server-side bounds for caller-supplied ControlNet weights (guardrails kit).
+    Returns None when the caller didn't ask, so pipeline defaults apply."""
+    if cn_depth is None and cn_seg is None:
+        return None
+    defaults = CONFIG["default_controlnet_weights"]
+    p = clamp_params(
+        cn_depth=defaults["depth"] if cn_depth is None else cn_depth,
+        cn_seg=defaults["seg"] if cn_seg is None else cn_seg,
+    )
+    return (p["cn_depth"], p["cn_seg"])
+
+
+def _png_data_url(path: Path) -> str:
+    return "data:image/png;base64," + base64.b64encode(path.read_bytes()).decode("ascii")
+
+
+def _original_png_data_url(raw: bytes) -> str:
+    """Re-encode the upload at the pipeline's output size so the before/after
+    compare slider gets matching geometry."""
+    from PIL import Image
+
+    size = tuple(CONFIG["output_size"])
+    img = Image.open(io.BytesIO(raw)).convert("RGB").resize(size)
+    buf = io.BytesIO()
+    img.save(buf, format="PNG", optimize=True)
+    return "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode("ascii")
+
+
 # ---------- request/response models ----------
 
 
@@ -90,6 +161,9 @@ class TransformRequest(BaseModel):
     style: str
     seed: int | None = None
     room: str | None = None
+    # Optional ControlNet weight overrides — clamped server-side (guardrails).
+    cn_depth: float | None = None
+    cn_seg: float | None = None
 
 
 class StatusResponse(BaseModel):
@@ -105,6 +179,19 @@ class StatusResponse(BaseModel):
 class ShareTokenResponse(BaseModel):
     token: str
     expires_in_seconds: int
+
+
+class RedesignResponse(BaseModel):
+    """Contract of redesignRoom() in src/lib/api.ts: every image is a base64
+    PNG data URL; object_map is the to_room_map_payload() envelope (or null
+    when the projection fails — images still ship)."""
+
+    original: str
+    lebanese: str
+    khaleeji: str
+    moroccan: str
+    object_map: dict | None = None
+    privacy_notice: str = PRIVACY_NOTICE
 
 
 # ---------- endpoints ----------
@@ -125,6 +212,7 @@ async def healthz() -> dict:
 @app.post("/upload", response_model=JobIdResponse)
 async def upload_image(file: UploadFile) -> JobIdResponse:
     raw = await file.read()
+    _guard_upload(file.filename, raw)
     try:
         validate_upload(content_type=file.content_type, raw_bytes=raw)
     except ValidationFailure as v:
@@ -145,7 +233,77 @@ async def upload_image(file: UploadFile) -> JobIdResponse:
     return JobIdResponse(job_id=job.id)
 
 
-async def _run_transform(job_id: str, style: str, *, seed: int | None, room: str | None) -> None:
+@app.post("/redesign", response_model=RedesignResponse)
+async def redesign(file: UploadFile) -> RedesignResponse:
+    """Synchronous one-shot: original + all three styles + the 2D object map.
+
+    Runs the three generations sequentially (~1-2 min on the T4; instant in
+    DARDESIGN_LIGHT). The projection (WIRING §1) reuses the depth + raw-id seg
+    of the *input* room, so one compute serves all three style maps.
+    """
+    raw = await file.read()
+    _guard_upload(file.filename, raw)
+    try:
+        validate_upload(content_type=file.content_type, raw_bytes=raw)
+    except ValidationFailure as v:
+        _raise(v.error)
+
+    suffix = Path(file.filename or "image.jpg").suffix.lower()
+    if suffix not in (".jpg", ".jpeg", ".png", ".webp"):
+        suffix = ".jpg"
+    job = jobs.create(input_path="")
+    input_path = UPLOAD_DIR / f"{job.id}_input{suffix}"
+    input_path.write_bytes(raw)
+    job.input_path = str(input_path)
+    jobs.transition(job.id, JobStatus.running, style="all")
+
+    images: dict[str, str] = {}
+    last_out: Path | None = None
+    try:
+        for i, style in enumerate(StylePack):
+            last_out = await asyncio.to_thread(transform_room, str(input_path), style)
+            images[style] = _png_data_url(last_out)
+            jobs.update_progress(job.id, (i + 1) / (len(StylePack) + 1))
+    except PipelineError as e:
+        jobs.transition(
+            job.id, JobStatus.error,
+            error_code=ERR_PIPELINE.code, error_en=e.message_en, error_ar=e.message_ar,
+        )
+        logger.exception("redesign job %s pipeline error", job.id)
+        _raise(ERR_PIPELINE, detail_en=e.message_en, detail_ar=e.message_ar)
+
+    original = await asyncio.to_thread(_original_png_data_url, raw)
+
+    # WIRING §1 — depth + raw ADE20K seg → top-down object map. Best-effort:
+    # a projection failure must never cost the user their three designs.
+    object_map: dict | None = None
+    try:
+        depth, seg_ids = await asyncio.to_thread(compute_depth_seg, input_path)
+        objects = project_top_down(depth, seg_ids)
+        for o in objects:
+            # projection.py cy: 0 = nearest the camera. RoomMap2D draws cy=0 at
+            # the TOP of the plan and documents it as the far wall — flip at
+            # the API boundary so the shipped frontend renders it correctly.
+            o["cy"] = round(1.0 - o["cy"], 4)
+        object_map = to_room_map_payload(objects, "all", job.id)
+        if _light_mode():
+            object_map["placeholder"] = True  # synthetic layout, not detections
+    except Exception:
+        logger.exception("object-map projection failed for job %s — images only", job.id)
+
+    jobs.transition(job.id, JobStatus.done, output_path=str(last_out) if last_out else None)
+    jobs.update_progress(job.id, 1.0)
+    return RedesignResponse(original=original, object_map=object_map, **images)
+
+
+async def _run_transform(
+    job_id: str,
+    style: str,
+    *,
+    seed: int | None,
+    room: str | None,
+    controlnet_weights: tuple[float, float] | None = None,
+) -> None:
     job = jobs.get(job_id)
     if job is None:
         return
@@ -157,6 +315,7 @@ async def _run_transform(job_id: str, style: str, *, seed: int | None, room: str
             style,
             seed=seed,
             room=room,
+            controlnet_weights=controlnet_weights,
         )
         jobs.update_progress(job_id, 1.0)
         jobs.transition(job_id, JobStatus.done, output_path=str(out))
@@ -181,8 +340,11 @@ async def _run_transform(job_id: str, style: str, *, seed: int | None, room: str
 
 @app.post("/transform", response_model=JobIdResponse)
 async def transform_image(req: TransformRequest) -> JobIdResponse:
-    if req.style not in StylePack:
-        from .errors import ERR_BAD_STYLE
+    try:
+        style = guard_validate_style(req.style)
+    except ValueError:
+        _raise(ERR_BAD_STYLE)
+    if style not in StylePack:  # guardrails also allows "persian"; we don't ship it
         _raise(ERR_BAD_STYLE)
 
     job = jobs.get(req.job_id)
@@ -191,8 +353,13 @@ async def transform_image(req: TransformRequest) -> JobIdResponse:
     if job.status not in (JobStatus.pending, JobStatus.error, JobStatus.done):
         _raise(ERR_JOB_BAD_STATE)
 
-    jobs.transition(req.job_id, JobStatus.queued, style=req.style)
-    asyncio.create_task(_run_transform(req.job_id, req.style, seed=req.seed, room=req.room))
+    room = sanitize_prompt_fragment(req.room) or None if req.room else None
+    weights = _clamped_cn_weights(req.cn_depth, req.cn_seg)
+
+    jobs.transition(req.job_id, JobStatus.queued, style=style)
+    asyncio.create_task(
+        _run_transform(req.job_id, style, seed=req.seed, room=room, controlnet_weights=weights)
+    )
     jobs.transition(req.job_id, JobStatus.running)
     return JobIdResponse(job_id=req.job_id)
 
@@ -232,12 +399,21 @@ async def retry_job(job_id: str, req: TransformRequest | None = None) -> JobIdRe
     if job is None:
         _raise(ERR_JOB_NOT_FOUND)
     style = (req.style if req else None) or job.style or "lebanese"
+    try:
+        style = guard_validate_style(style)
+    except ValueError:
+        _raise(ERR_BAD_STYLE)
+    if style not in StylePack:
+        _raise(ERR_BAD_STYLE)
     seed = req.seed if req else None
-    room = req.room if req else None
+    room = sanitize_prompt_fragment(req.room) or None if req and req.room else None
+    weights = _clamped_cn_weights(req.cn_depth, req.cn_seg) if req else None
 
     jobs.transition(job_id, JobStatus.queued, style=style,
                     error_code=None, error_en=None, error_ar=None)
-    asyncio.create_task(_run_transform(job_id, style, seed=seed, room=room))
+    asyncio.create_task(
+        _run_transform(job_id, style, seed=seed, room=room, controlnet_weights=weights)
+    )
     jobs.transition(job_id, JobStatus.running)
     return JobIdResponse(job_id=job_id)
 

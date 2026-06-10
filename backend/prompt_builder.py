@@ -18,6 +18,11 @@ from dataclasses import dataclass, asdict
 from pathlib import Path
 from typing import Iterable, Literal
 
+try:
+    from .guardrails import filter_chunk, sanitize_prompt_fragment
+except ImportError:  # script mode: `python backend/prompt_builder.py`
+    from guardrails import filter_chunk, sanitize_prompt_fragment  # type: ignore
+
 logger = logging.getLogger(__name__)
 
 CultureId = Literal["lebanese", "khaleeji", "moroccan"]
@@ -123,8 +128,16 @@ def build_prompts(
         if not items:
             continue
         picked = _weighted_sample(items, per_category, rng, strict)
-        en_terms.extend(p["en"] for p in picked)
-        ar_terms.extend(p["ar"] for p in picked)
+        for p in picked:
+            # Guardrails: ontology entries are hand-edited content — run them
+            # through the injection filter + sanitizer like any retrieved chunk
+            # before they reach the SD prompt. Suspicious entries are dropped.
+            en = sanitize_prompt_fragment(filter_chunk(str(p.get("en", ""))))
+            ar = sanitize_prompt_fragment(filter_chunk(str(p.get("ar", ""))))
+            if en:
+                en_terms.append(en)
+            if ar:
+                ar_terms.append(ar)
 
     room_en = (room or "interior").strip()
     room_ar_map = {
