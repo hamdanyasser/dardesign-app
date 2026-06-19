@@ -1,0 +1,178 @@
+/* ============================================================
+   DarDesign Cinema — scoped landing.
+   Faithful port of the Claude Design handoff "DarDesign Cinema.dc.html".
+   Everything is scoped under .dar-cinema so the global --dd-* design
+   system (studio / transform) is left completely untouched.
+
+   Token palette = uploads/tokens.css (the v2 warm charcoal/gold DNA),
+   mirroring the prototype's .ddc variable block exactly. Fonts come from
+   the app's next/font vars (--font-reem-kufi, --font-tajawal) on <html>.
+   ============================================================ */
+
+.dar-cinema {
+  --page: #0e0b08;
+  --panel: #181410;
+  --surface: #221c16;
+  --scan: #2a2218;
+  --ink: #f4ede2;
+  --soft: #e4d8c3;
+  --gold: #c9a227;
+  --gold-bright: #e3c36a;
+  --gold-light: #f0dfa6;
+  --on-gold: #181410;
+  --gold-rgb: 201, 162, 39;
+  --cream-rgb: 228, 216, 195;
+  --glow-rgb: 227, 195, 106;
+  --page-rgb: 14, 11, 8;
+  --vignette-rgb: 8, 6, 4;
+
+  background: var(--page);
+  color: var(--ink);
+  font-family: var(--font-tajawal), system-ui, sans-serif;
+  min-height: 100vh;
+  overflow-x: clip;
+}
+
+.dar-cinema[data-theme="light"] {
+  --page: #f4ecdd;
+  --panel: #eadfca;
+  --surface: #fffaf0;
+  --scan: #efe6d4;
+  --ink: #2a2014;
+  --soft: #5b4e3a;
+  --gold: #8a6e0c;
+  --gold-bright: #a9870f;
+  --gold-light: #c2a02b;
+  --on-gold: #fffaf0;
+  --gold-rgb: 138, 110, 12;
+  --cream-rgb: 120, 104, 82;
+  --glow-rgb: 175, 140, 30;
+  --page-rgb: 244, 236, 221;
+  --vignette-rgb: 150, 128, 92;
+}
+
+/* Reem Kufi is reserved for large display moments only. */
+.dar-cinema .dd-display {
+  font-family: var(--font-reem-kufi), var(--font-tajawal), sans-serif;
+}
+
+.dar-cinema *,
+.dar-cinema *::before,
+.dar-cinema *::after {
+  box-sizing: border-box;
+}
+
+/* ---- intro animations ---- */
+@keyframes ddIntroLight {
+  0% {
+    opacity: 0;
+    transform: scale(0.92);
+    filter: blur(8px);
+  }
+  40% {
+    opacity: 1;
+    filter: blur(0);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+    filter: blur(0);
+  }
+}
+@keyframes ddCue {
+  0%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.85;
+  }
+  50% {
+    transform: translateY(7px);
+    opacity: 1;
+  }
+}
+
+/* ---- image-slot stand-ins ----
+   On the landing the room frames are decorative placeholders; in
+   production these carry real uploads / SDXL renders. */
+.dar-cinema .dd-slot {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 18px;
+  width: 100%;
+  height: 100%;
+  color: var(--soft);
+  font-size: 12.5px;
+  line-height: 1.7;
+  background: radial-gradient(
+      ellipse 120% 90% at 50% 0%,
+      rgba(var(--glow-rgb), 0.12),
+      transparent 60%
+    ),
+    repeating-linear-gradient(
+      135deg,
+      rgba(var(--cream-rgb), 0.04) 0 11px,
+      transparent 11px 22px
+    ),
+    var(--surface);
+}
+.dar-cinema .dd-slot span {
+  max-width: 24ch;
+  opacity: 0.82;
+}
+
+/* ---- interactive states (the prototype's style-hover / style-focus) ---- */
+.dar-cinema .dd-icon-btn:hover {
+  border-color: var(--gold);
+}
+.dar-cinema .dd-icon-btn:focus-visible {
+  box-shadow: 0 0 0 3px var(--gold);
+  outline: none;
+}
+.dar-cinema .dd-cta:hover {
+  background: var(--gold-bright);
+}
+.dar-cinema .dd-cta:focus-visible {
+  box-shadow: 0 0 0 3px var(--gold-bright);
+  outline: none;
+}
+.dar-cinema .dd-ghost:hover {
+  color: var(--gold);
+  border-color: var(--gold);
+}
+.dar-cinema .dd-ghost:focus-visible {
+  box-shadow: 0 0 0 3px var(--gold);
+  outline: none;
+}
+.dar-cinema .dd-picker:hover {
+  border-color: var(--gold) !important;
+}
+.dar-cinema .dd-picker:focus-visible {
+  box-shadow: 0 0 0 3px var(--gold);
+  outline: none;
+}
+.dar-cinema .dd-rail-dot:focus-visible {
+  outline: none;
+}
+.dar-cinema .dd-rail-dot:focus-visible > span:first-child {
+  box-shadow: 0 0 0 3px var(--gold);
+}
+.dar-cinema .dd-door:hover {
+  background: rgba(var(--gold-rgb), 0.14);
+  border-color: var(--gold-bright);
+}
+.dar-cinema .dd-door:focus-visible {
+  box-shadow: 0 0 0 3px var(--gold);
+  outline: none;
+}
+
+/* ---- reduced motion: a complete static experience, not a broken one ---- */
+@media (prefers-reduced-motion: reduce) {
+  .dar-cinema *,
+  .dar-cinema *::before,
+  .dar-cinema *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+}

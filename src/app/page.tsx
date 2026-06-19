@@ -1,5 +1,5 @@
-import CinemaLanding from "@/components/cinema/CinemaLanding";
+import DarCinema from "@/components/dar/DarCinema";
 
 export default function HomePage() {
-  return <CinemaLanding />;
+  return <DarCinema />;
 }

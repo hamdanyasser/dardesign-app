@@ -11,6 +11,7 @@ import {
 } from "next/font/google";
 import "./globals.css";
 import "@/components/cinema/cinema.css";
+import "@/components/dar/dar-cinema.css";
 import { ImageProvider } from "@/context/ImageContext";
 import { ThemeLanguageProvider } from "@/context/ThemeLanguageContext";
 
