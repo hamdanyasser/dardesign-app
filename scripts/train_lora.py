@@ -137,18 +137,20 @@ def _placeholder_captions(data_dir: Path, trigger: str) -> list[tuple[Path, str]
 
 
 def train(args: TrainArgs) -> Path:
-    """Run the LoRA training loop. Returns the path to the final .safetensors."""
-    # heavy imports
+    """Train an SDXL LoRA that fits a 16 GB GPU (T4) without NaN.
+
+    Proven recipe (Kaggle T4): cache image latents + text embeddings ONCE using
+    fp16 VAE / text encoders, then free them and train only the **fp32-master**
+    UNet + LoRA with autocast(fp16) + GradScaler. Loading the frozen base in fp16
+    fits memory but NaNs (SDXL fp16 overflow); loading it all in fp32 is stable
+    but OOMs. Caching frees the VAE + both text encoders so only the ~10 GB fp32
+    UNet stays resident — fits the T4 *and* stays numerically stable.
+    """
+    import random
+
     import torch
-    from accelerate import Accelerator
-    from diffusers import (
-        AutoencoderKL,
-        DDPMScheduler,
-        StableDiffusionXLPipeline,
-        UNet2DConditionModel,
-    )
+    from diffusers import AutoencoderKL, DDPMScheduler, UNet2DConditionModel
     from peft import LoraConfig, get_peft_model
-    from torch.utils.data import DataLoader, Dataset
     from torchvision import transforms
     from transformers import AutoTokenizer, CLIPTextModel, CLIPTextModelWithProjection
     from PIL import Image
@@ -157,129 +159,81 @@ def train(args: TrainArgs) -> Path:
     pairs = _read_captions(args.data_dir, args.smoke, TRIGGERS[args.culture])
     logger.info("training set: %d (image, caption) pairs", len(pairs))
 
-    accelerator = Accelerator(mixed_precision="fp16" if torch.cuda.is_available() else "no")
-    device = accelerator.device
-
-    tokenizer_one = AutoTokenizer.from_pretrained(args.base_model, subfolder="tokenizer")
-    tokenizer_two = AutoTokenizer.from_pretrained(args.base_model, subfolder="tokenizer_2")
-    text_encoder_one = CLIPTextModel.from_pretrained(args.base_model, subfolder="text_encoder")
-    text_encoder_two = CLIPTextModelWithProjection.from_pretrained(args.base_model, subfolder="text_encoder_2")
-    # vae-fp16-fix: the stock SDXL VAE overflows to NaN in fp16; this drop-in is fp16-safe.
-    vae = AutoencoderKL.from_pretrained(args.vae_path)
-    unet = UNet2DConditionModel.from_pretrained(args.base_model, subfolder="unet")
-    noise_scheduler = DDPMScheduler.from_pretrained(args.base_model, subfolder="scheduler")
-
-    # Freeze everything except UNet's LoRA adapters
-    vae.requires_grad_(False)
-    text_encoder_one.requires_grad_(False)
-    text_encoder_two.requires_grad_(False)
-    unet.requires_grad_(False)
-    unet.enable_gradient_checkpointing()
-
-    lora_config = LoraConfig(
-        r=args.rank,
-        lora_alpha=args.rank,
-        target_modules=["to_k", "to_q", "to_v", "to_out.0"],
-    )
-    unet = get_peft_model(unet, lora_config)
-
-    # ---- dataset ----
-    image_transform = transforms.Compose([
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    enc_dtype = torch.float16 if device == "cuda" else torch.float32
+    tfm = transforms.Compose([
         transforms.Resize(1024, interpolation=transforms.InterpolationMode.BILINEAR),
         transforms.CenterCrop(1024),
         transforms.ToTensor(),
         transforms.Normalize([0.5], [0.5]),
     ])
 
-    class DreamBoothLoraDataset(Dataset):
-        def __init__(self, pairs: list[tuple[Path, str]]):
-            self.pairs = pairs
+    # ---- Phase 1: cache latents + text embeddings, then free VAE + text encoders ----
+    tok1 = AutoTokenizer.from_pretrained(args.base_model, subfolder="tokenizer")
+    tok2 = AutoTokenizer.from_pretrained(args.base_model, subfolder="tokenizer_2")
+    te1 = CLIPTextModel.from_pretrained(args.base_model, subfolder="text_encoder", torch_dtype=enc_dtype).to(device).eval()
+    te2 = CLIPTextModelWithProjection.from_pretrained(args.base_model, subfolder="text_encoder_2", torch_dtype=enc_dtype).to(device).eval()
+    # vae-fp16-fix: the stock SDXL VAE overflows to NaN in fp16; this drop-in is fp16-safe.
+    vae = AutoencoderKL.from_pretrained(args.vae_path, torch_dtype=enc_dtype).to(device).eval()
 
-        def __len__(self) -> int:
-            return len(self.pairs)
+    cache: list[tuple] = []
+    with torch.no_grad():
+        for img_path, cap in pairs:
+            img = tfm(Image.open(img_path).convert("RGB")).unsqueeze(0).to(device, enc_dtype)
+            lat = vae.encode(img).latent_dist.sample() * vae.config.scaling_factor
+            embs, pooled = [], None
+            for tok, te in ((tok1, te1), (tok2, te2)):
+                ids = tok(cap, padding="max_length", truncation=True, max_length=77, return_tensors="pt").input_ids.to(device)
+                out = te(ids, output_hidden_states=True)
+                embs.append(out.hidden_states[-2])
+                if getattr(out, "text_embeds", None) is not None:
+                    pooled = out.text_embeds
+            cache.append((torch.cat(embs, dim=-1).float().cpu(), lat.float().cpu(), pooled.float().cpu()))
+    del te1, te2, vae, tok1, tok2
+    if device == "cuda":
+        torch.cuda.empty_cache()
+    logger.info("cached %d latent/embedding pairs", len(cache))
 
-        def __getitem__(self, idx: int):
-            img_path, cap = self.pairs[idx]
-            img = Image.open(img_path).convert("RGB")
-            return {"pixel_values": image_transform(img), "caption": cap}
-
-    ds = DreamBoothLoraDataset(pairs)
-    dl = DataLoader(ds, batch_size=1, shuffle=True, num_workers=0)
-
-    # LoRA+ : the B matrices should learn faster than A. Split into two LR groups (ratio ~16x).
-    lora_a_params, lora_b_params = [], []
-    for _name, _p in unet.named_parameters():
-        if not _p.requires_grad:
-            continue
-        (lora_b_params if "lora_B" in _name else lora_a_params).append(_p)
-    param_groups = [
-        {"params": lora_a_params, "lr": args.learning_rate},
-        {"params": lora_b_params, "lr": args.learning_rate * args.lora_plus_ratio},
-    ]
-    try:
-        optimizer = torch.optim.AdamW(param_groups, fused=True)  # fused optimizer step (CUDA)
-    except (RuntimeError, ValueError):
-        optimizer = torch.optim.AdamW(param_groups)  # CPU / older-torch fallback
-    unet, optimizer, dl = accelerator.prepare(unet, optimizer, dl)
-
-    vae.to(device, dtype=torch.float16 if torch.cuda.is_available() else torch.float32)
-    text_encoder_one.to(device)
-    text_encoder_two.to(device)
-
-    def _encode(captions: list[str]):
-        prompt_embeds_list = []
-        pooled = None
-        for tok, te in ((tokenizer_one, text_encoder_one), (tokenizer_two, text_encoder_two)):
-            input_ids = tok(captions, padding="max_length", truncation=True, max_length=77, return_tensors="pt").input_ids.to(device)
-            out = te(input_ids, output_hidden_states=True)
-            prompt_embeds_list.append(out.hidden_states[-2])
-            if hasattr(out, "text_embeds") and out.text_embeds is not None:
-                pooled = out.text_embeds
-        return torch.cat(prompt_embeds_list, dim=-1), pooled
+    # ---- Phase 2: train fp32-master UNet + LoRA (autocast fp16 + GradScaler) ----
+    unet = UNet2DConditionModel.from_pretrained(args.base_model, subfolder="unet").to(device)
+    unet.requires_grad_(False)
+    unet.enable_gradient_checkpointing()
+    unet = get_peft_model(
+        unet, LoraConfig(r=args.rank, lora_alpha=args.rank, target_modules=["to_k", "to_q", "to_v", "to_out.0"])
+    )
+    unet.train()
+    noise_scheduler = DDPMScheduler.from_pretrained(args.base_model, subfolder="scheduler")
+    optimizer = torch.optim.AdamW([p for p in unet.parameters() if p.requires_grad], lr=args.learning_rate)
+    scaler = torch.cuda.amp.GradScaler(enabled=device == "cuda")
+    time_ids = torch.tensor([[1024, 1024, 0, 0, 1024, 1024]], device=device, dtype=torch.float32)
 
     checkpoints_at = sorted({500, 1000, args.steps})
     save_paths: list[Path] = []
+    for step in range(1, args.steps + 1):
+        prompt_embeds, latents, pooled = random.choice(cache)
+        latents = latents.to(device)
+        prompt_embeds = prompt_embeds.to(device)
+        pooled = pooled.to(device)
+        noise = torch.randn_like(latents)
+        timesteps = torch.randint(0, noise_scheduler.config.num_train_timesteps, (1,), device=device).long()
+        noisy = noise_scheduler.add_noise(latents, noise, timesteps)
+        with torch.autocast(device, dtype=torch.float16, enabled=device == "cuda"):
+            model_pred = unet(
+                noisy, timesteps, prompt_embeds,
+                added_cond_kwargs={"text_embeds": pooled, "time_ids": time_ids},
+            ).sample
+            loss = torch.nn.functional.mse_loss(model_pred.float(), noise.float())
+        if not torch.isfinite(loss):
+            raise RuntimeError(f"non-finite loss at step {step}: {loss.item()}")
+        scaler.scale(loss).backward()
+        scaler.step(optimizer)
+        scaler.update()
+        optimizer.zero_grad(set_to_none=True)
 
-    step = 0
-    unet.train()
-    while step < args.steps:
-        for batch in dl:
-            pixel = batch["pixel_values"].to(device, dtype=vae.dtype)
-            with torch.no_grad():
-                latents = vae.encode(pixel).latent_dist.sample() * vae.config.scaling_factor
-            noise = torch.randn_like(latents)
-            timesteps = torch.randint(0, noise_scheduler.config.num_train_timesteps, (latents.shape[0],), device=device).long()
-            noisy = noise_scheduler.add_noise(latents, noise, timesteps)
-            with torch.no_grad():
-                prompt_embeds, pooled = _encode(batch["caption"])
-            target = noise
-            added_cond_kwargs = {
-                "text_embeds": pooled,
-                "time_ids": torch.tensor([[1024, 1024, 0, 0, 1024, 1024]], device=device).repeat(latents.shape[0], 1),
-            }
-            model_pred = unet(noisy, timesteps, prompt_embeds, added_cond_kwargs=added_cond_kwargs).sample
-            # Min-SNR-gamma loss weighting (epsilon objective): faster, more stable convergence.
-            snr = _compute_snr(noise_scheduler, timesteps)
-            snr_weight = torch.clamp(snr, max=args.min_snr_gamma) / snr
-            per_sample = torch.nn.functional.mse_loss(
-                model_pred.float(), target.float(), reduction="none"
-            ).mean(dim=list(range(1, model_pred.ndim)))
-            loss = (snr_weight.to(per_sample.device) * per_sample).mean()
-            accelerator.backward(loss)
-            optimizer.step()
-            optimizer.zero_grad()
-
-            step += 1
-            if step % 25 == 0:
-                logger.info("step %d/%d loss=%.4f", step, args.steps, loss.item())
-            if step in checkpoints_at:
-                ckpt_path = _save_checkpoint(unet, args, step)
-                save_paths.append(ckpt_path)
-                _render_samples(args, ckpt_path, step)
-                if step >= args.steps:
-                    break
-        if step >= args.steps:
-            break
+        if step % 25 == 0:
+            logger.info("step %d/%d loss=%.4f", step, args.steps, loss.item())
+        if step in checkpoints_at:
+            save_paths.append(_save_checkpoint(unet, args, step))
 
     final = save_paths[-1] if save_paths else _save_checkpoint(unet, args, args.steps)
     logger.info("training complete -> %s", final)
