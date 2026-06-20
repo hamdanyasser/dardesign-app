@@ -25,23 +25,16 @@ npm run lint      # ESLint check
 src/
 ├── app/
 │   ├── globals.css              # All CSS variables, themes, animations, utility classes (~548 lines)
-│   ├── layout.tsx               # Root layout — 5 fonts (Inter, DM Sans, Noto Kufi Arabic, Tajawal, Cormorant Garamond), both providers, <html> defaults
-│   ├── page.tsx                 # Home — thin wrapper that renders <AtelierApp /> from src/components/atelier/
+│   ├── layout.tsx               # Root layout — fonts (Tajawal, Reem Kufi, Noto Kufi, Amiri, Inter, DM Sans, JetBrains Mono); imports cinema.css + dar-cinema.css; both providers, <html> defaults
+│   ├── page.tsx                 # Home — thin wrapper that renders <DarCinema /> from src/components/dar/                                             
 │   ├── transform/page.tsx       # Upload + style selection page
 │   └── result/page.tsx          # Loading animation + before/after slider
 ├── components/
 │   ├── ui/                      # shadcn primitives (button, card, badge, separator, switch, dropdown-menu)
-│   ├── atelier/                 # 7-act cinematic landing — every module scoped under .atelier-page
-│   │   ├── AtelierApp.tsx        # Composer (cinema intro → hero → manifesto → … → coda)
-│   │   ├── atelier.css           # ~1020 lines, scoped under .atelier-page so the global selectors don't leak
-│   │   ├── effects.tsx           # Custom cursor + chrome, useScrollProgress, useReveal, useActLabel, useMouseParallax
-│   │   ├── intro.tsx             # CinemaIntro, CursorTrail, CountTo, AmbientOrnament
-│   │   ├── hero.tsx              # 3-layer pointed-arch hero with mouse-parallax 3D tilt
-│   │   ├── extras.tsx            # CalligraphyDar, DustMotes, Interlude, Morpher (drag-cross-fade across 3 cultures)
-│   │   ├── acts.tsx              # The Three Houses — Lebanese / Khaleeji / Moroccan SVG stages
-│   │   ├── content.tsx           # Manifesto, Alchemy (5-step), Atlas (8 motifs), Coda (door, CTA → /transform)
-│   │   ├── finale.tsx            # ArchTunnel (3D), Palette, ZelligeAssembler, Colophon
-│   │   └── floating-controls.tsx # Top-right EN/AR + dark/light toggles, wired to ThemeLanguageContext
+│   ├── dar/                     # DarCinema — the DEFAULT cinematic RTL landing (Claude Design handoff), scoped under .dar-cinema
+│   │   ├── DarCinema.tsx         # 5-scene scrollytelling: intro bloom → threshold tunnel (scroll 3D) → 3D scan → souls carousel → orbit room → provenance
+│   │   └── dar-cinema.css        # ~180 lines, scoped under .dar-cinema (warm charcoal/gold v2 tokens, Reem Kufi + Tajawal, dark/light toggle)
+│   ├── cinema/                  # Shared cinematic chrome for /studio + error + 404 only (CinemaChrome, ArchCanvas, DissolveCanvas, DustLayer, copy, hooks, cinema.css)
 │   ├── islamic-pattern.tsx      # Decorative 8-pointed star repeating SVG background
 │   ├── gold-button.tsx          # Primary CTA — renders as <Link> or <button>
 │   ├── upload-zone.tsx          # Drag-and-drop image upload with preview
@@ -81,7 +74,7 @@ src/
 
 | Route | Purpose |
 |-------|---------|
-| `/` | Cinematic 7-act scrollytelling (Atelier) — was the 8-section landing, now the home. Floating EN/AR + dark/light toggles in top-right. Coda CTA → `/transform`. |
+| `/` | **DarCinema** — cinematic 5-scene RTL-Arabic scrollytelling (the default design, `src/components/dar/`). Header dark/light toggle + studio CTA. Door CTA → `/studio`. |
 | `/transform` | Upload room photo + select style |
 | `/result?jobId=…&style=…` | Live progress polling → before/after slider, download, share, try-another-style |
 
@@ -296,7 +289,7 @@ Each style has: `flag`, `name`, `selectorDescription`, `origin`, `landingDescrip
 
 ## Studio flow + `/redesign` (Week 1 wiring)
 
-Demo path: `/` (Atelier landing, CTA → `/studio`) → **`/studio`** (upload → all three redesigns).
+Demo path: `/` (DarCinema landing, CTA → `/studio`) → **`/studio`** (upload → all three redesigns).
 
 - **`POST /redesign`** (synchronous, ~1–2 min): multipart `file`; returns `{ original, lebanese, khaleeji, moroccan }` as base64 PNG **data URLs**. Client = `redesignRoom()` in `src/lib/api.ts` (≥180s timeout, `AbortController`, typed bilingual errors, response-shape validation). Replaces the old async `/upload`+`/transform`+`/status`+`/result` polling flow.
 - **`/studio`** (`src/app/studio/page.tsx`): drag-drop (`UploadZone`) → skeleton loading (`جارٍ التصميم…` + elapsed timer, `.dd-skeleton` shimmer) → responsive 2-col grid of original + Lebanese/Khaleeji/Moroccan, each labelled AR+EN with a per-image PNG download. Bilingual error + retry. RTL/Tajawal, gold-on-charcoal.
@@ -304,3 +297,12 @@ Demo path: `/` (Atelier landing, CTA → `/studio`) → **`/studio`** (upload �
 - **CulturalElementHighlighter** (`src/components/CulturalElementHighlighter.tsx` + `src/data/ontology.json`): scaffold that overlays a segmentation mask (SVG + accessible hotspots) and reveals an element's Arabic term + note on click. `fetchSegMap(jobId)` is the `// TODO: connect to backend seg map` hook (returns `[]` today). Shown as an optional "preview" in `/studio` via `DEMO_REGIONS`.
 - **Env:** `NEXT_PUBLIC_API_URL` in `.env.local` (gitignored; template in `.env.example`). ngrok URL rotates each session — keep it swappable.
 - **RoomMap2D** (`src/components/RoomMap2D.tsx`): top-down 2D layout-map scaffold — furniture footprints + door/window wall openings + AR/EN labels (from `ontology.json`), click-to-read note. `fetchObjectMap(jobId)` is the projection hook (returns `[]`); `DEMO_MAP` for now. The `/studio` results preview shows the highlighter + the 2D map side by side.
+
+---
+
+## LoRA training (Kaggle T4)
+
+- **`scripts/train_lora.py`** trains a per-culture SDXL LoRA. The recipe that fits a 16 GB T4 *without* NaN: **cache image latents + text embeddings once** (fp16 VAE/text encoders), free them, then train only the **fp32-master UNet + LoRA** with `autocast(fp16)` + `GradScaler`. Loading the frozen base in fp32 OOMs; in fp16 it NaNs (SDXL fp16 overflow) — the caching is what makes it both fit *and* stay stable.
+- **Runs on Kaggle T4 only** — the Kaggle API grants a P100 (sm_60), which can't run SDXL fp16; you must select **GPU T4 x2** in the Kaggle UI and "Save & Run All (Commit)". Dataset = `datasets/<culture>/{images,captions.jsonl}`, uploaded to the private Kaggle dataset `yasserhamdanfr/dardesign-culture-datasets`.
+- Output → `models/loras/<culture>/dardesign-<culture>-lora.safetensors` (+ checkpoints at 500/1000/1500). The backend lazy-loads it from `models/loras/<culture>/` — no code change. **Lebanese is trained** (hero, 19 imgs, step1000 chosen as canonical); Khaleeji/Moroccan (12–14 imgs) are prompt-only-acceptable per the cut order.
+- `kaggle/TRAIN_NOW.md` = paste-into-cell runbook; `push_kernel.py` (repo root) pushes a self-contained training kernel via the Kaggle REST API (KGAT bearer token — the old `kaggle` CLI can't read it).
