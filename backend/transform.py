@@ -209,6 +209,7 @@ class _LoadedPipe:
     pipe: Any
     is_sdxl: bool
     style_loaded: StyleId | None  # which LoRA is currently fused, if any
+    scale_loaded: float | None = None  # the scale it was fused at (Style Intensity Slider)
 
 
 _PIPE_CACHE: dict[str, _LoadedPipe] = {}
@@ -291,10 +292,13 @@ def _load_pipeline(*, use_sdxl: bool) -> _LoadedPipe:
     return loaded
 
 
-def _attach_lora(loaded: _LoadedPipe, style: StyleId) -> None:
-    """Lazy-load and fuse the LoRA for `style`. Hot-swaps if a different style is loaded."""
-    if loaded.style_loaded == style:
-        return  # already attached
+def _attach_lora(loaded: _LoadedPipe, style: StyleId, lora_scale: float | None = None) -> None:
+    """Lazy-load and fuse the LoRA for `style` at `lora_scale` (the Style Intensity
+    Slider: 0.0 ≈ generic SDXL, 1.0 ≈ full culture). Hot-swaps if a different style —
+    or the same style at a different scale — is currently loaded."""
+    scale = float(lora_scale if lora_scale is not None else CONFIG.get("lora_scale", 0.8))
+    if loaded.style_loaded == style and loaded.scale_loaded == scale:
+        return  # already attached at this scale
 
     try:
         if loaded.style_loaded is not None:
@@ -307,6 +311,7 @@ def _attach_lora(loaded: _LoadedPipe, style: StyleId) -> None:
         path = _lora_path(style)
         if not path.is_file():
             loaded.style_loaded = None
+            loaded.scale_loaded = None
             logger.warning(
                 "LoRA file not found for style=%s at %s — falling back to prompt-only",
                 style, path,
@@ -318,17 +323,18 @@ def _attach_lora(loaded: _LoadedPipe, style: StyleId) -> None:
             weight_name=path.name,
             adapter_name=f"dardesign-{style}",
         )
-        scale = float(CONFIG.get("lora_scale", 0.8))
         try:
             loaded.pipe.fuse_lora(lora_scale=scale)
         except Exception:
             # Older diffusers: scale is set at call time via cross_attention_kwargs
             pass
         loaded.style_loaded = style
+        loaded.scale_loaded = scale
         logger.info("attached LoRA %s (scale=%.2f)", path.name, scale)
     except Exception:
         logger.exception("LoRA load failed for style=%s — continuing prompt-only", style)
         loaded.style_loaded = None
+        loaded.scale_loaded = None
 
 
 # ----------------------------------------------------------------------------
@@ -465,6 +471,7 @@ def transform_room(
     use_segmentation: bool = True,
     use_ontology: bool = True,
     controlnet_weights: tuple[float, float] | None = None,
+    lora_scale: float | None = None,
 ) -> Path:
     """Transform a room photo into a culturally-styled redesign.
 
@@ -529,6 +536,7 @@ def transform_room(
             seed=seed,
             controlnet_weights=cn_w,
             use_lora=use_lora,
+            lora_scale=lora_scale,
             target_size=tuple(CONFIG["output_size"]),
             use_sdxl=True,
         )
@@ -545,6 +553,7 @@ def transform_room(
             seed=seed,
             controlnet_weights=cn_w,
             use_lora=use_lora,
+            lora_scale=lora_scale,
             target_size=tuple(CONFIG["sd15_fallback_size"]),
             use_sdxl=False,
         )
@@ -578,12 +587,13 @@ def _generate(
     use_lora: bool,
     target_size: tuple[int, int],
     use_sdxl: bool,
+    lora_scale: float | None = None,
 ) -> Path:
     import torch
 
     loaded = _load_pipeline(use_sdxl=use_sdxl)
     if use_lora:
-        _attach_lora(loaded, style)
+        _attach_lora(loaded, style, lora_scale)
     else:
         # Force-unload any LoRA from a previous request (ablation cleanliness)
         if loaded.style_loaded is not None:

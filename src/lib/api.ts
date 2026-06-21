@@ -353,3 +353,82 @@ export async function redesignRoom(
 
   return data as RedesignResult;
 }
+
+export interface RestyleResult {
+  image: string;
+  style: StyleId;
+  scale: number;
+}
+
+/**
+ * Style Intensity Slider — re-render ONE culture at a given LoRA `scale` (0..1):
+ * 0 ≈ generic SDXL, 1 ≈ full culture. The ablation made live. ~30–60s on the T4
+ * (instant placeholder in DARDESIGN_LIGHT).
+ */
+export async function restyleRoom(
+  file: File,
+  style: StyleId,
+  scale: number,
+  { timeoutMs = 120_000, signal }: { timeoutMs?: number; signal?: AbortSignal } = {},
+): Promise<RestyleResult> {
+  const fd = new FormData();
+  fd.append("file", file);
+  fd.append("style", style);
+  fd.append("scale", String(Math.max(0, Math.min(1, scale))));
+
+  const ctrl = new AbortController();
+  let timedOut = false;
+  const onParentAbort = () => ctrl.abort();
+  if (signal) {
+    if (signal.aborted) ctrl.abort();
+    else signal.addEventListener("abort", onParentAbort, { once: true });
+  }
+  const timer = setTimeout(() => {
+    timedOut = true;
+    ctrl.abort();
+  }, timeoutMs);
+
+  let res: Response;
+  try {
+    res = await safeFetch(`${API_URL}/restyle`, {
+      method: "POST",
+      headers: COMMON_HEADERS,
+      body: fd,
+      signal: ctrl.signal,
+    });
+  } catch (e) {
+    if (timedOut) {
+      throw new ApiError(
+        {
+          code: "timeout",
+          message_en: "The restyle is taking longer than expected. Please try again.",
+          message_ar: "استغرقت إعادة التصميم وقتاً أطول من المتوقع. يرجى المحاولة مجدداً.",
+        },
+        0,
+      );
+    }
+    if (signal?.aborted) {
+      throw new ApiError(
+        { code: "aborted", message_en: "Request cancelled", message_ar: "تم إلغاء الطلب" },
+        0,
+      );
+    }
+    throw e;
+  } finally {
+    clearTimeout(timer);
+    if (signal) signal.removeEventListener("abort", onParentAbort);
+  }
+
+  const data = (await unwrap(res)) as Partial<RestyleResult>;
+  if (typeof data.image !== "string" || !data.image.startsWith("data:image")) {
+    throw new ApiError(
+      {
+        code: "bad_response",
+        message_en: "Server returned an incomplete restyle. Please try again.",
+        message_ar: "أعاد الخادم نتيجة غير مكتملة. يرجى المحاولة مجدداً.",
+      },
+      res.status,
+    );
+  }
+  return { image: data.image, style, scale };
+}

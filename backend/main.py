@@ -28,7 +28,7 @@ import shutil
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, UploadFile
+from fastapi import FastAPI, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
@@ -194,6 +194,15 @@ class RedesignResponse(BaseModel):
     privacy_notice: str = PRIVACY_NOTICE
 
 
+class RestyleResponse(BaseModel):
+    """Style Intensity Slider: one culture re-rendered at a chosen LoRA scale."""
+
+    image: str
+    style: str
+    scale: float
+    privacy_notice: str = PRIVACY_NOTICE
+
+
 # ---------- endpoints ----------
 
 
@@ -294,6 +303,50 @@ async def redesign(file: UploadFile) -> RedesignResponse:
     jobs.transition(job.id, JobStatus.done, output_path=str(last_out) if last_out else None)
     jobs.update_progress(job.id, 1.0)
     return RedesignResponse(original=original, object_map=object_map, **images)
+
+
+@app.post("/restyle", response_model=RestyleResponse)
+async def restyle(
+    file: UploadFile,
+    style: str = Form(...),
+    scale: float = Form(0.8),
+) -> RestyleResponse:
+    """Style Intensity Slider — re-render ONE culture at a given LoRA `scale`
+    (0.0 ≈ generic SDXL, 1.0 ≈ full culture). This is the ablation made live:
+    the examiner drags a slider and watches the tradition emerge from the latent
+    space. Instant in DARDESIGN_LIGHT (placeholder ignores scale)."""
+    if style not in StylePack:
+        _raise(ERR_BAD_STYLE)
+    scale = max(0.0, min(1.0, float(scale)))
+
+    raw = await file.read()
+    _guard_upload(file.filename, raw)
+    try:
+        validate_upload(content_type=file.content_type, raw_bytes=raw)
+    except ValidationFailure as v:
+        _raise(v.error)
+
+    suffix = Path(file.filename or "image.jpg").suffix.lower()
+    if suffix not in (".jpg", ".jpeg", ".png", ".webp"):
+        suffix = ".jpg"
+    job = jobs.create(input_path="")
+    input_path = UPLOAD_DIR / f"{job.id}_input{suffix}"
+    input_path.write_bytes(raw)
+    job.input_path = str(input_path)
+    jobs.transition(job.id, JobStatus.running, style=style)
+
+    try:
+        out = await asyncio.to_thread(transform_room, str(input_path), style, lora_scale=scale)
+    except PipelineError as e:
+        jobs.transition(
+            job.id, JobStatus.error,
+            error_code=ERR_PIPELINE.code, error_en=e.message_en, error_ar=e.message_ar,
+        )
+        logger.exception("restyle job %s pipeline error", job.id)
+        _raise(ERR_PIPELINE, detail_en=e.message_en, detail_ar=e.message_ar)
+
+    jobs.transition(job.id, JobStatus.done, output_path=str(out))
+    return RestyleResponse(image=_png_data_url(out), style=style, scale=scale)
 
 
 async def _run_transform(

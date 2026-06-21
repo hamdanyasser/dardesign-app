@@ -22,6 +22,7 @@ import { useCinemaCopy } from "@/components/cinema/copy";
 import CulturalElementHighlighter, { DEMO_REGIONS } from "@/components/CulturalElementHighlighter";
 import RoomMap2D, { DEMO_MAP } from "@/components/RoomMap2D";
 import CulturalNarration from "@/components/CulturalNarration";
+import StyleIntensitySlider from "@/components/StyleIntensitySlider";
 import { useImage, type StyleId } from "@/context/ImageContext";
 import { useThemeLanguage } from "@/context/ThemeLanguageContext";
 import { DarAudio } from "@/lib/audio";
@@ -647,11 +648,19 @@ export default function StudioPage() {
                       <RoomMap2D objects={mapObjects} />
                     </div>
                   </div>
-                  <div className="mt-6">
-                    <p className={cn("mb-2 text-xs font-medium text-cream-soft", isArabic && "font-arabic")}>
-                      {isArabic ? "السرد الثقافي الصوتي (يتحدّث عربيّاً)" : "Bilingual cultural narration (it speaks)"}
-                    </p>
-                    <CulturalNarration />
+                  <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
+                    <div>
+                      <p className={cn("mb-2 text-xs font-medium text-cream-soft", isArabic && "font-arabic")}>
+                        {isArabic ? "السرد الثقافي الصوتي (يتحدّث عربيّاً)" : "Bilingual cultural narration (it speaks)"}
+                      </p>
+                      <CulturalNarration />
+                    </div>
+                    <div>
+                      <p className={cn("mb-2 text-xs font-medium text-cream-soft", isArabic && "font-arabic")}>
+                        {isArabic ? "شدّة الطراز (الاستئصال حيّاً)" : "Style intensity (the ablation, live)"}
+                      </p>
+                      <StyleIntensitySlider />
+                    </div>
                   </div>
                 </>
               )}
