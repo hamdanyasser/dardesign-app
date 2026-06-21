@@ -20,7 +20,7 @@ assert torch.cuda.is_available()
 print("GPU:", torch.cuda.get_device_name(0), flush=True)
 
 REPO = "/kaggle/working/repo"
-subprocess.run(f"rm -rf {REPO}; git clone --depth 1 https://github.com/hamdanyasser/dardesign-app.git {REPO}", shell=True, check=True)
+subprocess.run(f"rm -rf {REPO}; git clone --depth 1 -b feat/cinematic-merge https://github.com/hamdanyasser/dardesign-app.git {REPO}", shell=True, check=True)
 os.chdir(REPO)
 
 # deps: T4 ships torch; drop it + bitsandbytes (broken triton). Keep the real stack.
@@ -55,13 +55,23 @@ print("\n(backend up; first /redesign downloads SDXL+ControlNet -> slow, ~1-2 mi
 
 # free public tunnel via cloudflared (no account/token needed)
 subprocess.run("wget -q https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -O /tmp/cf && chmod +x /tmp/cf", shell=True)
-print("\n===== WAIT FOR THE  https://<...>.trycloudflare.com  URL BELOW, THEN SEND IT =====\n", flush=True)
+import re
 cf = subprocess.Popen(["/tmp/cf", "tunnel", "--url", "http://localhost:8000", "--no-autoupdate"],
                       stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
+_url = None
 for line in cf.stdout:           # blocks here -> keeps the kernel + tunnel alive
     print(line, end="", flush=True)
-    if "trycloudflare.com" in line:
-        print("\n>>> PUBLIC BACKEND URL is the trycloudflare.com link above — copy it. <<<\n", flush=True)
+    m = re.search(r"https://[a-z0-9-]+\.trycloudflare\.com", line)
+    if m and not _url:
+        _url = m.group(0)
+        pathlib.Path("/kaggle/working/TUNNEL_URL.txt").write_text(_url)
+        banner = "\n".join(["", "=" * 72,
+                            "   BACKEND URL  ->  copy this line and send it:",
+                            "        " + _url,
+                            "   (also saved to the Output panel as  TUNNEL_URL.txt)",
+                            "=" * 72, ""])
+        for _ in range(5):
+            print(banner, flush=True)
 '''
 
 body = {
