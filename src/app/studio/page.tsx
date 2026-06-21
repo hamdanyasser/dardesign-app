@@ -21,6 +21,7 @@ import { MotifTiles } from "@/components/cinema/svg/MotifTiles";
 import { useCinemaCopy } from "@/components/cinema/copy";
 import CulturalElementHighlighter, { DEMO_REGIONS } from "@/components/CulturalElementHighlighter";
 import RoomMap2D, { DEMO_MAP } from "@/components/RoomMap2D";
+import CulturalNarration from "@/components/CulturalNarration";
 import { useImage, type StyleId } from "@/context/ImageContext";
 import { useThemeLanguage } from "@/context/ThemeLanguageContext";
 import { DarAudio } from "@/lib/audio";
@@ -627,24 +628,32 @@ export default function StudioPage() {
               </div>
 
               {showElements && (
-                <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-                  <div>
-                    <p className={cn("mb-2 text-xs font-medium text-cream-soft", isArabic && "font-arabic")}>
-                      {isArabic ? "التظليل على الصورة" : "On-image highlight"}
-                    </p>
-                    <CulturalElementHighlighter
-                      imageSrc={result.original}
-                      regions={DEMO_REGIONS}
-                      alt={isArabic ? "تحليل العناصر الثقافية" : "Cultural element analysis"}
-                    />
+                <>
+                  <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+                    <div>
+                      <p className={cn("mb-2 text-xs font-medium text-cream-soft", isArabic && "font-arabic")}>
+                        {isArabic ? "التظليل على الصورة" : "On-image highlight"}
+                      </p>
+                      <CulturalElementHighlighter
+                        imageSrc={result.original}
+                        regions={DEMO_REGIONS}
+                        alt={isArabic ? "تحليل العناصر الثقافية" : "Cultural element analysis"}
+                      />
+                    </div>
+                    <div>
+                      <p className={cn("mb-2 text-xs font-medium text-cream-soft", isArabic && "font-arabic")}>
+                        {isArabic ? "المخطط العلوي ثنائي الأبعاد" : "2D top-down map"}
+                      </p>
+                      <RoomMap2D objects={mapObjects} />
+                    </div>
                   </div>
-                  <div>
+                  <div className="mt-6">
                     <p className={cn("mb-2 text-xs font-medium text-cream-soft", isArabic && "font-arabic")}>
-                      {isArabic ? "المخطط العلوي ثنائي الأبعاد" : "2D top-down map"}
+                      {isArabic ? "السرد الثقافي الصوتي (يتحدّث عربيّاً)" : "Bilingual cultural narration (it speaks)"}
                     </p>
-                    <RoomMap2D objects={mapObjects} />
+                    <CulturalNarration />
                   </div>
-                </div>
+                </>
               )}
             </div>
           </section>
