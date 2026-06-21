@@ -23,6 +23,13 @@ photorealistic redesign in that style. Built as an undergraduate FYP.
 Free **Kaggle T4** only (15 GB VRAM, no A100, no paid APIs). On OOM the pipeline
 auto-falls back to **SD 1.5 + ControlNet 1.1**.
 
+## Status (Jun 2026)
+
+- ✅ **All three cultural LoRAs trained** on a free T4 (`models/loras/{lebanese,khaleeji,moroccan}/`). The 16 GB recipe (`scripts/train_lora.py`): cache image latents + text embeddings once, free the VAE/text-encoders, then train only the **fp32-master UNet + LoRA** with autocast + GradScaler — fits, no NaN.
+- ✅ **Three creative features** in `/studio`: Cultural Element Highlighter, **Style Intensity Slider** (`POST /restyle` — the no-LoRA↔full-LoRA ablation made live), and **Bilingual Cultural Narration** (Web Speech API, it speaks Arabic).
+- ✅ Defense materials drafted under `docs/`: thesis chapters, the 18-question Q&A, and slides + one-pager (AR + EN).
+- ⏳ Eval figures (CLIP confusion matrix + SSIM/LPIPS) are one T4 run away (`push_verify.py`). Dataset-licensing audit lives in `datasets/LICENSING.csv` — fill it before the defense.
+
 ## Quick start
 
 ```bash
@@ -49,10 +56,11 @@ backend/         FastAPI service + canonical inference pipeline
 ontology/        seed cultural design vocabulary (~25 terms x 3 cultures)
 configs/         pipeline.yaml, sweep_winners.json
 scripts/         train_lora, controlnet_sweep, generate_finals, ablate, baseline_grid, metrics
-datasets/        per-culture READMEs spelling out the curation spec for Zainab
-kaggle/          paste-into-cell runbooks for T4
-docs/            zainab_handoff.md, add_a_culture.md
-src/             Next.js 14 app — landing / transform / result
+datasets/        per-culture images + captions.jsonl + LICENSING.csv (provenance audit)
+models/loras/    trained per-culture LoRAs (weights gitignored); backend lazy-loads them
+kaggle/          paste-into-cell runbooks + push_kernel.py / push_verify.py (REST-API pushers)
+docs/            thesis/DRAFT.md, defense-qa.md, slides-and-one-pager.md, zainab_handoff.md
+src/             Next.js 14 app — DarCinema landing (/) + /studio (upload -> 3 redesigns + features)
 tests/           pytest — prompt builder, validators, jobs, share, full API roundtrip
 ```
 
