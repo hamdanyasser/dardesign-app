@@ -114,6 +114,25 @@ def _is_light_mode() -> bool:
     return os.environ.get("DARDESIGN_LIGHT", "").lower() in ("1", "true", "yes")
 
 
+def _write_manifest(out_path: Path, manifest: dict) -> None:
+    """C2PA-inspired provenance sidecar: write <out>.manifest.json recording the
+    model, LoRA, seed, ControlNet weights and a SHA-256 of the output PNG, so any
+    render is auditable ('this image was made by DarDesign with these settings').
+    Best-effort — a manifest failure never costs the user their render."""
+    import hashlib
+    import json as _json
+
+    try:
+        meta = dict(manifest)
+        meta["output_sha256"] = hashlib.sha256(out_path.read_bytes()).hexdigest()
+        meta["generated_at"] = int(time.time())
+        out_path.with_suffix(".manifest.json").write_text(
+            _json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+    except Exception:
+        logger.exception("failed to write provenance manifest for %s", out_path)
+
+
 def _emit_placeholder(image_path: Path, style: str, out_path: Path) -> Path:
     """Generate a culturally-tinted placeholder so light-mode dev can't be
     confused for a real generation. Each culture gets a strong colour wash
@@ -181,6 +200,7 @@ def _emit_placeholder(image_path: Path, style: str, out_path: Path) -> Path:
         "DARDESIGN_LIGHT placeholder written to %s (style=%s) — NOT a real generation",
         out_path, style,
     )
+    _write_manifest(out_path, {"tool": "DarDesign", "style": style, "model": "DARDESIGN_LIGHT placeholder", "light_mode": True})
     return out_path
 
 
@@ -639,4 +659,13 @@ def _generate(
         out_path, style, use_sdxl, loaded.style_loaded is not None,
         controlnet_weights, target_size, seed,
     )
+    _write_manifest(out_path, {
+        "tool": "DarDesign", "style": style,
+        "model": "stabilityai/stable-diffusion-xl-base-1.0" if use_sdxl else "runwayml/stable-diffusion-v1-5",
+        "lora": _lora_path(style).name if loaded.style_loaded is not None else None,
+        "lora_scale": loaded.scale_loaded,
+        "seed": seed,
+        "controlnet": {"depth": controlnet_weights[0], "seg": controlnet_weights[1]},
+        "use_lora": use_lora, "use_sdxl": use_sdxl, "light_mode": False,
+    })
     return out_path
