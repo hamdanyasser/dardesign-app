@@ -358,6 +358,8 @@ export interface RestyleResult {
   image: string;
   style: StyleId;
   scale: number;
+  /** C2PA-style provenance: model, LoRA, seed, ControlNet weights, SHA-256. */
+  manifest?: Record<string, unknown> | null;
 }
 
 /**
@@ -430,5 +432,5 @@ export async function restyleRoom(
       res.status,
     );
   }
-  return { image: data.image, style, scale };
+  return { image: data.image, style, scale, manifest: data.manifest ?? null };
 }

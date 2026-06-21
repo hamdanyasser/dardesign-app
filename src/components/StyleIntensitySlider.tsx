@@ -32,6 +32,7 @@ export default function StyleIntensitySlider() {
   const [culture, setCulture] = useState<StyleId>("lebanese");
   const [pct, setPct] = useState(80);
   const [image, setImage] = useState<string | null>(null);
+  const [manifest, setManifest] = useState<Record<string, unknown> | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -42,6 +43,7 @@ export default function StyleIntensitySlider() {
     try {
       const r = await restyleRoom(imageFile, culture, pct / 100);
       setImage(r.image);
+      setManifest(r.manifest ?? null);
     } catch (e) {
       setError(e instanceof ApiError ? (isArabic ? e.message_ar : e.message_en) : isArabic ? "حدث خطأ" : "Something went wrong");
     } finally {
@@ -118,6 +120,24 @@ export default function StyleIntensitySlider() {
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src={image} alt={isArabic ? `${NAMES[culture].ar} عند ${pct}٪` : `${NAMES[culture].en} at ${pct}%`} className="block h-auto w-full" />
         </div>
+      )}
+
+      {manifest && (
+        <details className="mt-3 text-xs text-cream-muted">
+          <summary className={cn("cursor-pointer text-gold", isArabic ? "font-arabic" : "font-ui")}>
+            {isArabic ? "🔏 الإسناد (المنشأ)" : "🔏 Provenance"}
+          </summary>
+          <ul className="mt-2 space-y-1 font-ui" dir="ltr">
+            {(["model", "lora", "lora_scale", "seed", "output_sha256"] as const).map((k) =>
+              manifest[k] != null ? (
+                <li key={k}>
+                  <span className="text-cream-soft">{k}</span>: {String(manifest[k]).slice(0, 48)}
+                  {String(manifest[k]).length > 48 ? "…" : ""}
+                </li>
+              ) : null,
+            )}
+          </ul>
+        </details>
       )}
     </div>
   );

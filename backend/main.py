@@ -200,6 +200,7 @@ class RestyleResponse(BaseModel):
     image: str
     style: str
     scale: float
+    manifest: dict | None = None  # provenance sidecar (model, LoRA, seed, sha256)
     privacy_notice: str = PRIVACY_NOTICE
 
 
@@ -345,8 +346,17 @@ async def restyle(
         logger.exception("restyle job %s pipeline error", job.id)
         _raise(ERR_PIPELINE, detail_en=e.message_en, detail_ar=e.message_ar)
 
+    manifest: dict | None = None
+    try:
+        mpath = out.with_suffix(".manifest.json")
+        if mpath.exists():
+            import json as _json
+            manifest = _json.loads(mpath.read_text(encoding="utf-8"))
+    except Exception:
+        logger.exception("failed to read provenance manifest for restyle job %s", job.id)
+
     jobs.transition(job.id, JobStatus.done, output_path=str(out))
-    return RestyleResponse(image=_png_data_url(out), style=style, scale=scale)
+    return RestyleResponse(image=_png_data_url(out), style=style, scale=scale, manifest=manifest)
 
 
 async def _run_transform(
