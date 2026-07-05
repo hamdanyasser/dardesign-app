@@ -149,9 +149,6 @@ async function composeReport(props: RoomReportProps, isArabic: boolean): Promise
   const sectionTop = y;
 
   ctx.textAlign = isArabic ? "right" : "left";
-  const elX = isArabic ? M + colW : M;
-  const textAnchor = isArabic ? elX + colW - 0 : elX;
-
   ctx.fillStyle = GOLD;
   ctx.font = `700 24px ${AR_FONT}`;
   ctx.fillText(isArabic ? "العناصر الثقافية · Elements" : "Cultural elements · العناصر", isArabic ? M + colW * 2 + 48 : M, y);

@@ -28,6 +28,10 @@ auto-falls back to **SD 1.5 + ControlNet 1.1**.
 - ✅ **All three cultural LoRAs trained** on a free T4 (`models/loras/{lebanese,khaleeji,moroccan}/`). The 16 GB recipe (`scripts/train_lora.py`): cache image latents + text embeddings once, free the VAE/text-encoders, then train only the **fp32-master UNet + LoRA** with autocast + GradScaler — fits, no NaN.
 - ✅ **Three creative features** in `/studio`: Cultural Element Highlighter, **Style Intensity Slider** (`POST /restyle` — the no-LoRA↔full-LoRA ablation made live), and **Bilingual Cultural Narration** (Web Speech API, it speaks Arabic).
 - ✅ **The Understood Room, all three layers live**: `/redesign` now ships `seg_regions` (real on-image highlighter boxes), `object_map` (top-down plan), and `depth_map` (grayscale PNG) from one depth+seg pass — and `/studio` mounts **DepthOrbit**, a three.js parallax orbit of the styled room displaced by its depth map.
+- ✅ **Persian, the prompt-only 4th culture** (`/restyle` + the intensity slider): the scalability claim made live — adding culture N = one ontology entry, no retraining ([docs/add_a_culture.md](docs/add_a_culture.md)). Terms pending Zainab's cultural sign-off (`verified: false`).
+- ✅ **Room Report**: one click composes before/after + Arabic ontology terms + the 2D plan + provenance into a downloadable branded PNG (pure client-side).
+- ✅ **Audit trail**: every render logged (metadata only, never images) → `GET /audit` + the `/audit` page. Token-gated via `DARDESIGN_AUDIT_TOKEN`.
+- ✅ **Dockerfile + CI**: `docker run -p 8000:8000 dardesign-backend` serves the LIGHT API; GitHub Actions runs the pytest suite + the production frontend build on every push.
 - ✅ Defense materials drafted under `docs/`: thesis chapters, the 18-question Q&A, and slides + one-pager (AR + EN).
 - ⏳ Eval figures (CLIP confusion matrix + SSIM/LPIPS) are one T4 run away (`push_verify.py`). Dataset-licensing audit lives in `datasets/LICENSING.csv` — fill it before the defense.
 
@@ -42,6 +46,8 @@ make frontend                  # http://localhost:3000
 
 # 3a. Run the backend on a laptop (no GPU)
 make backend-light             # placeholder PNGs; full UI flow exercisable
+# …or containerized:
+docker build -t dardesign-backend . && docker run -p 8000:8000 dardesign-backend
 
 # 3b. Run the backend on Kaggle T4 (real generation)
 # see kaggle/README.md — paste cells in order
@@ -97,6 +103,7 @@ train a LoRA, ship it.
 | `DARDESIGN_LIGHT=1` | placeholder mode for dev without a GPU |
 | `DARDESIGN_ALLOWED_ORIGINS` | comma-separated CORS allowlist (defaults to localhost:3000) |
 | `DARDESIGN_SHARE_SECRET` | HMAC secret for share-link tokens (random per process if unset) |
+| `DARDESIGN_AUDIT_TOKEN` | when set, `GET /audit` requires `?token=…` (audit trail is open in dev) |
 
 ## Where Zainab's work lands
 

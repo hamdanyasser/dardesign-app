@@ -276,6 +276,8 @@ Every component uses `const { copy, isArabic } = useThemeLanguage()` and:
 
 Each style has: `flag`, `name`, `selectorDescription`, `origin`, `landingDescription`, `tags[]`, `learnMore` — defined in both EN and AR translations.
 
+A 4th culture, `persian` (فارسي), is **prompt-only** and restyle-only — it exists in the backend `StylePack`/ontology and the intensity slider, but not in the core `StyleId`, `/redesign`, or the landing copy.
+
 ---
 
 ## Known Decisions
@@ -298,6 +300,10 @@ Demo path: `/` (DarCinema landing, CTA → `/studio`) → **`/studio`** (upload 
 - **Env:** `NEXT_PUBLIC_API_URL` in `.env.local` (gitignored; template in `.env.example`). ngrok URL rotates each session — keep it swappable.
 - **RoomMap2D** (`src/components/RoomMap2D.tsx`): top-down 2D layout map — furniture footprints + door/window wall openings + AR/EN labels (from `ontology.json`), click-to-read note. **Wired**: real objects arrive in `/redesign`'s `object_map` (from `project_top_down()`); `DEMO_MAP` is the fallback.
 - **DepthOrbit** (`src/components/DepthOrbit.tsx`): Tier A interactive 3D — the featured styled image displaced by `/redesign`'s `depth_map` PNG, clamped parallax orbit (three.js 0.150). Mounted in `/studio` results below the highlighter/map grid. Completes the "Understood Room" trio: how it looks (restyle) / how it's laid out (2D map) / how it feels to be in (3D orbit).
+- **Persian (prompt-only 4th culture)**: in `ontology.json`, `CULTURES`, and `StylePack`, served by `/restyle` + the Style Intensity Slider only — `/redesign` loops `CORE_STYLES` (the 3 trained cultures) so demo timing/contract never change. No LoRA file → `_attach_lora`'s prompt-only fallback. Terms are `verified: false` pending Zainab's sign-off.
+- **RoomReport** (`src/components/RoomReport.tsx`): client-side canvas → downloadable branded PNG of before/after + ontology elements + 2D plan + provenance footer. Button lives in the `/studio` results header.
+- **Audit trail**: `backend/audit.py` (append-only JSONL, metadata only, never raises) ← logged by `/redesign` + `/restyle`; `GET /audit` (token via `DARDESIGN_AUDIT_TOKEN`) → `/audit` page (unlinked admin table). `backend/audit.jsonl` is gitignored.
+- **Ops**: root `Dockerfile` (LIGHT image on `backend/requirements-light.txt`) + `.github/workflows/ci.yml` (pytest in LIGHT + `npm run build`).
 
 ---
 
