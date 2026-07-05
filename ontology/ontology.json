@@ -13,6 +13,10 @@
     "moroccan": {
       "en": "dardesign-moroccan style",
       "ar": "نمط دار-ديزاين-مغربي"
+    },
+    "persian": {
+      "en": "dardesign-persian style",
+      "ar": "نمط دار-ديزاين-فارسي"
     }
   },
   "negative_universal": [
@@ -38,6 +42,172 @@
     "amateur cgi"
   ],
   "cultures": {
+    "persian": {
+      "negative_specific": [
+        "Arabian majlis floor seating",
+        "Moroccan zellige walls",
+        "Ottoman calligraphy panels",
+        "generic oriental bazaar clutter"
+      ],
+      "architectural": [
+        {
+          "en": "muqarnas honeycomb vaulting",
+          "ar": "مقرنصات",
+          "weight": 1.3,
+          "verified": false,
+          "note": "signature element — prompt-only 4th culture, no LoRA"
+        },
+        {
+          "en": "iwan pointed-arch alcove",
+          "ar": "إيوان بقوس مدبب",
+          "weight": 1.2,
+          "verified": false
+        },
+        {
+          "en": "orosi latticed sash window with coloured glass",
+          "ar": "نافذة أُروسي مشبّكة بزجاج ملوّن",
+          "weight": 1.1,
+          "verified": false
+        },
+        {
+          "en": "domed plaster ceiling rosette",
+          "ar": "وردة سقف جصّية مقبّبة",
+          "weight": 1.0,
+          "verified": false
+        }
+      ],
+      "materials": [
+        {
+          "en": "aina-kari mirror mosaic",
+          "ar": "آينه كاري (فسيفساء المرايا)",
+          "weight": 1.3,
+          "verified": false
+        },
+        {
+          "en": "haft-rang glazed tilework",
+          "ar": "بلاط هفت رنگ المزجّج",
+          "weight": 1.2,
+          "verified": false
+        },
+        {
+          "en": "khatam wood marquetry",
+          "ar": "خاتم كاري (تطعيم خشبي دقيق)",
+          "weight": 1.1,
+          "verified": false
+        },
+        {
+          "en": "carved walnut wood",
+          "ar": "خشب جوز محفور",
+          "weight": 1.0,
+          "verified": false
+        }
+      ],
+      "color_palette": [
+        {
+          "en": "turquoise",
+          "ar": "فيروزي",
+          "hex": "#30b5c8",
+          "weight": 1.2,
+          "verified": false
+        },
+        {
+          "en": "lapis blue",
+          "ar": "أزرق لازوردي",
+          "hex": "#26619c",
+          "weight": 1.1,
+          "verified": false
+        },
+        {
+          "en": "saffron gold",
+          "ar": "ذهبي زعفراني",
+          "hex": "#f4c430",
+          "weight": 1.0,
+          "verified": false
+        },
+        {
+          "en": "pomegranate red",
+          "ar": "أحمر رمّاني",
+          "hex": "#a53a3a",
+          "weight": 1.0,
+          "verified": false
+        }
+      ],
+      "lighting": [
+        {
+          "en": "brass filigree pendant lantern",
+          "ar": "فانوس نحاسي مخرّم معلّق",
+          "weight": 1.1,
+          "verified": false
+        },
+        {
+          "en": "warm light in arched wall niches",
+          "ar": "إضاءة دافئة في كوّات جدارية مقوّسة",
+          "weight": 1.0,
+          "verified": false
+        }
+      ],
+      "furniture": [
+        {
+          "en": "low korsi table with quilted cover",
+          "ar": "طاولة كرسي منخفضة بغطاء مبطّن",
+          "weight": 1.1,
+          "verified": false
+        },
+        {
+          "en": "carved daybed with bolster cushions",
+          "ar": "أريكة محفورة بوسائد أسطوانية",
+          "weight": 1.0,
+          "verified": false
+        },
+        {
+          "en": "inlaid hexagonal side table",
+          "ar": "طاولة جانبية سداسية مطعّمة",
+          "weight": 1.0,
+          "verified": false
+        }
+      ],
+      "textiles": [
+        {
+          "en": "Persian medallion carpet",
+          "ar": "سجادة فارسية بنقشة الترنج",
+          "weight": 1.3,
+          "verified": false,
+          "note": "signature element"
+        },
+        {
+          "en": "termeh paisley (boteh) cloth",
+          "ar": "قماش ترمه بنقشة البته (بيزلي)",
+          "weight": 1.1,
+          "verified": false
+        },
+        {
+          "en": "embroidered silk wall hanging",
+          "ar": "معلّقة حريرية مطرّزة",
+          "weight": 1.0,
+          "verified": false
+        }
+      ],
+      "ornamentation": [
+        {
+          "en": "girih geometric strapwork",
+          "ar": "زخرفة الگره الهندسية",
+          "weight": 1.2,
+          "verified": false
+        },
+        {
+          "en": "eslimi arabesque floral scrollwork",
+          "ar": "زخرفة إسليمي نباتية",
+          "weight": 1.1,
+          "verified": false
+        },
+        {
+          "en": "miniature nightingale-and-rose motifs",
+          "ar": "زخارف العندليب والورد المنمنمة",
+          "weight": 1.0,
+          "verified": false
+        }
+      ]
+    },
     "lebanese": {
       "negative_specific": [
         "Greek revival",

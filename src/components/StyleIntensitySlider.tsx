@@ -14,22 +14,25 @@
 
 import { useState } from "react";
 import { Sparkles, Loader2 } from "lucide-react";
-import { useImage, type StyleId } from "@/context/ImageContext";
+import { useImage } from "@/context/ImageContext";
 import { useThemeLanguage } from "@/context/ThemeLanguageContext";
-import { ApiError, restyleRoom } from "@/lib/api";
+import { ApiError, restyleRoom, type RestyleStyleId } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
-const ORDER: StyleId[] = ["lebanese", "khaleeji", "moroccan"];
-const NAMES: Record<StyleId, { en: string; ar: string }> = {
+// persian is the prompt-only 4th culture — the live proof that adding culture
+// N is one ontology entry (docs/add_a_culture.md), no retraining required.
+const ORDER: RestyleStyleId[] = ["lebanese", "khaleeji", "moroccan", "persian"];
+const NAMES: Record<RestyleStyleId, { en: string; ar: string }> = {
   lebanese: { en: "Lebanese", ar: "لبناني" },
   khaleeji: { en: "Khaleeji", ar: "خليجي" },
   moroccan: { en: "Moroccan", ar: "مغربي" },
+  persian: { en: "Persian", ar: "فارسي" },
 };
 
 export default function StyleIntensitySlider() {
   const { imageFile } = useImage();
   const { isArabic } = useThemeLanguage();
-  const [culture, setCulture] = useState<StyleId>("lebanese");
+  const [culture, setCulture] = useState<RestyleStyleId>("lebanese");
   const [pct, setPct] = useState(80);
   const [image, setImage] = useState<string | null>(null);
   const [manifest, setManifest] = useState<Record<string, unknown> | null>(null);
@@ -68,9 +71,18 @@ export default function StyleIntensitySlider() {
             )}
           >
             {isArabic ? NAMES[c].ar : NAMES[c].en}
+            {c === "persian" && <span className="ms-1 opacity-70">{isArabic ? "· جديد" : "· new"}</span>}
           </button>
         ))}
       </div>
+
+      {culture === "persian" && (
+        <p className={cn("mb-3 text-[11px] text-cream-muted", isArabic && "text-right font-arabic")}>
+          {isArabic
+            ? "الفارسي طراز رابع بالموجّه فقط (بدون LoRA مدرّب) — دليل حيّ أن إضافة ثقافة جديدة = إدخالة أنطولوجيا واحدة."
+            : "Persian is a prompt-only 4th culture (no trained LoRA) — live proof that adding a culture = one ontology entry."}
+        </p>
+      )}
 
       {/* intensity slider */}
       <div className={cn("mb-3 flex items-center gap-3", isArabic && "flex-row-reverse")}>

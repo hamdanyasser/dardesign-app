@@ -59,7 +59,14 @@ from .projection import (
     to_seg_regions_payload,
 )
 from .share import decode as share_decode, encode as share_encode
-from .transform import CONFIG, PipelineError, StylePack, compute_depth_seg, transform_room
+from .transform import (
+    CONFIG,
+    CORE_STYLES,
+    PipelineError,
+    StylePack,
+    compute_depth_seg,
+    transform_room,
+)
 from .ttl_cleanup import PRIVACY_NOTICE, start_background_sweeper
 from .validators import ValidationFailure, validate_upload
 
@@ -297,10 +304,12 @@ async def redesign(file: UploadFile) -> RedesignResponse:
     images: dict[str, str] = {}
     last_out: Path | None = None
     try:
-        for i, style in enumerate(StylePack):
+        # CORE_STYLES only — persian (prompt-only 4th culture) is /restyle-only
+        # so the flagship /redesign keeps its ~1-2 min demo timing.
+        for i, style in enumerate(CORE_STYLES):
             last_out = await asyncio.to_thread(transform_room, str(input_path), style)
             images[style] = _png_data_url(last_out)
-            jobs.update_progress(job.id, (i + 1) / (len(StylePack) + 1))
+            jobs.update_progress(job.id, (i + 1) / (len(CORE_STYLES) + 1))
     except PipelineError as e:
         jobs.transition(
             job.id, JobStatus.error,
@@ -447,7 +456,7 @@ async def transform_image(req: TransformRequest) -> JobIdResponse:
         style = guard_validate_style(req.style)
     except ValueError:
         _raise(ERR_BAD_STYLE)
-    if style not in StylePack:  # guardrails also allows "persian"; we don't ship it
+    if style not in StylePack:  # includes persian, the prompt-only 4th culture
         _raise(ERR_BAD_STYLE)
 
     job = jobs.get(req.job_id)

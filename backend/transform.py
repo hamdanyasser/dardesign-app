@@ -49,8 +49,12 @@ CONFIG_PATH = ROOT / "configs" / "pipeline.yaml"
 LORA_DIR = ROOT / "models" / "loras"
 DEFAULT_OUT_DIR = ROOT / "backend" / "uploads"
 
-StyleId = Literal["lebanese", "khaleeji", "moroccan"]
-StylePack = ("lebanese", "khaleeji", "moroccan")
+StyleId = Literal["lebanese", "khaleeji", "moroccan", "persian"]
+# The three trained cultures — /redesign generates exactly these, keeping its
+# demo timing fixed. persian is the prompt-only 4th culture (docs/add_a_culture.md
+# minus the LoRA step): reachable via /restyle and /transform, never /redesign.
+CORE_STYLES = ("lebanese", "khaleeji", "moroccan")
+StylePack = (*CORE_STYLES, "persian")
 
 
 class PipelineError(RuntimeError):
@@ -144,6 +148,7 @@ def _emit_placeholder(image_path: Path, style: str, out_path: Path) -> Path:
         "lebanese": {"tint": (168, 50, 50),  "name": "Lebanese", "ar": "لبناني"},
         "khaleeji": {"tint": (217, 154, 31), "name": "Khaleeji", "ar": "خليجي"},
         "moroccan": {"tint": (30, 80, 143),  "name": "Moroccan", "ar": "مغربي"},
+        "persian":  {"tint": (32, 140, 141), "name": "Persian",  "ar": "فارسي"},
     }
     palette = CULTURE.get(style, {"tint": (212, 175, 55), "name": style.title(), "ar": ""})
     tint = palette["tint"]

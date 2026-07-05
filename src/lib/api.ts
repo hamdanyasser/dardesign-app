@@ -391,9 +391,13 @@ export interface RestyleResult {
  * 0 ≈ generic SDXL, 1 ≈ full culture. The ablation made live. ~30–60s on the T4
  * (instant placeholder in DARDESIGN_LIGHT).
  */
+/** /restyle also serves persian — the prompt-only 4th culture (no LoRA), which
+ *  never joins the 3-style /redesign flow so demo timing stays fixed. */
+export type RestyleStyleId = StyleId | "persian";
+
 export async function restyleRoom(
   file: File,
-  style: StyleId,
+  style: RestyleStyleId,
   scale: number,
   { timeoutMs = 120_000, signal }: { timeoutMs?: number; signal?: AbortSignal } = {},
 ): Promise<RestyleResult> {

@@ -25,8 +25,10 @@ except ImportError:  # script mode: `python backend/prompt_builder.py`
 
 logger = logging.getLogger(__name__)
 
-CultureId = Literal["lebanese", "khaleeji", "moroccan"]
-CULTURES: tuple[CultureId, ...] = ("lebanese", "khaleeji", "moroccan")
+CultureId = Literal["lebanese", "khaleeji", "moroccan", "persian"]
+# persian is the prompt-only 4th culture (no trained LoRA — the trigger phrase
+# still goes in, and _attach_lora falls back to prompt-only when no file exists).
+CULTURES: tuple[CultureId, ...] = ("lebanese", "khaleeji", "moroccan", "persian")
 
 CATEGORIES: tuple[str, ...] = (
     "architectural",
