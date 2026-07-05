@@ -254,6 +254,26 @@ export interface ObjectMapPayload {
   placeholder?: boolean;
 }
 
+/** One on-image highlighter region (backend/projection.py seg_bounding_boxes). */
+export interface SegRegionItem {
+  classKey: string;
+  labelEn: string;
+  labelAr: string;
+  /** [x, y, w, h] in normalized 0..1 image coordinates. */
+  bbox: [number, number, number, number];
+  /** Fraction of image pixels the blob covers. */
+  area: number;
+}
+
+/** Envelope produced by to_seg_regions_payload() in backend/projection.py. */
+export interface SegRegionsPayload {
+  jobId: string;
+  regions: SegRegionItem[];
+  version: string;
+  /** True when DARDESIGN_LIGHT returned a synthetic layout, not detections. */
+  placeholder?: boolean;
+}
+
 /**
  * The shape returned by `POST /redesign`. Every image value is a base64 PNG
  * **data URL** (e.g. `data:image/png;base64,…`), so it can be dropped straight
@@ -267,6 +287,10 @@ export interface RedesignResult {
   moroccan: string;
   /** 2D top-down object map (Week 2). Null/absent when projection fails. */
   object_map?: ObjectMapPayload | null;
+  /** On-image highlighter regions from the same seg pass. Null on failure. */
+  seg_regions?: SegRegionsPayload | null;
+  /** Grayscale depth PNG data URL (brighter = closer) for DepthOrbit. */
+  depth_map?: string | null;
 }
 
 const REDESIGN_KEYS = ["original", "lebanese", "khaleeji", "moroccan"] as const;

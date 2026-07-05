@@ -22,6 +22,7 @@ import { useCinemaCopy } from "@/components/cinema/copy";
 import CulturalElementHighlighter, { DEMO_REGIONS } from "@/components/CulturalElementHighlighter";
 import RoomMap2D, { DEMO_MAP } from "@/components/RoomMap2D";
 import CulturalNarration from "@/components/CulturalNarration";
+import DepthOrbit from "@/components/DepthOrbit";
 import StyleIntensitySlider from "@/components/StyleIntensitySlider";
 import { useImage, type StyleId } from "@/context/ImageContext";
 import { useThemeLanguage } from "@/context/ThemeLanguageContext";
@@ -211,11 +212,15 @@ export default function StudioPage() {
   const lc = copy.loading;
   const rc = copy.result;
 
-  // Week 2: /redesign now ships a backend-computed top-down object map.
-  // Fall back to the illustrative DEMO_MAP for older backends that omit it.
+  // Week 2: /redesign now ships a backend-computed top-down object map,
+  // on-image highlighter regions, and a depth PNG for the 3D orbit. Fall
+  // back to the illustrative demo data for older backends that omit them.
   const backendMap = result?.object_map;
   const mapObjects = backendMap?.objects?.length ? backendMap.objects : DEMO_MAP;
   const hasRealMap = !!backendMap?.objects?.length && !backendMap.placeholder;
+  const backendRegions = result?.seg_regions;
+  const highlightRegions = backendRegions?.regions?.length ? backendRegions.regions : DEMO_REGIONS;
+  const hasRealRegions = !!backendRegions?.regions?.length && !backendRegions.placeholder;
 
   const msgIdx = Math.min(lc.messages.length - 1, Math.floor(progress * lc.messages.length));
   const ringR = 90;
@@ -604,16 +609,22 @@ export default function StudioPage() {
                 <div className={cn(isArabic ? "text-right" : "text-left")}>
                   <h2 className={cn("text-lg font-semibold text-cream", isArabic ? "font-arabic" : "font-display")}>
                     {isArabic ? "العناصر الثقافية والمخطط" : "Cultural elements & layout"}
-                    <span className="ms-2 align-middle text-xs text-cream-muted">{isArabic ? "(تجريبي)" : "(preview)"}</span>
+                    <span className="ms-2 align-middle text-xs text-cream-muted">
+                      {hasRealRegions && hasRealMap ? (isArabic ? "(حيّ)" : "(live)") : isArabic ? "(تجريبي)" : "(preview)"}
+                    </span>
                   </h2>
                   <p className={cn("mt-1 text-xs text-cream-muted", isArabic && "font-arabic")}>
                     {isArabic
-                      ? hasRealMap
-                        ? "التظليل على الصورة تجريبي؛ المخطط العلوي محسوب من الخادم (عمق + تجزئة). اضغط أي عنصر."
-                        : "عناصر ومخطط تجريبيان — سيتصلان بخريطة التجزئة والإسقاط من الخادم لاحقاً. اضغط أي عنصر."
-                      : hasRealMap
-                        ? "Highlight regions are samples; the top-down map is computed by the backend (depth + segmentation). Click any element."
-                        : "Sample regions + top-down map — will connect to the backend segmentation & projection later. Click any element."}
+                      ? hasRealRegions && hasRealMap
+                        ? "التظليل والمخطط محسوبان من الخادم لغرفتك (عمق + تجزئة). اضغط أي عنصر."
+                        : hasRealMap
+                          ? "التظليل على الصورة تجريبي؛ المخطط العلوي محسوب من الخادم (عمق + تجزئة). اضغط أي عنصر."
+                          : "عناصر ومخطط تجريبيان — الخادم لم يُرجع خريطة التجزئة والإسقاط. اضغط أي عنصر."
+                      : hasRealRegions && hasRealMap
+                        ? "Highlights & top-down map are computed by the backend for your room (depth + segmentation). Click any element."
+                        : hasRealMap
+                          ? "Highlight regions are samples; the top-down map is computed by the backend (depth + segmentation). Click any element."
+                          : "Sample regions + top-down map — the backend did not return segmentation & projection data. Click any element."}
                   </p>
                 </div>
                 <button
@@ -637,7 +648,7 @@ export default function StudioPage() {
                       </p>
                       <CulturalElementHighlighter
                         imageSrc={result.original}
-                        regions={DEMO_REGIONS}
+                        regions={highlightRegions}
                         alt={isArabic ? "تحليل العناصر الثقافية" : "Cultural element analysis"}
                       />
                     </div>
@@ -648,6 +659,20 @@ export default function StudioPage() {
                       <RoomMap2D objects={mapObjects} />
                     </div>
                   </div>
+                  {/* The Understood Room, layer 3: orbit the redesigned room in 3D.
+                      Depth comes from the input photo; structure is preserved by
+                      the ControlNets, so it displaces the styled image cleanly. */}
+                  {result.depth_map && (
+                    <div className="mt-6">
+                      <p className={cn("mb-2 text-xs font-medium text-cream-soft", isArabic && "font-arabic")}>
+                        {isArabic
+                          ? `الجولة ثلاثية الأبعاد — ${TILES.find((t) => t.key === featured)?.ar ?? ""} (اسحب للدوران)`
+                          : `3D room view — ${TILES.find((t) => t.key === featured)?.en ?? ""} (drag to orbit)`}
+                      </p>
+                      <DepthOrbit imageUrl={result[featured]} depthUrl={result.depth_map} />
+                    </div>
+                  )}
+
                   <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
                     <div>
                       <p className={cn("mb-2 text-xs font-medium text-cream-soft", isArabic && "font-arabic")}>

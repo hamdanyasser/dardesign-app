@@ -176,3 +176,74 @@ def to_room_map_payload(objects: list[dict], style: str, job_id: str) -> dict:
         "objects": objects,
         "version": "projection-v1",
     }
+
+
+# --------------------------------------------------------------------------
+# Image-space regions for the CulturalElementHighlighter
+# --------------------------------------------------------------------------
+
+# Furniture/decor plus potted plant (ADE20K 17). Enveloping surfaces
+# (wall/floor/ceiling) are deliberately excluded: their bounding boxes span
+# the whole frame and would bury every clickable element under one giant box.
+HIGHLIGHTER_CLASSES: dict[int, tuple[str, str, str]] = {
+    **ADE20K_FURNITURE,
+    17: ("plant", "plant", "نبتة"),
+}
+
+
+def seg_bounding_boxes(
+    seg: np.ndarray,
+    *,
+    min_area_frac: float = 0.004,
+    max_regions: int = 12,
+    class_table: dict[int, tuple[str, str, str]] | None = None,
+) -> list[dict]:
+    """
+    Per-blob bounding boxes in *image* coordinates (unlike project_top_down,
+    which projects into plan coordinates). Feeds the on-image
+    CulturalElementHighlighter: [{"classKey", "labelEn", "labelAr",
+    "bbox": [x, y, w, h], "area"}], everything normalized 0..1.
+    """
+    table = class_table or HIGHLIGHTER_CLASSES
+    H, W = seg.shape[:2]
+    total_px = float(H * W)
+    regions: list[dict] = []
+    present_ids = np.intersect1d(np.unique(seg), np.fromiter(table, dtype=np.int64))
+
+    for cid in present_ids:
+        class_key, label_en, label_ar = table[int(cid)]
+        labeled, n_blobs = ndimage.label(seg == cid)
+        if n_blobs == 0:
+            continue
+        for blob_idx, sl in enumerate(ndimage.find_objects(labeled), start=1):
+            if sl is None:
+                continue
+            area_frac = float((labeled[sl] == blob_idx).sum()) / total_px
+            if area_frac < min_area_frac:
+                continue
+            ys, xs = sl[0], sl[1]
+            regions.append({
+                "classKey": class_key,
+                "labelEn": label_en,
+                "labelAr": label_ar,
+                "bbox": [
+                    round(xs.start / W, 4),
+                    round(ys.start / H, 4),
+                    round((xs.stop - xs.start) / W, 4),
+                    round((ys.stop - ys.start) / H, 4),
+                ],
+                "area": round(area_frac, 5),
+            })
+
+    # Largest first so the frontend stacks small items on top, still clickable.
+    regions.sort(key=lambda r: r["area"], reverse=True)
+    return regions[:max_regions]
+
+
+def to_seg_regions_payload(regions: list[dict], job_id: str) -> dict:
+    """Wrap regions in the envelope the CulturalElementHighlighter consumes."""
+    return {
+        "jobId": job_id,
+        "regions": regions,
+        "version": "segmap-v1",
+    }

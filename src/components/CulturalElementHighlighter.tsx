@@ -1,17 +1,17 @@
 "use client";
 
 /**
- * CulturalElementHighlighter — SCAFFOLD.
+ * CulturalElementHighlighter.
  *
  * Overlays a semantic-segmentation mask on a (re)generated room image. Each
  * region is tagged with an ADE20K class key; clicking it reveals a small card
  * with the element's Arabic term + a short design note (from data/ontology.json).
  *
- * ⚠️ The backend does not return a segmentation map yet. This component is wired
- * against a clean prop interface (`regions: SegRegion[]`) so it can be dropped in
- * the moment that data exists — see `fetchSegMap()` below for the integration
- * point. With no regions it degrades gracefully to just the image, so it is safe
- * to mount today and never blocks a build or a demo.
+ * Real regions arrive inline in the `POST /redesign` response (`seg_regions`,
+ * computed by seg_bounding_boxes() in backend/projection.py from the OneFormer
+ * ADE20K pass). DEMO_REGIONS below is the fallback for older backends that
+ * omit them. With no regions the component degrades gracefully to just the
+ * image, so it never blocks a build or a demo.
  */
 
 import { useMemo, useState } from "react";
@@ -77,23 +77,9 @@ function regionBox(r: SegRegion): [number, number, number, number] | null {
   return null;
 }
 
-/* ----------------------- backend integration point ------------------------ */
-
 /**
- * Fetch the segmentation map for a finished job and map it into SegRegion[].
- *
- * Returns an empty array today so callers render cleanly with no overlay.
- */
-export async function fetchSegMap(jobId: string): Promise<SegRegion[]> {
-  // TODO: connect to backend seg map
-  void jobId; // keep jobId in the public signature until the seg endpoint exists
-  // Expected: GET ${NEXT_PUBLIC_API_URL}/segmap/{jobId} -> { regions: [...] },
-  // then normalize pixel coords to 0..1 and map each ADE20K class id to its key.
-  return [];
-}
-
-/**
- * Illustrative regions for local development / visual testing of the overlay.
+ * Illustrative regions for local development / visual testing of the overlay,
+ * and the fallback when /redesign returns no (or placeholder) seg_regions.
  * These are placeholder boxes, NOT real detections.
  */
 export const DEMO_REGIONS: SegRegion[] = [

@@ -1,17 +1,17 @@
 "use client";
 
 /**
- * RoomMap2D — SCAFFOLD.
+ * RoomMap2D.
  *
  * A top-down ("bird's-eye") 2D layout map of the room's detected objects. Each
  * object is an ADE20K class placed at a normalized top-down position; the map
  * draws furniture footprints + wall openings (door/window) and labels each in
  * Arabic + English (from data/ontology.json). Click a piece to read its note.
  *
- * ⚠️ The backend projection (Depth Anything V2 + OneFormer → top-down) is not
- * wired yet. This renders against a clean prop interface (`objects: MapObject[]`)
- * with a `fetchObjectMap()` hook; with no objects it shows an empty plan. Safe to
- * mount today; it never blocks a build or a demo.
+ * Real objects arrive inline in the `POST /redesign` response (`object_map`,
+ * computed by project_top_down() in backend/projection.py from Depth Anything
+ * V2 + OneFormer). DEMO_MAP below is the fallback for older backends. With no
+ * objects it shows an empty plan; it never blocks a build or a demo.
  */
 
 import { useMemo, useState } from "react";
@@ -60,19 +60,8 @@ function lookup(classKey: string): OntologyEntry | null {
 /** Wall openings render as a bright line on the nearest edge, not a footprint. */
 const EDGE_OPENINGS = new Set(["door", "window"]);
 
-/**
- * Fetch the top-down object map for a finished job and map it to MapObject[].
- * Returns [] today so callers render an empty plan.
- */
-export async function fetchObjectMap(jobId: string): Promise<MapObject[]> {
-  // TODO: connect to backend projection (depth + seg → top-down centroids)
-  void jobId; // keep jobId in the public signature until the endpoint exists
-  // Expected: GET ${NEXT_PUBLIC_API_URL}/objectmap/{jobId} -> { objects: [...] },
-  // projecting floor pixels + object centroids onto a normalized bird's-eye plane.
-  return [];
-}
-
-/** Illustrative living-room layout for local dev / demo. NOT real detections. */
+/** Illustrative living-room layout for local dev / demo, and the fallback when
+ * /redesign returns no (or placeholder) object_map. NOT real detections. */
 export const DEMO_MAP: MapObject[] = [
   { classKey: "sofa", cx: 0.5, cy: 0.16, w: 0.5, h: 0.12 },
   { classKey: "window", cx: 0.5, cy: 0.02, w: 0.34, h: 0.02 },

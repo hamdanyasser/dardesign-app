@@ -5,6 +5,7 @@ Endpoints
 GET  /healthz                       liveness (also reports DARDESIGN_LIGHT)
 POST /redesign                      multipart image -> original + all 3 styles
                                     as base64 PNG data URLs + 2D object_map
+                                    + on-image seg_regions + depth_map PNG
                                     (synchronous, ~1-2 min on the T4)
 POST /upload                        multipart image -> {job_id}
 POST /transform                     {job_id, style} -> kicks off generation
@@ -51,7 +52,12 @@ from .guardrails import (
     validate_upload as guard_validate_upload,
 )
 from .jobs import JobStatus, jobs
-from .projection import project_top_down, to_room_map_payload
+from .projection import (
+    project_top_down,
+    seg_bounding_boxes,
+    to_room_map_payload,
+    to_seg_regions_payload,
+)
 from .share import decode as share_decode, encode as share_encode
 from .transform import CONFIG, PipelineError, StylePack, compute_depth_seg, transform_room
 from .ttl_cleanup import PRIVACY_NOTICE, start_background_sweeper
@@ -149,6 +155,23 @@ def _original_png_data_url(raw: bytes) -> str:
     return "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode("ascii")
 
 
+def _depth_png_data_url(depth) -> str:
+    """Grayscale PNG of the depth map (Depth Anything convention: brighter =
+    closer) so DepthOrbit can displace its plane geometry client-side."""
+    import numpy as np
+    from PIL import Image
+
+    d = np.asarray(depth, dtype=np.float32)
+    lo, hi = float(np.nanmin(d)), float(np.nanmax(d))
+    if hi - lo < 1e-6:
+        arr = np.zeros_like(d, dtype=np.uint8)
+    else:
+        arr = ((d - lo) / (hi - lo) * 255.0).astype(np.uint8)
+    buf = io.BytesIO()
+    Image.fromarray(arr).save(buf, format="PNG", optimize=True)
+    return "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode("ascii")
+
+
 # ---------- request/response models ----------
 
 
@@ -183,14 +206,18 @@ class ShareTokenResponse(BaseModel):
 
 class RedesignResponse(BaseModel):
     """Contract of redesignRoom() in src/lib/api.ts: every image is a base64
-    PNG data URL; object_map is the to_room_map_payload() envelope (or null
-    when the projection fails — images still ship)."""
+    PNG data URL; object_map is the to_room_map_payload() envelope,
+    seg_regions the to_seg_regions_payload() envelope, and depth_map a
+    grayscale depth PNG data URL for DepthOrbit. All three are null when the
+    depth+seg pass fails — images still ship."""
 
     original: str
     lebanese: str
     khaleeji: str
     moroccan: str
     object_map: dict | None = None
+    seg_regions: dict | None = None
+    depth_map: str | None = None
     privacy_notice: str = PRIVACY_NOTICE
 
 
@@ -284,9 +311,13 @@ async def redesign(file: UploadFile) -> RedesignResponse:
 
     original = await asyncio.to_thread(_original_png_data_url, raw)
 
-    # WIRING §1 — depth + raw ADE20K seg → top-down object map. Best-effort:
-    # a projection failure must never cost the user their three designs.
+    # WIRING §1 — depth + raw ADE20K seg → top-down object map, on-image
+    # highlighter regions, and the DepthOrbit depth PNG. One compute serves
+    # all three. Best-effort: a failure here must never cost the user their
+    # three designs.
     object_map: dict | None = None
+    seg_regions: dict | None = None
+    depth_map: str | None = None
     try:
         depth, seg_ids = await asyncio.to_thread(compute_depth_seg, input_path)
         objects = project_top_down(depth, seg_ids)
@@ -296,14 +327,23 @@ async def redesign(file: UploadFile) -> RedesignResponse:
             # the API boundary so the shipped frontend renders it correctly.
             o["cy"] = round(1.0 - o["cy"], 4)
         object_map = to_room_map_payload(objects, "all", job.id)
+        seg_regions = to_seg_regions_payload(seg_bounding_boxes(seg_ids), job.id)
+        depth_map = _depth_png_data_url(depth)
         if _light_mode():
             object_map["placeholder"] = True  # synthetic layout, not detections
+            seg_regions["placeholder"] = True
     except Exception:
-        logger.exception("object-map projection failed for job %s — images only", job.id)
+        logger.exception("depth/seg pass failed for job %s — images only", job.id)
 
     jobs.transition(job.id, JobStatus.done, output_path=str(last_out) if last_out else None)
     jobs.update_progress(job.id, 1.0)
-    return RedesignResponse(original=original, object_map=object_map, **images)
+    return RedesignResponse(
+        original=original,
+        object_map=object_map,
+        seg_regions=seg_regions,
+        depth_map=depth_map,
+        **images,
+    )
 
 
 @app.post("/restyle", response_model=RestyleResponse)
