@@ -23,6 +23,7 @@ import CulturalElementHighlighter, { DEMO_REGIONS } from "@/components/CulturalE
 import RoomMap2D, { DEMO_MAP } from "@/components/RoomMap2D";
 import CulturalNarration from "@/components/CulturalNarration";
 import DepthOrbit from "@/components/DepthOrbit";
+import RoomReport from "@/components/RoomReport";
 import StyleIntensitySlider from "@/components/StyleIntensitySlider";
 import { useImage, type StyleId } from "@/context/ImageContext";
 import { useThemeLanguage } from "@/context/ThemeLanguageContext";
@@ -556,16 +557,30 @@ export default function StudioPage() {
               <h2 className={cn("text-lg font-semibold text-cream", isArabic ? "font-arabic" : "font-display")}>
                 {isArabic ? "كل البيوت الثلاثة" : "All three houses"}
               </h2>
-              <button
-                onClick={startOver}
-                className={cn(
-                  "flex items-center gap-2 text-sm text-cream-muted transition hover:text-gold",
-                  isArabic ? "font-arabic flex-row-reverse" : "font-ui"
-                )}
-              >
-                <RotateCcw size={16} />
-                {isArabic ? "غرفة جديدة" : "New room"}
-              </button>
+              <div className={cn("flex items-center gap-3", isArabic && "flex-row-reverse")}>
+                <RoomReport
+                  beforeSrc={result.original}
+                  afterSrc={result[featured]}
+                  styleLabel={{
+                    ar: TILES.find((t) => t.key === featured)?.ar ?? "",
+                    en: TILES.find((t) => t.key === featured)?.en ?? "",
+                  }}
+                  regions={highlightRegions}
+                  mapObjects={mapObjects}
+                  isLive={hasRealRegions && hasRealMap}
+                  jobId={backendMap?.jobId}
+                />
+                <button
+                  onClick={startOver}
+                  className={cn(
+                    "flex items-center gap-2 text-sm text-cream-muted transition hover:text-gold",
+                    isArabic ? "font-arabic flex-row-reverse" : "font-ui"
+                  )}
+                >
+                  <RotateCcw size={16} />
+                  {isArabic ? "غرفة جديدة" : "New room"}
+                </button>
+              </div>
             </div>
 
             <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
