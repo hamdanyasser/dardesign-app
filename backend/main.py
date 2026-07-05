@@ -15,6 +15,8 @@ POST /retry/{job_id}                re-run a failed/done job, optionally with a 
 GET  /share/{token}                 server-side: resolve a share token to the result PNG
 GET  /share-token/{job_id}          mint a token for a finished job
 GET  /jobs                          debug listing (last N jobs)
+GET  /audit                         render audit trail (JSONL-backed; metadata
+                                    only — $DARDESIGN_AUDIT_TOKEN gates it)
 
 CORS is permissive in dev; tighten via $DARDESIGN_ALLOWED_ORIGINS in prod.
 """
@@ -26,6 +28,7 @@ import io
 import logging
 import os
 import shutil
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -34,6 +37,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
 
+from .audit import log_event, read_events
 from .errors import (
     ERR_BAD_SHARE_TOKEN,
     ERR_BAD_STYLE,
@@ -303,6 +307,7 @@ async def redesign(file: UploadFile) -> RedesignResponse:
 
     images: dict[str, str] = {}
     last_out: Path | None = None
+    started = time.monotonic()
     try:
         # CORE_STYLES only — persian (prompt-only 4th culture) is /restyle-only
         # so the flagship /redesign keeps its ~1-2 min demo timing.
@@ -316,6 +321,10 @@ async def redesign(file: UploadFile) -> RedesignResponse:
             error_code=ERR_PIPELINE.code, error_en=e.message_en, error_ar=e.message_ar,
         )
         logger.exception("redesign job %s pipeline error", job.id)
+        log_event(
+            "redesign", job_id=job.id, ok=False, error=e.message_en,
+            duration_s=round(time.monotonic() - started, 2), light=_light_mode(),
+        )
         _raise(ERR_PIPELINE, detail_en=e.message_en, detail_ar=e.message_ar)
 
     original = await asyncio.to_thread(_original_png_data_url, raw)
@@ -346,6 +355,11 @@ async def redesign(file: UploadFile) -> RedesignResponse:
 
     jobs.transition(job.id, JobStatus.done, output_path=str(last_out) if last_out else None)
     jobs.update_progress(job.id, 1.0)
+    log_event(
+        "redesign", job_id=job.id, ok=True, styles=list(CORE_STYLES),
+        duration_s=round(time.monotonic() - started, 2), light=_light_mode(),
+        object_map=object_map is not None, seg_regions=seg_regions is not None,
+    )
     return RedesignResponse(
         original=original,
         object_map=object_map,
@@ -385,6 +399,7 @@ async def restyle(
     job.input_path = str(input_path)
     jobs.transition(job.id, JobStatus.running, style=style)
 
+    started = time.monotonic()
     try:
         out = await asyncio.to_thread(transform_room, str(input_path), style, lora_scale=scale)
     except PipelineError as e:
@@ -393,6 +408,11 @@ async def restyle(
             error_code=ERR_PIPELINE.code, error_en=e.message_en, error_ar=e.message_ar,
         )
         logger.exception("restyle job %s pipeline error", job.id)
+        log_event(
+            "restyle", job_id=job.id, style=style, scale=scale, ok=False,
+            error=e.message_en, duration_s=round(time.monotonic() - started, 2),
+            light=_light_mode(),
+        )
         _raise(ERR_PIPELINE, detail_en=e.message_en, detail_ar=e.message_ar)
 
     manifest: dict | None = None
@@ -405,6 +425,10 @@ async def restyle(
         logger.exception("failed to read provenance manifest for restyle job %s", job.id)
 
     jobs.transition(job.id, JobStatus.done, output_path=str(out))
+    log_event(
+        "restyle", job_id=job.id, style=style, scale=scale, ok=True,
+        duration_s=round(time.monotonic() - started, 2), light=_light_mode(),
+    )
     return RestyleResponse(image=_png_data_url(out), style=style, scale=scale, manifest=manifest)
 
 
@@ -556,6 +580,25 @@ async def resolve_share(token: str):
 async def list_jobs(limit: int = 50) -> JSONResponse:
     items = sorted(jobs.list(), key=lambda j: j.created_at, reverse=True)[:limit]
     return JSONResponse([j.public() for j in items])
+
+
+@app.get("/audit")
+async def audit_trail(limit: int = 50, token: str | None = None) -> JSONResponse:
+    """Render audit trail, newest first — metadata only, never image bytes.
+
+    Open in dev; set $DARDESIGN_AUDIT_TOKEN to require ?token=… (the demo
+    deploy sets it so the panel can be shown the trail without exposing it)."""
+    required = os.environ.get("DARDESIGN_AUDIT_TOKEN")
+    if required and token != required:
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "code": "forbidden",
+                "message_en": "Audit trail requires a valid token",
+                "message_ar": "سجل التدقيق يتطلب رمزاً صالحاً",
+            },
+        )
+    return JSONResponse(read_events(max(1, min(500, limit))))
 
 
 # Cleanup helper used by tests; harmless in production.

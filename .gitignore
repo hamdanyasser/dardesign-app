@@ -72,6 +72,9 @@ eval/results.csv
 backend/uploads/*
 !backend/uploads/.gitkeep
 
+# render audit trail (runtime data, metadata-only JSONL)
+backend/audit.jsonl
+
 # misc
 *.log
 .DS_Store

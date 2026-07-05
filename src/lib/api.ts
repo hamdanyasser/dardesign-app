@@ -254,6 +254,31 @@ export interface ObjectMapPayload {
   placeholder?: boolean;
 }
 
+/* -------------------------------------------------------------------------- */
+/*  GET /audit — the render audit trail (metadata only, never image bytes).   */
+/* -------------------------------------------------------------------------- */
+
+export interface AuditEvent {
+  ts: string;
+  event: string;
+  job_id?: string;
+  ok?: boolean;
+  style?: string;
+  styles?: string[];
+  scale?: number;
+  duration_s?: number;
+  light?: boolean;
+  error?: string;
+  [key: string]: unknown;
+}
+
+export async function fetchAuditLog(limit = 50, token?: string): Promise<AuditEvent[]> {
+  const qs = new URLSearchParams({ limit: String(limit) });
+  if (token) qs.set("token", token);
+  const res = await safeFetch(`${API_URL}/audit?${qs}`, { headers: COMMON_HEADERS });
+  return (await unwrap(res)) as AuditEvent[];
+}
+
 /** One on-image highlighter region (backend/projection.py seg_bounding_boxes). */
 export interface SegRegionItem {
   classKey: string;
@@ -380,7 +405,7 @@ export async function redesignRoom(
 
 export interface RestyleResult {
   image: string;
-  style: StyleId;
+  style: RestyleStyleId;
   scale: number;
   /** C2PA-style provenance: model, LoRA, seed, ControlNet weights, SHA-256. */
   manifest?: Record<string, unknown> | null;
