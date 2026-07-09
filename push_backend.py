@@ -23,10 +23,21 @@ REPO = "/kaggle/working/repo"
 subprocess.run(f"rm -rf {REPO}; git clone --depth 1 -b feat/cinematic-merge https://github.com/hamdanyasser/dardesign-app.git {REPO}", shell=True, check=True)
 os.chdir(REPO)
 
-# deps: T4 ships torch; drop it + bitsandbytes (broken triton). Keep the real stack.
-subprocess.run("sed -i '/^torch==/d;/^torchvision==/d;/^bitsandbytes/d' backend/requirements.txt", shell=True, check=True)
+# deps: keep Kaggle's preinstalled ABI-coupled stack (torch, numpy 2.x, scipy,
+# opencv, pillow, scikit-image) — force-downgrading numpy corrupts the install
+# ("No module named numpy.char") because Kaggle's scipy/opencv are built
+# against numpy 2. Install only the pure-python/diffusion pins on top.
+subprocess.run(
+    "sed -i '/^torch==/d;/^torchvision==/d;/^bitsandbytes/d;"
+    "/^numpy==/d;/^scipy==/d;/^opencv-python-headless==/d;"
+    "/^pillow==/d;/^scikit-image==/d' backend/requirements.txt",
+    shell=True, check=True,
+)
 subprocess.run("pip install -q -r backend/requirements.txt pyngrok 2>/dev/null; pip install -q -r backend/requirements.txt", shell=True)
 subprocess.run("pip uninstall -y bitsandbytes", shell=True)
+# Fail LOUDLY here rather than as a silent dead healthz later.
+subprocess.run('python -c "import numpy, scipy, torch; print(\'sanity:\', numpy.__version__, scipy.__version__, torch.__version__)"', shell=True, check=True)
+subprocess.run('python -c "import backend.main; print(\'backend imports OK\')"', shell=True, check=True)
 
 # pull the 3 trained LoRAs from the attached training-kernel outputs into models/loras/<cult>/
 for cult in ("lebanese", "khaleeji", "moroccan"):
