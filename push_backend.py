@@ -22,6 +22,7 @@ print("GPU:", torch.cuda.get_device_name(0), flush=True)
 REPO = "/kaggle/working/repo"
 subprocess.run(f"rm -rf {REPO}; git clone --depth 1 -b feat/cinematic-merge https://github.com/hamdanyasser/dardesign-app.git {REPO}", shell=True, check=True)
 os.chdir(REPO)
+sys.path.insert(0, REPO)  # chdir alone doesn't put the repo on script.py's sys.path — uvicorn imports backend.main in-process
 
 # deps: keep Kaggle's preinstalled ABI-coupled stack (torch, numpy 2.x, scipy,
 # opencv, pillow, scikit-image) — force-downgrading numpy corrupts the install
@@ -37,7 +38,10 @@ subprocess.run("pip install -q -r backend/requirements.txt pyngrok 2>/dev/null; 
 subprocess.run("pip uninstall -y bitsandbytes", shell=True)
 # Fail LOUDLY here rather than as a silent dead healthz later.
 subprocess.run('python -c "import numpy, scipy, torch; print(\'sanity:\', numpy.__version__, scipy.__version__, torch.__version__)"', shell=True, check=True)
-subprocess.run('python -c "import backend.main; print(\'backend imports OK\')"', shell=True, check=True)
+# In-process, not a subprocess: exactly the import uvicorn will do (a python -c
+# check adds its own cwd to sys.path and can pass while the real import fails).
+import backend.main  # noqa: F401
+print("backend imports OK", flush=True)
 
 # pull the 3 trained LoRAs from the attached training-kernel outputs into models/loras/<cult>/
 for cult in ("lebanese", "khaleeji", "moroccan"):
