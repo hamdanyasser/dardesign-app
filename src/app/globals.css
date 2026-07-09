@@ -35,9 +35,11 @@
     --dd-surface: #ffffff;
     --dd-surface-strong: #f2ede4;
     --dd-surface-hover: #ece5d9;
-    --dd-gold: #b8960c;
-    --dd-gold-hover: #d4af37;
-    --dd-gold-dim: #9c7d08;
+    /* Gold as TEXT on white/bg must hold WCAG AA (4.5:1): #8a6e0c = 4.87:1 on
+       white; hover darkens (6.90:1) — the old #b8960c/#d4af37 sat at 2.7–2.8. */
+    --dd-gold: #8a6e0c;
+    --dd-gold-hover: #6f570c;
+    --dd-gold-dim: #7d640a;
     --dd-text: #1a1a2e;
     --dd-text-soft: #312c46;
     --dd-text-secondary: #6b6580;
@@ -51,7 +53,9 @@
     --dd-spotlight: rgba(184, 150, 12, 0.14);
     --dd-before-gradient: linear-gradient(135deg, #d8d4cf 0%, #c9c5bd 50%, #b4b0aa 100%);
     --dd-after-gradient: linear-gradient(135deg, #b8960c 0%, #d4af37 52%, #f3dfb0 100%);
-    --dd-ink: #16110a;
+    /* On-gold text: warm white reads 4.87:1 on the darker light-theme gold
+       (dark ink would drop to 3.86:1). */
+    --dd-ink: #fffaf0;
   }
 
   :root {
