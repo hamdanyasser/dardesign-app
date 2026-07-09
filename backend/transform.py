@@ -240,9 +240,10 @@ def _emit_placeholder(image_path: Path, style: str, out_path: Path) -> Path:
         outline=(243, 220, 146, 160),
         width=2,
     )
-    # Latin-led text: PIL has no Arabic shaping without libraqm — the UI banner
-    # carries the properly-shaped bilingual notice instead.
-    title = f"PREVIEW · {palette['name']} · {palette['ar']}"
+    # Latin-only text: PIL has no Arabic shaping without libraqm (it draws the
+    # letters disconnected and backwards) — the studio's preview banner carries
+    # the properly-shaped bilingual notice instead.
+    title = f"PREVIEW · {palette['name']}"
     sub = "Placeholder (no GPU) - real renders need the Kaggle T4 backend"
     tb = draw.textbbox((0, 0), title, font=title_font)
     sb = draw.textbbox((0, 0), sub, font=sub_font)
