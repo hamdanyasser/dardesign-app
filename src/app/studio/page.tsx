@@ -162,7 +162,9 @@ export default function StudioPage() {
     setPhase("loading");
 
     try {
-      const r = await redesignRoom(imageFile, { timeoutMs: 240_000, signal: ctrl.signal });
+      // 7 min: covers the T4's cold first call (SDXL+ControlNet download) —
+      // warm calls finish in ~1.5–3 min and resolve long before this fires.
+      const r = await redesignRoom(imageFile, { timeoutMs: 420_000, signal: ctrl.signal });
       setResult(r);
       setProgress(1);
       DarAudio.chime();
@@ -222,16 +224,18 @@ export default function StudioPage() {
   const backendRegions = result?.seg_regions;
   const highlightRegions = backendRegions?.regions?.length ? backendRegions.regions : DEMO_REGIONS;
   const hasRealRegions = !!backendRegions?.regions?.length && !backendRegions.placeholder;
+  // LIGHT-mode stand-ins, not real renders. Top-level flag on new backends;
+  // envelope flags cover older ones.
+  const isPlaceholder = !!(result?.placeholder || backendMap?.placeholder || backendRegions?.placeholder);
 
   const msgIdx = Math.min(lc.messages.length - 1, Math.floor(progress * lc.messages.length));
   const ringR = 90;
   const ringC = 2 * Math.PI * ringR;
   const ringOffset = ringC * (1 - progress);
 
-  // RTL-aware clip for the "after" image
-  const clipAfter = isArabic
-    ? `inset(0 0 0 ${100 - comparePos}%)`
-    : `inset(0 ${100 - comparePos}% 0 0)`;
+  // "After" always shows right of the handle — .lbl.before/.lbl.after in
+  // cinema.css are pinned left/right in both languages, so the images must match.
+  const clipAfter = `inset(0 0 0 ${comparePos}%)`;
 
   return (
     <main className="relative min-h-screen" style={{ background: "var(--ink)" }}>
@@ -506,6 +510,32 @@ export default function StudioPage() {
                   </button>
                 ))}
               </div>
+
+              {/* Unmissable notice when the backend served LIGHT-mode stand-ins */}
+              {isPlaceholder && (
+                <div
+                  role="status"
+                  style={{
+                    margin: "var(--s-5) auto 0",
+                    width: "min(1400px, 92vw)",
+                    padding: "12px 20px",
+                    border: "1px solid var(--brass)",
+                    background: "var(--brass-wash)",
+                    borderRadius: "16px",
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: "4px",
+                    textAlign: "center",
+                  }}
+                >
+                  <span className="font-arabic" dir="rtl" style={{ color: "var(--brass-bright)", fontWeight: 600 }}>
+                    وضع المعاينة — لا توجد وحدة GPU متصلة؛ هذه ألوان تمييزية وليست تصاميم حقيقية
+                  </span>
+                  <span className="mono" style={{ color: "var(--fg-mute)", fontSize: "0.72rem", letterSpacing: "0.08em" }}>
+                    PREVIEW MODE — no GPU connected. These tints are placeholders, not real redesigns.
+                  </span>
+                </div>
+              )}
 
               <div style={{ padding: "var(--s-7) 0", position: "relative" }}>
                 <div

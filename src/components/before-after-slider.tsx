@@ -95,17 +95,23 @@ export default function BeforeAfterSlider({
       onTouchEnd={handleTouchEnd}
     >
       <img
-        src={afterSrc}
-        alt={afterLabel}
+        src={beforeSrc}
+        alt={beforeLabel}
         className="absolute inset-0 h-full w-full object-cover"
         draggable={false}
       />
 
+      {/* "After" overlay sits on the same side as its label: right in LTR,
+          left in RTL — and the clip seam always tracks the handle. */}
       <img
-        src={beforeSrc}
-        alt={beforeLabel}
+        src={afterSrc}
+        alt={afterLabel}
         className="absolute inset-0 h-full w-full object-cover"
-        style={{ clipPath: `inset(0 0 0 ${position}%)` }}
+        style={{
+          clipPath: isArabic
+            ? `inset(0 ${100 - position}% 0 0)`
+            : `inset(0 0 0 ${position}%)`,
+        }}
         draggable={false}
       />
 

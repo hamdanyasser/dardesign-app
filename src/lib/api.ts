@@ -316,6 +316,8 @@ export interface RedesignResult {
   seg_regions?: SegRegionsPayload | null;
   /** Grayscale depth PNG data URL (brighter = closer) for DepthOrbit. */
   depth_map?: string | null;
+  /** True in DARDESIGN_LIGHT: images are tinted stand-ins, not real renders. */
+  placeholder?: boolean | null;
 }
 
 const REDESIGN_KEYS = ["original", "lebanese", "khaleeji", "moroccan"] as const;
@@ -325,13 +327,14 @@ const REDESIGN_KEYS = ["original", "lebanese", "khaleeji", "moroccan"] as const;
  * cultural redesigns in a single request.
  *
  * The backend runs three generations sequentially, so a call routinely takes
- * ~1–2 minutes. We therefore default to a generous 180s timeout (configurable)
+ * ~1–2 minutes warm — and longer on the T4's first call while SDXL+ControlNet
+ * download. We therefore default to a generous 300s timeout (configurable)
  * and abort cleanly if it's exceeded. A caller-supplied `signal` (e.g. for a
  * "cancel"/unmount) is honoured in addition to the internal timeout.
  */
 export async function redesignRoom(
   file: File,
-  { timeoutMs = 180_000, signal }: { timeoutMs?: number; signal?: AbortSignal } = {},
+  { timeoutMs = 300_000, signal }: { timeoutMs?: number; signal?: AbortSignal } = {},
 ): Promise<RedesignResult> {
   const fd = new FormData();
   fd.append("file", file);
