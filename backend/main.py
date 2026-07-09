@@ -69,6 +69,7 @@ from .transform import (
     PipelineError,
     StylePack,
     compute_depth_seg,
+    fit_size,
     transform_room,
 )
 from .ttl_cleanup import PRIVACY_NOTICE, start_background_sweeper
@@ -155,12 +156,13 @@ def _png_data_url(path: Path) -> str:
 
 
 def _original_png_data_url(raw: bytes) -> str:
-    """Re-encode the upload at the pipeline's output size so the before/after
-    compare slider gets matching geometry."""
+    """Re-encode the upload at the pipeline's output geometry (same fit_size
+    the renders and placeholders use) so the before/after compare slider's two
+    halves always align."""
     from PIL import Image
 
-    size = tuple(CONFIG["output_size"])
-    img = Image.open(io.BytesIO(raw)).convert("RGB").resize(size)
+    img = Image.open(io.BytesIO(raw)).convert("RGB")
+    img = img.resize(fit_size(*img.size, int(CONFIG["output_size"][0])))
     buf = io.BytesIO()
     img.save(buf, format="PNG", optimize=True)
     return "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode("ascii")
@@ -229,6 +231,8 @@ class RedesignResponse(BaseModel):
     object_map: dict | None = None
     seg_regions: dict | None = None
     depth_map: str | None = None
+    # True in DARDESIGN_LIGHT: images are tinted stand-ins, not real renders.
+    placeholder: bool | None = None
     privacy_notice: str = PRIVACY_NOTICE
 
 
@@ -311,8 +315,11 @@ async def redesign(file: UploadFile) -> RedesignResponse:
     try:
         # CORE_STYLES only — persian (prompt-only 4th culture) is /restyle-only
         # so the flagship /redesign keeps its ~1-2 min demo timing.
+        # Seed derives from the job id so every render is reproducible and the
+        # provenance manifest records a real seed instead of null.
+        seed = int(job.id[:8], 16)
         for i, style in enumerate(CORE_STYLES):
-            last_out = await asyncio.to_thread(transform_room, str(input_path), style)
+            last_out = await asyncio.to_thread(transform_room, str(input_path), style, seed=seed)
             images[style] = _png_data_url(last_out)
             jobs.update_progress(job.id, (i + 1) / (len(CORE_STYLES) + 1))
     except PipelineError as e:
@@ -365,6 +372,7 @@ async def redesign(file: UploadFile) -> RedesignResponse:
         object_map=object_map,
         seg_regions=seg_regions,
         depth_map=depth_map,
+        placeholder=True if _light_mode() else None,
         **images,
     )
 
@@ -401,7 +409,11 @@ async def restyle(
 
     started = time.monotonic()
     try:
-        out = await asyncio.to_thread(transform_room, str(input_path), style, lora_scale=scale)
+        # Job-derived seed: reproducible render + a real seed in the manifest.
+        out = await asyncio.to_thread(
+            transform_room, str(input_path), style,
+            lora_scale=scale, seed=int(job.id[:8], 16),
+        )
     except PipelineError as e:
         jobs.transition(
             job.id, JobStatus.error,

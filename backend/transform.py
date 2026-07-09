@@ -75,7 +75,9 @@ _DEFAULT_CONFIG: dict[str, Any] = {
     "fallback_model": "runwayml/stable-diffusion-v1-5",
     "controlnet": {
         "depth_sdxl": "diffusers/controlnet-depth-sdxl-1.0",
-        "seg_sdxl": "diffusers/controlnet-seg-sdxl-1.0",
+        # NB: "diffusers/controlnet-seg-sdxl-1.0" does not exist on the Hub —
+        # SargeZT's is the standard ControlNetModel-loadable SDXL seg checkpoint.
+        "seg_sdxl": "SargeZT/sdxl-controlnet-seg",
         "depth_sd15": "lllyasviel/sd-controlnet-depth",
         "seg_sd15": "lllyasviel/sd-controlnet-seg",
     },
@@ -108,6 +110,29 @@ def _load_config() -> dict[str, Any]:
 
 CONFIG = _load_config()
 
+SWEEP_WINNERS_PATH = ROOT / "configs" / "sweep_winners.json"
+
+
+def _winner_weights(style: str) -> tuple[float, float] | None:
+    """Per-style (depth, seg) ControlNet weights from configs/sweep_winners.json.
+
+    The eyeball-confirmed sweep winners override pipeline.yaml defaults so the
+    sweep actually reaches production ("weights tunable without code edits" —
+    ARCHITECTURE.md). Falls back to the file's "default" pair, then None.
+    """
+    try:
+        if not SWEEP_WINNERS_PATH.exists():
+            return None
+        import json as _json
+
+        data = _json.loads(SWEEP_WINNERS_PATH.read_text(encoding="utf-8"))
+        pair = data.get(style) or data.get("default")
+        if isinstance(pair, (list, tuple)) and len(pair) == 2:
+            return float(pair[0]), float(pair[1])
+    except Exception:
+        logger.exception("failed to read %s — using pipeline.yaml defaults", SWEEP_WINNERS_PATH)
+    return None
+
 
 # ----------------------------------------------------------------------------
 # Light mode (no GPU)
@@ -116,6 +141,20 @@ CONFIG = _load_config()
 
 def _is_light_mode() -> bool:
     return os.environ.get("DARDESIGN_LIGHT", "").lower() in ("1", "true", "yes")
+
+
+def fit_size(width: int, height: int, long_side: int = 1024) -> tuple[int, int]:
+    """Scale (width, height) so the long side == long_side, keeping aspect,
+    rounded to multiples of 8 (UNet requirement).
+
+    Shared by real generation, LIGHT placeholders, and /redesign's original
+    re-encode so the before/after compare slider always gets matching geometry
+    — squashing everything to a fixed square made the two slider halves crop
+    differently under object-fit: cover and read as two different rooms."""
+    scale = long_side / max(width, height)
+    w = max(8, round(width * scale / 8) * 8)
+    h = max(8, round(height * scale / 8) * 8)
+    return w, h
 
 
 def _write_manifest(out_path: Path, manifest: dict) -> None:
@@ -140,7 +179,14 @@ def _write_manifest(out_path: Path, manifest: dict) -> None:
 def _emit_placeholder(image_path: Path, style: str, out_path: Path) -> Path:
     """Generate a culturally-tinted placeholder so light-mode dev can't be
     confused for a real generation. Each culture gets a strong colour wash
-    + ornament overlay + a clear top-band saying this is a stand-in."""
+    + ornament overlay + a crop-proof centred PREVIEW notice.
+
+    Keeps the source aspect ratio (long side capped at 1024) so the before/after
+    compare slider aligns pixel-for-pixel with the original under object-fit:
+    cover — a square placeholder against a wide original reads as two different
+    rooms."""
+    import math
+
     from PIL import Image, ImageDraw, ImageEnhance, ImageFont
 
     # Distinct cultural casts so the user immediately sees A != B.
@@ -153,7 +199,9 @@ def _emit_placeholder(image_path: Path, style: str, out_path: Path) -> Path:
     palette = CULTURE.get(style, {"tint": (212, 175, 55), "name": style.title(), "ar": ""})
     tint = palette["tint"]
 
-    src = Image.open(image_path).convert("RGB").resize((1024, 1024))
+    src = Image.open(image_path).convert("RGB")
+    src = src.resize(fit_size(*src.size))
+    w, h = src.size
 
     # 1) desaturate the photo most of the way, then blend a solid culture colour
     desat = ImageEnhance.Color(src).enhance(0.25)
@@ -164,38 +212,47 @@ def _emit_placeholder(image_path: Path, style: str, out_path: Path) -> Path:
     overlay = Image.new("RGBA", src.size, (0, 0, 0, 0))
     draw = ImageDraw.Draw(overlay)
     spacing = 192
-    for cx in range(spacing // 2, 1024, spacing):
-        for cy in range(spacing // 2, 1024, spacing):
+    for cx in range(spacing // 2, w, spacing):
+        for cy in range(spacing // 2, h, spacing):
             r1, r2 = 28, 12
             pts = []
-            import math
             for i in range(16):
                 r = r1 if i % 2 == 0 else r2
                 a = (i / 16) * 2 * math.pi - math.pi / 2
                 pts.append((cx + math.cos(a) * r, cy + math.sin(a) * r))
             draw.polygon(pts, outline=(243, 220, 146, 90))
 
-    # 3) top band — clearly says PREVIEW so no one thinks this is the real thing
-    band_h = 110
-    draw.rectangle([0, 0, 1024, band_h], fill=(12, 10, 8, 230))
     try:
-        title_font = ImageFont.truetype("arial.ttf", 30)
-        sub_font = ImageFont.truetype("arial.ttf", 16)
+        title_font = ImageFont.truetype("arial.ttf", max(24, h // 24))
+        sub_font = ImageFont.truetype("arial.ttf", max(14, h // 44))
     except Exception:
         title_font = ImageFont.load_default()
         sub_font = ImageFont.load_default()
 
+    # 3) centred pill — survives ANY object-fit crop (a top band gets cut off
+    #    when a wide viewport cover-crops the image).
+    pill_w, pill_h = int(w * 0.62), max(84, h // 7)
+    px0, py0 = (w - pill_w) // 2, (h - pill_h) // 2
+    draw.rounded_rectangle(
+        [px0, py0, px0 + pill_w, py0 + pill_h],
+        radius=pill_h // 2,
+        fill=(12, 10, 8, 215),
+        outline=(243, 220, 146, 160),
+        width=2,
+    )
+    # Latin-led text: PIL has no Arabic shaping without libraqm — the UI banner
+    # carries the properly-shaped bilingual notice instead.
+    title = f"PREVIEW · {palette['name']} · {palette['ar']}"
+    sub = "Placeholder (no GPU) - real renders need the Kaggle T4 backend"
+    tb = draw.textbbox((0, 0), title, font=title_font)
+    sb = draw.textbbox((0, 0), sub, font=sub_font)
     draw.text(
-        (28, 22),
-        f"PREVIEW · {palette['name']} · {palette['ar']}",
-        fill=(243, 220, 146, 255),
-        font=title_font,
+        ((w - (tb[2] - tb[0])) / 2, py0 + pill_h * 0.18),
+        title, fill=(243, 220, 146, 255), font=title_font,
     )
     draw.text(
-        (28, 64),
-        "Light-mode stand-in. Real generation needs the Kaggle T4 backend (see kaggle/README.md).",
-        fill=(232, 216, 184, 230),
-        font=sub_font,
+        ((w - (sb[2] - sb[0])) / 2, py0 + pill_h * 0.60),
+        sub, fill=(232, 216, 184, 230), font=sub_font,
     )
 
     composed = Image.alpha_composite(tinted.convert("RGBA"), overlay).convert("RGB")
@@ -235,6 +292,7 @@ class _LoadedPipe:
     is_sdxl: bool
     style_loaded: StyleId | None  # which LoRA is currently fused, if any
     scale_loaded: float | None = None  # the scale it was fused at (Style Intensity Slider)
+    has_seg: bool = True  # False → seg ControlNet failed to load; depth-only conditioning
 
 
 _PIPE_CACHE: dict[str, _LoadedPipe] = {}
@@ -278,21 +336,35 @@ def _load_pipeline(*, use_sdxl: bool) -> _LoadedPipe:
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
     cn_cfg = CONFIG["controlnet"]
+    seg_key = "seg_sdxl" if use_sdxl else "seg_sd15"
+    depth_key = "depth_sdxl" if use_sdxl else "depth_sd15"
+
+    depth_cn = ControlNetModel.from_pretrained(cn_cfg[depth_key], torch_dtype=dtype)
+    # Depth is the structure anchor and non-negotiable; a seg checkpoint failure
+    # degrades to depth-only (loudly) instead of killing the demo.
+    has_seg = True
+    try:
+        seg_cn = ControlNetModel.from_pretrained(cn_cfg[seg_key], torch_dtype=dtype)
+        controlnet: Any = [depth_cn, seg_cn]
+    except Exception:
+        logger.exception(
+            "seg ControlNet %s failed to load — falling back to DEPTH-ONLY conditioning",
+            cn_cfg[seg_key],
+        )
+        controlnet = depth_cn
+        has_seg = False
+
     if use_sdxl:
-        depth_cn = ControlNetModel.from_pretrained(cn_cfg["depth_sdxl"], torch_dtype=dtype)
-        seg_cn = ControlNetModel.from_pretrained(cn_cfg["seg_sdxl"], torch_dtype=dtype)
         pipe = StableDiffusionXLControlNetPipeline.from_pretrained(
             CONFIG["base_model"],
-            controlnet=[depth_cn, seg_cn],
+            controlnet=controlnet,
             torch_dtype=dtype,
             variant="fp16" if dtype == torch.float16 else None,
         )
     else:
-        depth_cn = ControlNetModel.from_pretrained(cn_cfg["depth_sd15"], torch_dtype=dtype)
-        seg_cn = ControlNetModel.from_pretrained(cn_cfg["seg_sd15"], torch_dtype=dtype)
         pipe = StableDiffusionControlNetPipeline.from_pretrained(
             CONFIG["fallback_model"],
-            controlnet=[depth_cn, seg_cn],
+            controlnet=controlnet,
             torch_dtype=dtype,
             safety_checker=None,
         )
@@ -311,9 +383,9 @@ def _load_pipeline(*, use_sdxl: bool) -> _LoadedPipe:
 
     pipe.set_progress_bar_config(disable=True)
 
-    loaded = _LoadedPipe(pipe=pipe, is_sdxl=use_sdxl, style_loaded=None)
+    loaded = _LoadedPipe(pipe=pipe, is_sdxl=use_sdxl, style_loaded=None, has_seg=has_seg)
     _PIPE_CACHE[key] = loaded
-    logger.info("loaded %s pipeline on %s (dtype=%s)", key, device, dtype)
+    logger.info("loaded %s pipeline on %s (dtype=%s, dual_controlnet=%s)", key, device, dtype, has_seg)
     return loaded
 
 
@@ -367,25 +439,103 @@ def _attach_lora(loaded: _LoadedPipe, style: StyleId, lora_scale: float | None =
 # ----------------------------------------------------------------------------
 
 
+# Canonical 150-class ADE20K palette (mmsegmentation) — the colour contract the
+# seg ControlNet was trained on; OneFormer class ids index straight into it.
+_ADE20K_PALETTE: tuple[tuple[int, int, int], ...] = (
+    (120, 120, 120), (180, 120, 120), (6, 230, 230), (80, 50, 50), (4, 200, 3), (120, 120, 80),
+    (140, 140, 140), (204, 5, 255), (230, 230, 230), (4, 250, 7), (224, 5, 255), (235, 255, 7),
+    (150, 5, 61), (120, 120, 70), (8, 255, 51), (255, 6, 82), (143, 255, 140), (204, 255, 4),
+    (255, 51, 7), (204, 70, 3), (0, 102, 200), (61, 230, 250), (255, 6, 51), (11, 102, 255),
+    (255, 7, 71), (255, 9, 224), (9, 7, 230), (220, 220, 220), (255, 9, 92), (112, 9, 255),
+    (8, 255, 214), (7, 255, 224), (255, 184, 6), (10, 255, 71), (255, 41, 10), (7, 255, 255),
+    (224, 255, 8), (102, 8, 255), (255, 61, 6), (255, 194, 7), (255, 122, 8), (0, 255, 20),
+    (255, 8, 41), (255, 5, 153), (6, 51, 255), (235, 12, 255), (160, 150, 20), (0, 163, 255),
+    (140, 140, 140), (250, 10, 15), (20, 255, 0), (31, 255, 0), (255, 31, 0), (255, 224, 0),
+    (153, 255, 0), (0, 0, 255), (255, 71, 0), (0, 235, 255), (0, 173, 255), (31, 0, 255),
+    (11, 200, 200), (255, 82, 0), (0, 255, 245), (0, 61, 255), (0, 255, 112), (0, 255, 133),
+    (255, 0, 0), (255, 163, 0), (255, 102, 0), (194, 255, 0), (0, 143, 255), (51, 255, 0),
+    (0, 82, 255), (0, 255, 41), (0, 255, 173), (10, 0, 255), (173, 255, 0), (0, 255, 153),
+    (255, 92, 0), (255, 0, 255), (255, 0, 245), (255, 0, 102), (255, 173, 0), (255, 0, 20),
+    (255, 184, 184), (0, 31, 255), (0, 255, 61), (0, 71, 255), (255, 0, 204), (0, 255, 194),
+    (0, 255, 82), (0, 10, 255), (0, 112, 255), (51, 0, 255), (0, 194, 255), (0, 122, 255),
+    (0, 255, 163), (255, 153, 0), (0, 255, 10), (255, 112, 0), (143, 255, 0), (82, 0, 255),
+    (163, 255, 0), (255, 235, 0), (8, 184, 170), (133, 0, 255), (0, 255, 92), (184, 0, 255),
+    (255, 0, 31), (0, 184, 255), (0, 214, 255), (255, 0, 112), (92, 255, 0), (0, 224, 255),
+    (112, 224, 255), (70, 184, 160), (163, 0, 255), (153, 0, 255), (71, 255, 0), (255, 0, 163),
+    (255, 204, 0), (255, 0, 143), (0, 255, 235), (133, 255, 0), (255, 0, 235), (245, 0, 255),
+    (255, 0, 122), (255, 245, 0), (10, 190, 212), (214, 255, 0), (0, 204, 255), (20, 0, 255),
+    (255, 255, 0), (0, 153, 255), (0, 41, 255), (0, 255, 204), (41, 0, 255), (41, 255, 0),
+    (173, 0, 255), (0, 245, 255), (71, 0, 255), (122, 0, 255), (0, 255, 184), (0, 92, 255),
+    (184, 255, 0), (0, 133, 255), (255, 214, 0), (25, 194, 194), (102, 255, 0), (92, 0, 255),
+)
+
+_ANNOTATOR_CACHE: dict[str, Any] = {}
+
+
+def _depth_control_image(src: Any) -> Any:
+    """Depth control image via Depth Anything V2 (transformers), MiDaS fallback.
+
+    The annotator is cached module-wide — /redesign runs three styles per
+    request and must not reload it each time.
+    """
+    if "depth" not in _ANNOTATOR_CACHE:
+        try:
+            from transformers import pipeline as _hf_pipeline
+
+            _ANNOTATOR_CACHE["depth"] = (
+                "dav2",
+                _hf_pipeline("depth-estimation", model="depth-anything/Depth-Anything-V2-Small-hf"),
+            )
+        except Exception:
+            logger.exception("Depth Anything V2 unavailable — falling back to MiDaS")
+            from controlnet_aux import MidasDetector  # type: ignore
+
+            _ANNOTATOR_CACHE["depth"] = ("midas", MidasDetector.from_pretrained("lllyasviel/Annotators"))
+    kind, proc = _ANNOTATOR_CACHE["depth"]
+    depth = proc(src)["depth"] if kind == "dav2" else proc(src)
+    return depth.convert("RGB").resize(src.size)
+
+
+def _seg_control_image(src: Any) -> Any:
+    """ADE20K-colorised OneFormer semantic map — the seg ControlNet's input.
+
+    Shares the OneFormer weights with compute_depth_seg via _DEPTH_SEG_CACHE,
+    so one download serves both the conditioning and the 2D-map projection.
+    """
+    import numpy as np
+    import torch
+    from PIL import Image
+    from transformers import OneFormerForUniversalSegmentation, OneFormerProcessor
+
+    if "seg" not in _DEPTH_SEG_CACHE:
+        ckpt = "shi-labs/oneformer_ade20k_swin_large"
+        _DEPTH_SEG_CACHE["seg"] = (
+            OneFormerProcessor.from_pretrained(ckpt),
+            OneFormerForUniversalSegmentation.from_pretrained(ckpt),
+        )
+    processor, model = _DEPTH_SEG_CACHE["seg"]
+    inputs = processor(images=src, task_inputs=["semantic"], return_tensors="pt")
+    with torch.no_grad():
+        outputs = model(**inputs)
+    ids = (
+        processor.post_process_semantic_segmentation(outputs, target_sizes=[src.size[::-1]])[0]
+        .cpu()
+        .numpy()
+    )
+    palette = np.asarray(_ADE20K_PALETTE, dtype=np.uint8)
+    return Image.fromarray(palette[np.clip(ids, 0, len(palette) - 1)])
+
+
 def _prepare_conditioning(image_path: Path, target_size: tuple[int, int]) -> tuple[Any, Any, Any]:
     """Return (resized_input_pil, depth_pil, seg_pil)."""
     from PIL import Image
-    from controlnet_aux import OneFormerSegmentor  # type: ignore
-    try:
-        from controlnet_aux import DepthAnythingDetector  # type: ignore
-    except ImportError:  # older controlnet_aux
-        from controlnet_aux import MidasDetector as DepthAnythingDetector  # type: ignore
 
     src = Image.open(image_path).convert("RGB").resize(target_size)
 
-    depth_proc = DepthAnythingDetector.from_pretrained("lllyasviel/Annotators")
-    depth = depth_proc(src)
+    depth = _depth_control_image(src)
 
     try:
-        seg_proc = OneFormerSegmentor.from_pretrained(
-            "shi-labs/oneformer_ade20k_swin_large"
-        )
-        seg = seg_proc(src)
+        seg = _seg_control_image(src)
     except Exception:
         logger.exception("OneFormer ADE20K unavailable; using depth as both control inputs")
         seg = depth
@@ -446,13 +596,8 @@ def compute_depth_seg(image_path: str | Path, *, size: int = _PROJECTION_SIZE) -
 
     src = Image.open(image_path).convert("RGB").resize((size, size))
 
-    try:
-        from controlnet_aux import DepthAnythingDetector  # type: ignore
-    except ImportError:  # older controlnet_aux
-        from controlnet_aux import MidasDetector as DepthAnythingDetector  # type: ignore
-    if "depth" not in _DEPTH_SEG_CACHE:
-        _DEPTH_SEG_CACHE["depth"] = DepthAnythingDetector.from_pretrained("lllyasviel/Annotators")
-    depth_pil = _DEPTH_SEG_CACHE["depth"](src)
+    # Same cached Depth Anything V2 annotator the ControlNet conditioning uses.
+    depth_pil = _depth_control_image(src)
     depth = np.asarray(depth_pil.convert("L").resize((size, size)), dtype=np.float32)
 
     # Same checkpoint the seg ControlNet input uses, so the weights are already
@@ -542,12 +687,18 @@ def transform_room(
         positive = f"a {room or 'interior'} in {style} style, photorealistic, 8k, magazine quality"
         negative = CONFIG.get("extra_negative_en", _DEFAULT_CONFIG["extra_negative_en"])
 
-    cn_w = controlnet_weights or (
+    cn_w = controlnet_weights or _winner_weights(style) or (
         CONFIG["default_controlnet_weights"]["depth"],
         CONFIG["default_controlnet_weights"]["seg"],
     )
     if not use_segmentation:
         cn_w = (cn_w[0], 0.0)
+
+    # Render at the input's aspect (long side from config) so outputs align
+    # with the original in the compare slider instead of being squashed square.
+    from PIL import Image
+    with Image.open(image_path) as _im:
+        src_w, src_h = _im.size
 
     # First attempt: SDXL
     try:
@@ -562,7 +713,7 @@ def transform_room(
             controlnet_weights=cn_w,
             use_lora=use_lora,
             lora_scale=lora_scale,
-            target_size=tuple(CONFIG["output_size"]),
+            target_size=fit_size(src_w, src_h, int(CONFIG["output_size"][0])),
             use_sdxl=True,
         )
     except _OutOfMemory:
@@ -579,7 +730,7 @@ def transform_room(
             controlnet_weights=cn_w,
             use_lora=use_lora,
             lora_scale=lora_scale,
-            target_size=tuple(CONFIG["sd15_fallback_size"]),
+            target_size=fit_size(src_w, src_h, int(CONFIG["sd15_fallback_size"][0])),
             use_sdxl=False,
         )
     except Exception as e:  # pragma: no cover — surfaces to FastAPI
@@ -639,12 +790,16 @@ def _generate(
     kwargs: dict[str, Any] = dict(
         prompt=positive,
         negative_prompt=negative,
-        image=[depth, seg],
-        controlnet_conditioning_scale=list(controlnet_weights),
         num_inference_steps=int(CONFIG.get("steps", 30)),
         guidance_scale=float(CONFIG.get("guidance", 7.0)),
         generator=generator,
     )
+    if loaded.has_seg:
+        kwargs["image"] = [depth, seg]
+        kwargs["controlnet_conditioning_scale"] = list(controlnet_weights)
+    else:  # seg ControlNet unavailable — depth-only conditioning
+        kwargs["image"] = depth
+        kwargs["controlnet_conditioning_scale"] = float(controlnet_weights[0])
     # SDXL controlnet uses different size kwargs from SD1.5
     if use_sdxl:
         kwargs["width"] = target_size[0]
@@ -670,7 +825,11 @@ def _generate(
         "lora": _lora_path(style).name if loaded.style_loaded is not None else None,
         "lora_scale": loaded.scale_loaded,
         "seed": seed,
-        "controlnet": {"depth": controlnet_weights[0], "seg": controlnet_weights[1]},
+        "controlnet": {
+            "depth": controlnet_weights[0],
+            "seg": controlnet_weights[1] if loaded.has_seg else None,
+        },
+        "dual_controlnet": loaded.has_seg,
         "use_lora": use_lora, "use_sdxl": use_sdxl, "light_mode": False,
     })
     return out_path
