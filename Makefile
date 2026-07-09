@@ -47,10 +47,10 @@ setup-frontend:
 	$(NPM) install
 
 backend:
-	cd backend && uvicorn main:app --host $(BACKEND_HOST) --port $(BACKEND_PORT) --reload
+	uvicorn backend.main:app --host $(BACKEND_HOST) --port $(BACKEND_PORT) --reload
 
 backend-light:
-	cd backend && DARDESIGN_LIGHT=1 uvicorn main:app --host $(BACKEND_HOST) --port $(BACKEND_PORT) --reload
+	DARDESIGN_LIGHT=1 uvicorn backend.main:app --host $(BACKEND_HOST) --port $(BACKEND_PORT) --reload
 
 frontend:
 	$(NPM) run dev

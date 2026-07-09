@@ -51,7 +51,22 @@ def _serve():
 threading.Thread(target=_serve, daemon=True).start()
 time.sleep(12)
 subprocess.run("curl -s http://localhost:8000/healthz", shell=True)
-print("\n(backend up; first /redesign downloads SDXL+ControlNet -> slow, ~1-2 min/style on T4)\n", flush=True)
+
+# WARM-UP: pull SDXL + ControlNet + annotators and run one full render NOW, so
+# the first demo request over the tunnel is fast instead of eating the downloads.
+import io, requests
+from PIL import Image as _Img
+_buf = io.BytesIO(); _Img.new("RGB", (768, 768), (150, 130, 110)).save(_buf, "JPEG"); _buf.seek(0)
+_t0 = time.time()
+try:
+    _r = requests.post("http://localhost:8000/restyle",
+                       files={"file": ("warmup.jpg", _buf, "image/jpeg")},
+                       data={"style": "lebanese", "scale": "0.8"}, timeout=1800)
+    print("\nwarm-up render %s in %.0fs -- pipeline hot\n"
+          % ("OK" if _r.ok else "HTTP %s" % _r.status_code, time.time() - _t0), flush=True)
+except Exception as _e:
+    print("\nwarm-up render FAILED after %.0fs: %s -- first real request will be slow\n"
+          % (time.time() - _t0, _e), flush=True)
 
 # free public tunnel via cloudflared (no account/token needed)
 subprocess.run("wget -q https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -O /tmp/cf && chmod +x /tmp/cf", shell=True)
