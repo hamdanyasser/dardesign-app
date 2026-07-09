@@ -278,6 +278,27 @@ def _lora_path(style: StyleId) -> Path:
     return LORA_DIR / style / filename
 
 
+def _peft_key_to_diffusers(key: str) -> str:
+    """Map a raw-peft LoRA key to the diffusers pipeline format.
+
+    scripts/train_lora.py saves get_peft_model_state_dict(unet) output —
+    'base_model.model.<unet_path>.lora_A.weight' — but pipe.load_lora_weights
+    expects 'unet.<unet_path>.lora_A.weight'. Unmapped keys make peft try to
+    inject adapters at module paths that don't exist in the pipeline's UNet
+    (ValueError: Target modules {...} not found)."""
+    prefix = "base_model.model."
+    if key.startswith(prefix):
+        return "unet." + key[len(prefix):]
+    return key
+
+
+def _load_lora_state_dict(path: Path) -> dict:
+    """Load the LoRA safetensors with keys remapped for the pipeline loader."""
+    from safetensors.torch import load_file
+
+    return {_peft_key_to_diffusers(k): v for k, v in load_file(str(path)).items()}
+
+
 def _has_lora(style: StyleId) -> bool:
     return _lora_path(style).is_file()
 
@@ -417,8 +438,7 @@ def _attach_lora(loaded: _LoadedPipe, style: StyleId, lora_scale: float | None =
             return
 
         loaded.pipe.load_lora_weights(
-            str(path.parent),
-            weight_name=path.name,
+            _load_lora_state_dict(path),
             adapter_name=f"dardesign-{style}",
         )
         try:
