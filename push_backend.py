@@ -103,7 +103,11 @@ for line in cf.stdout:           # blocks here -> keeps the kernel + tunnel aliv
 body = {
     "id": None, "slug": SLUG, "newTitle": "dardesign-backend",
     "text": KERNEL, "language": "python", "kernelType": "script",
-    "isPrivate": True, "enableGpu": True, "enableTpu": False, "enableInternet": True,
+    # enableGpu False on purpose: an API push always auto-starts a batch run,
+    # and API runs get a P100 (can't do SDXL fp16). CPU-only makes that
+    # auto-run die in seconds on the cuda assert; the real run is started in
+    # the Kaggle UI with GPU T4 x2 selected in Session options.
+    "isPrivate": True, "enableGpu": False, "enableTpu": False, "enableInternet": True,
     "datasetDataSources": [], "competitionDataSources": [],
     "kernelDataSources": ["yasserhamdanfr/dardesign-train-lebanese", "yasserhamdanfr/dardesign-train-rest"],
     "modelDataSources": [], "categoryIds": [],
