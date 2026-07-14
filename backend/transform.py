@@ -785,6 +785,7 @@ def _generate(
     target_size: tuple[int, int],
     use_sdxl: bool,
     lora_scale: float | None = None,
+    _fresh: bool = False,
 ) -> Path:
     import torch
 
@@ -832,6 +833,22 @@ def _generate(
         if "out of memory" in str(e).lower() or "CUDA" in str(e):
             raise _OutOfMemory(str(e)) from e
         raise
+    except AttributeError as e:
+        # Seen live on the T4: "'CLIPTextModelWithProjection' object has no
+        # attribute '_hf_hook'" — the accelerate CPU-offload hooks got corrupted
+        # (a LoRA hot-swap raced or half-failed). The pipeline object is
+        # unsalvageable; rebuild it once from the local HF cache and re-run.
+        if "_hf_hook" not in str(e) or _fresh:
+            raise
+        logger.warning("offload hooks corrupted (%s) — rebuilding pipeline, retrying once", e)
+        _free_pipe("sdxl" if use_sdxl else "sd15")
+        return _generate(
+            image_path=image_path, out_path=out_path, positive=positive,
+            negative=negative, style=style, strength=strength, seed=seed,
+            controlnet_weights=controlnet_weights, use_lora=use_lora,
+            lora_scale=lora_scale, target_size=target_size, use_sdxl=use_sdxl,
+            _fresh=True,
+        )
 
     image = result.images[0]
     image.save(out_path, format="PNG", optimize=True)

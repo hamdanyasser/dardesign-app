@@ -427,7 +427,9 @@ export async function restyleRoom(
   file: File,
   style: RestyleStyleId,
   scale: number,
-  { timeoutMs = 120_000, signal }: { timeoutMs?: number; signal?: AbortSignal } = {},
+  // One T4 render is ~1-3 min, and a /restyle can queue behind a running
+  // /redesign (the backend serializes generations) — 120s aborted real runs.
+  { timeoutMs = 360_000, signal }: { timeoutMs?: number; signal?: AbortSignal } = {},
 ): Promise<RestyleResult> {
   const fd = new FormData();
   fd.append("file", file);

@@ -25,6 +25,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import io
+import json
 import logging
 import os
 import shutil
@@ -34,7 +35,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
 from .audit import log_event, read_events
@@ -285,13 +286,62 @@ async def upload_image(file: UploadFile) -> JobIdResponse:
     return JobIdResponse(job_id=job.id)
 
 
-@app.post("/redesign", response_model=RedesignResponse)
-async def redesign(file: UploadFile) -> RedesignResponse:
+# The cached diffusers pipeline (and its LoRA fuse state) is NOT safe under
+# concurrent generations — a second request arriving mid-hot-swap corrupts the
+# accelerate offload hooks ('_hf_hook' AttributeError on the T4). One render
+# at a time, across /redesign, /restyle, and the legacy /transform flow.
+_GEN_LOCK = asyncio.Lock()
+
+_KEEPALIVE_SECS = 10.0
+
+
+def _stream_keepalive(build_coro) -> StreamingResponse:
+    """Run `build_coro` while streaming whitespace heartbeats, then the JSON.
+
+    Cloudflare's free quick tunnel (and most proxies) 524 any request that
+    waits >~100s for its first response byte — a real /redesign takes minutes
+    on the T4. Leading whitespace is a valid JSON prefix, so `res.json()` on
+    the client parses unchanged. Errors raised after streaming starts can't
+    change the (already sent) 200 status, so they surface in-band as an
+    ApiError-shaped `detail` body; the client's response-shape validation
+    turns that into a typed bilingual failure.
+    """
+
+    async def gen():
+        task = asyncio.ensure_future(build_coro)
+        while True:
+            done, _ = await asyncio.wait({task}, timeout=_KEEPALIVE_SECS)
+            if done:
+                break
+            yield b" "
+        try:
+            payload = task.result()
+            body = (
+                payload.model_dump_json()  # pydantic v2
+                if hasattr(payload, "model_dump_json")
+                else payload.json()  # pydantic v1
+            )
+        except HTTPException as e:
+            body = json.dumps({"detail": e.detail})
+        except Exception:
+            logger.exception("streamed endpoint failed")
+            body = json.dumps({"detail": ERR_PIPELINE.payload()})
+        yield body.encode("utf-8")
+
+    return StreamingResponse(gen(), media_type="application/json")
+
+
+@app.post("/redesign")
+async def redesign(file: UploadFile) -> StreamingResponse:
     """Synchronous one-shot: original + all three styles + the 2D object map.
 
     Runs the three generations sequentially (~1-2 min on the T4; instant in
     DARDESIGN_LIGHT). The projection (WIRING §1) reuses the depth + raw-id seg
     of the *input* room, so one compute serves all three style maps.
+
+    Responds as a keepalive stream (see _stream_keepalive) so free tunnels
+    don't time the request out; upload validation still 4xxes before the
+    stream starts.
     """
     raw = await file.read()
     _guard_upload(file.filename, raw)
@@ -309,84 +359,93 @@ async def redesign(file: UploadFile) -> RedesignResponse:
     job.input_path = str(input_path)
     jobs.transition(job.id, JobStatus.running, style="all")
 
-    images: dict[str, str] = {}
-    last_out: Path | None = None
-    started = time.monotonic()
-    try:
-        # CORE_STYLES only — persian (prompt-only 4th culture) is /restyle-only
-        # so the flagship /redesign keeps its ~1-2 min demo timing.
-        # Seed derives from the job id so every render is reproducible and the
-        # provenance manifest records a real seed instead of null.
-        seed = int(job.id[:8], 16)
-        for i, style in enumerate(CORE_STYLES):
-            last_out = await asyncio.to_thread(transform_room, str(input_path), style, seed=seed)
-            images[style] = _png_data_url(last_out)
-            jobs.update_progress(job.id, (i + 1) / (len(CORE_STYLES) + 1))
-    except PipelineError as e:
-        jobs.transition(
-            job.id, JobStatus.error,
-            error_code=ERR_PIPELINE.code, error_en=e.message_en, error_ar=e.message_ar,
-        )
-        logger.exception("redesign job %s pipeline error", job.id)
+    async def _build() -> RedesignResponse:
+        images: dict[str, str] = {}
+        last_out: Path | None = None
+        started = time.monotonic()
+        try:
+            # CORE_STYLES only — persian (prompt-only 4th culture) is /restyle-only
+            # so the flagship /redesign keeps its ~1-2 min demo timing.
+            # Seed derives from the job id so every render is reproducible and the
+            # provenance manifest records a real seed instead of null.
+            seed = int(job.id[:8], 16)
+            async with _GEN_LOCK:
+                for i, style in enumerate(CORE_STYLES):
+                    last_out = await asyncio.to_thread(
+                        transform_room, str(input_path), style, seed=seed
+                    )
+                    images[style] = _png_data_url(last_out)
+                    jobs.update_progress(job.id, (i + 1) / (len(CORE_STYLES) + 1))
+        except PipelineError as e:
+            jobs.transition(
+                job.id, JobStatus.error,
+                error_code=ERR_PIPELINE.code, error_en=e.message_en, error_ar=e.message_ar,
+            )
+            logger.exception("redesign job %s pipeline error", job.id)
+            log_event(
+                "redesign", job_id=job.id, ok=False, error=e.message_en,
+                duration_s=round(time.monotonic() - started, 2), light=_light_mode(),
+            )
+            _raise(ERR_PIPELINE, detail_en=e.message_en, detail_ar=e.message_ar)
+
+        original = await asyncio.to_thread(_original_png_data_url, raw)
+
+        # WIRING §1 — depth + raw ADE20K seg → top-down object map, on-image
+        # highlighter regions, and the DepthOrbit depth PNG. One compute serves
+        # all three. Best-effort: a failure here must never cost the user their
+        # three designs.
+        object_map: dict | None = None
+        seg_regions: dict | None = None
+        depth_map: str | None = None
+        try:
+            depth, seg_ids = await asyncio.to_thread(compute_depth_seg, input_path)
+            objects = project_top_down(depth, seg_ids)
+            for o in objects:
+                # projection.py cy: 0 = nearest the camera. RoomMap2D draws cy=0 at
+                # the TOP of the plan and documents it as the far wall — flip at
+                # the API boundary so the shipped frontend renders it correctly.
+                o["cy"] = round(1.0 - o["cy"], 4)
+            object_map = to_room_map_payload(objects, "all", job.id)
+            seg_regions = to_seg_regions_payload(seg_bounding_boxes(seg_ids), job.id)
+            depth_map = _depth_png_data_url(depth)
+            if _light_mode():
+                object_map["placeholder"] = True  # synthetic layout, not detections
+                seg_regions["placeholder"] = True
+        except Exception:
+            logger.exception("depth/seg pass failed for job %s — images only", job.id)
+
+        jobs.transition(job.id, JobStatus.done, output_path=str(last_out) if last_out else None)
+        jobs.update_progress(job.id, 1.0)
         log_event(
-            "redesign", job_id=job.id, ok=False, error=e.message_en,
+            "redesign", job_id=job.id, ok=True, styles=list(CORE_STYLES),
             duration_s=round(time.monotonic() - started, 2), light=_light_mode(),
+            object_map=object_map is not None, seg_regions=seg_regions is not None,
         )
-        _raise(ERR_PIPELINE, detail_en=e.message_en, detail_ar=e.message_ar)
+        return RedesignResponse(
+            original=original,
+            object_map=object_map,
+            seg_regions=seg_regions,
+            depth_map=depth_map,
+            placeholder=True if _light_mode() else None,
+            **images,
+        )
 
-    original = await asyncio.to_thread(_original_png_data_url, raw)
-
-    # WIRING §1 — depth + raw ADE20K seg → top-down object map, on-image
-    # highlighter regions, and the DepthOrbit depth PNG. One compute serves
-    # all three. Best-effort: a failure here must never cost the user their
-    # three designs.
-    object_map: dict | None = None
-    seg_regions: dict | None = None
-    depth_map: str | None = None
-    try:
-        depth, seg_ids = await asyncio.to_thread(compute_depth_seg, input_path)
-        objects = project_top_down(depth, seg_ids)
-        for o in objects:
-            # projection.py cy: 0 = nearest the camera. RoomMap2D draws cy=0 at
-            # the TOP of the plan and documents it as the far wall — flip at
-            # the API boundary so the shipped frontend renders it correctly.
-            o["cy"] = round(1.0 - o["cy"], 4)
-        object_map = to_room_map_payload(objects, "all", job.id)
-        seg_regions = to_seg_regions_payload(seg_bounding_boxes(seg_ids), job.id)
-        depth_map = _depth_png_data_url(depth)
-        if _light_mode():
-            object_map["placeholder"] = True  # synthetic layout, not detections
-            seg_regions["placeholder"] = True
-    except Exception:
-        logger.exception("depth/seg pass failed for job %s — images only", job.id)
-
-    jobs.transition(job.id, JobStatus.done, output_path=str(last_out) if last_out else None)
-    jobs.update_progress(job.id, 1.0)
-    log_event(
-        "redesign", job_id=job.id, ok=True, styles=list(CORE_STYLES),
-        duration_s=round(time.monotonic() - started, 2), light=_light_mode(),
-        object_map=object_map is not None, seg_regions=seg_regions is not None,
-    )
-    return RedesignResponse(
-        original=original,
-        object_map=object_map,
-        seg_regions=seg_regions,
-        depth_map=depth_map,
-        placeholder=True if _light_mode() else None,
-        **images,
-    )
+    return _stream_keepalive(_build())
 
 
-@app.post("/restyle", response_model=RestyleResponse)
+@app.post("/restyle")
 async def restyle(
     file: UploadFile,
     style: str = Form(...),
     scale: float = Form(0.8),
-) -> RestyleResponse:
+) -> StreamingResponse:
     """Style Intensity Slider — re-render ONE culture at a given LoRA `scale`
     (0.0 ≈ generic SDXL, 1.0 ≈ full culture). This is the ablation made live:
     the examiner drags a slider and watches the tradition emerge from the latent
-    space. Instant in DARDESIGN_LIGHT (placeholder ignores scale)."""
+    space. Instant in DARDESIGN_LIGHT (placeholder ignores scale).
+
+    Streams keepalives like /redesign — one T4 render can exceed a free
+    tunnel's ~100s first-byte window, especially queued behind a /redesign."""
     if style not in StylePack:
         _raise(ERR_BAD_STYLE)
     scale = max(0.0, min(1.0, float(scale)))
@@ -407,41 +466,44 @@ async def restyle(
     job.input_path = str(input_path)
     jobs.transition(job.id, JobStatus.running, style=style)
 
-    started = time.monotonic()
-    try:
-        # Job-derived seed: reproducible render + a real seed in the manifest.
-        out = await asyncio.to_thread(
-            transform_room, str(input_path), style,
-            lora_scale=scale, seed=int(job.id[:8], 16),
-        )
-    except PipelineError as e:
-        jobs.transition(
-            job.id, JobStatus.error,
-            error_code=ERR_PIPELINE.code, error_en=e.message_en, error_ar=e.message_ar,
-        )
-        logger.exception("restyle job %s pipeline error", job.id)
+    async def _build() -> RestyleResponse:
+        started = time.monotonic()
+        try:
+            # Job-derived seed: reproducible render + a real seed in the manifest.
+            async with _GEN_LOCK:
+                out = await asyncio.to_thread(
+                    transform_room, str(input_path), style,
+                    lora_scale=scale, seed=int(job.id[:8], 16),
+                )
+        except PipelineError as e:
+            jobs.transition(
+                job.id, JobStatus.error,
+                error_code=ERR_PIPELINE.code, error_en=e.message_en, error_ar=e.message_ar,
+            )
+            logger.exception("restyle job %s pipeline error", job.id)
+            log_event(
+                "restyle", job_id=job.id, style=style, scale=scale, ok=False,
+                error=e.message_en, duration_s=round(time.monotonic() - started, 2),
+                light=_light_mode(),
+            )
+            _raise(ERR_PIPELINE, detail_en=e.message_en, detail_ar=e.message_ar)
+
+        manifest: dict | None = None
+        try:
+            mpath = out.with_suffix(".manifest.json")
+            if mpath.exists():
+                manifest = json.loads(mpath.read_text(encoding="utf-8"))
+        except Exception:
+            logger.exception("failed to read provenance manifest for restyle job %s", job.id)
+
+        jobs.transition(job.id, JobStatus.done, output_path=str(out))
         log_event(
-            "restyle", job_id=job.id, style=style, scale=scale, ok=False,
-            error=e.message_en, duration_s=round(time.monotonic() - started, 2),
-            light=_light_mode(),
+            "restyle", job_id=job.id, style=style, scale=scale, ok=True,
+            duration_s=round(time.monotonic() - started, 2), light=_light_mode(),
         )
-        _raise(ERR_PIPELINE, detail_en=e.message_en, detail_ar=e.message_ar)
+        return RestyleResponse(image=_png_data_url(out), style=style, scale=scale, manifest=manifest)
 
-    manifest: dict | None = None
-    try:
-        mpath = out.with_suffix(".manifest.json")
-        if mpath.exists():
-            import json as _json
-            manifest = _json.loads(mpath.read_text(encoding="utf-8"))
-    except Exception:
-        logger.exception("failed to read provenance manifest for restyle job %s", job.id)
-
-    jobs.transition(job.id, JobStatus.done, output_path=str(out))
-    log_event(
-        "restyle", job_id=job.id, style=style, scale=scale, ok=True,
-        duration_s=round(time.monotonic() - started, 2), light=_light_mode(),
-    )
-    return RestyleResponse(image=_png_data_url(out), style=style, scale=scale, manifest=manifest)
+    return _stream_keepalive(_build())
 
 
 async def _run_transform(
@@ -457,14 +519,15 @@ async def _run_transform(
         return
     jobs.update_progress(job_id, 0.05)
     try:
-        out = await asyncio.to_thread(
-            transform_room,
-            job.input_path,
-            style,
-            seed=seed,
-            room=room,
-            controlnet_weights=controlnet_weights,
-        )
+        async with _GEN_LOCK:
+            out = await asyncio.to_thread(
+                transform_room,
+                job.input_path,
+                style,
+                seed=seed,
+                room=room,
+                controlnet_weights=controlnet_weights,
+            )
         jobs.update_progress(job_id, 1.0)
         jobs.transition(job_id, JobStatus.done, output_path=str(out))
         logger.info("job %s completed -> %s", job_id, out)
