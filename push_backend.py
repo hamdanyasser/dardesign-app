@@ -57,13 +57,20 @@ for cult in ("lebanese", "khaleeji", "moroccan"):
     else:
         print(f"LoRA {cult}: MISSING (will fall back to prompt-only)", flush=True)
 
-# start the REAL backend (NOT light) in a background thread
-os.environ["DARDESIGN_ALLOWED_ORIGINS"] = "*"
-os.environ.pop("DARDESIGN_LIGHT", None)
-import uvicorn
-def _serve():
-    uvicorn.run("backend.main:app", host="0.0.0.0", port=8000, log_level="warning")
-threading.Thread(target=_serve, daemon=True).start()
+# start the REAL backend (NOT light) as a SUBPROCESS so the auto-deploy
+# watchdog below can restart it after a git pull (python -m puts cwd on
+# sys.path, exactly like running uvicorn from the repo root locally)
+_ENV = dict(os.environ, DARDESIGN_ALLOWED_ORIGINS="*")
+_ENV.pop("DARDESIGN_LIGHT", None)
+_server = None
+def _start_server():
+    global _server
+    _server = subprocess.Popen(
+        [sys.executable, "-m", "uvicorn", "backend.main:app",
+         "--host", "0.0.0.0", "--port", "8000", "--log-level", "warning"],
+        cwd=REPO, env=_ENV,
+    )
+_start_server()
 time.sleep(12)
 subprocess.run("curl -s http://localhost:8000/healthz", shell=True)
 
@@ -82,6 +89,35 @@ try:
 except Exception as _e:
     print("\nwarm-up render FAILED after %.0fs: %s -- first real request will be slow\n"
           % (time.time() - _t0, _e), flush=True)
+
+# AUTO-DEPLOY watchdog: a git push to the branch redeploys THIS session in
+# ~60s behind the SAME tunnel URL — no more stop -> Save & Run All -> new-URL
+# cycles for code fixes. (A requirements.txt change still needs a fresh run.)
+BRANCH = "feat/cinematic-merge"
+def _watchdog():
+    while True:
+        time.sleep(60)
+        try:
+            subprocess.run(f"git fetch --depth 1 origin {BRANCH}", shell=True, cwd=REPO,
+                           check=True, capture_output=True)
+            rev = lambda r: subprocess.run(f"git rev-parse {r}", shell=True, cwd=REPO,
+                                           capture_output=True, text=True).stdout.strip()
+            local, remote = rev("HEAD"), rev(f"origin/{BRANCH}")
+            if local and remote and local != remote:
+                print(f"\nAUTO-DEPLOY: {local[:7]} -> {remote[:7]} — pulling + restarting backend", flush=True)
+                subprocess.run(f"git reset --hard origin/{BRANCH}", shell=True, cwd=REPO, check=True)
+                _server.terminate()
+                try:
+                    _server.wait(timeout=30)
+                except Exception:
+                    _server.kill()
+                _start_server()
+                time.sleep(15)
+                subprocess.run("curl -s http://localhost:8000/healthz", shell=True)
+                print("\nAUTO-DEPLOY: backend restarted — same tunnel URL still valid\n", flush=True)
+        except Exception as e:
+            print("watchdog error:", e, flush=True)
+threading.Thread(target=_watchdog, daemon=True).start()
 
 # free public tunnel via cloudflared (no account/token needed)
 subprocess.run("wget -q https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -O /tmp/cf && chmod +x /tmp/cf", shell=True)
