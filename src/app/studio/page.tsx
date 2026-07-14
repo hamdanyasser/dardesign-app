@@ -33,6 +33,17 @@ import { cn } from "@/lib/utils";
 
 type Phase = "idle" | "loading" | "done" | "error";
 
+/** Defense Mode (?demo=1): pre-rendered canonical rooms served from
+ *  /public/demo — the zero-backend fallback if the GPU tunnel dies mid-demo.
+ *  Build the pack with `python scripts/make_demo_pack.py`. */
+interface DemoRoom {
+  id: string;
+  label_ar: string;
+  label_en: string;
+  has_depth: boolean;
+  has_meta: boolean;
+}
+
 const STYLE_ORDER: StyleId[] = ["lebanese", "khaleeji", "moroccan"];
 const STYLE_MOTIF: Record<StyleId, string> = {
   lebanese: "qanater",
@@ -89,6 +100,18 @@ export default function StudioPage() {
   const [over, setOver] = useState(false);
   const [validationErr, setValidationErr] = useState<string | null>(null);
   const [showElements, setShowElements] = useState(false);
+  const [demoRooms, setDemoRooms] = useState<DemoRoom[]>([]);
+
+  // Defense Mode: read ?demo=1 via window.location (client-only page; avoids
+  // the useSearchParams Suspense requirement) and load the static manifest.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!new URLSearchParams(window.location.search).has("demo")) return;
+    fetch("/demo/manifest.json")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((m) => setDemoRooms(m?.rooms ?? []))
+      .catch(() => setDemoRooms([]));
+  }, []);
 
   const abortRef = useRef<AbortController | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -182,6 +205,36 @@ export default function StudioPage() {
       setPhase("error");
     }
   }, [imageFile]);
+
+  // Defense Mode: hydrate `result` from the static pack — no network beyond
+  // same-origin fetches, so the full reveal (grid, highlighter, map, orbit)
+  // works with the backend completely offline.
+  const loadDemoRoom = useCallback(async (room: DemoRoom) => {
+    const base = `/demo/${room.id}`;
+    let meta: { object_map?: RedesignResult["object_map"]; seg_regions?: RedesignResult["seg_regions"] } = {};
+    if (room.has_meta) {
+      try {
+        meta = await fetch(`${base}/meta.json`).then((r) => (r.ok ? r.json() : {}));
+      } catch {
+        /* images alone still make the demo */
+      }
+    }
+    setErr(null);
+    setShowElements(false);
+    setComparePos(50);
+    setResult({
+      original: `${base}/original.png`,
+      lebanese: `${base}/lebanese.png`,
+      khaleeji: `${base}/khaleeji.png`,
+      moroccan: `${base}/moroccan.png`,
+      depth_map: room.has_depth ? `${base}/depth_map.png` : null,
+      object_map: meta.object_map ?? null,
+      seg_regions: meta.seg_regions ?? null,
+    });
+    setProgress(1);
+    DarAudio.chime();
+    setPhase("done");
+  }, []);
 
   const startOver = useCallback(() => {
     abortRef.current?.abort();
@@ -278,6 +331,60 @@ export default function StudioPage() {
                 </h1>
                 <p>{tc.sub}</p>
               </div>
+
+              {/* Defense Mode strip — only when ?demo=1 and a pack exists */}
+              {demoRooms.length > 0 && (
+                <div
+                  role="group"
+                  aria-label={isArabic ? "وضع العرض الآمن" : "Defense mode"}
+                  style={{
+                    margin: "0 auto var(--s-6)",
+                    width: "min(1100px, 92vw)",
+                    padding: "14px 18px",
+                    border: "1px dashed var(--brass)",
+                    borderRadius: "16px",
+                    background: "var(--brass-wash)",
+                  }}
+                >
+                  <div
+                    className="mono"
+                    style={{ fontSize: "0.7rem", letterSpacing: "0.12em", color: "var(--brass-bright)", marginBottom: 10 }}
+                  >
+                    {isArabic
+                      ? "وضع العرض الآمن — غرف جاهزة بدون خادم · DEFENSE MODE"
+                      : "DEFENSE MODE — pre-rendered rooms, zero backend · وضع العرض الآمن"}
+                  </div>
+                  <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+                    {demoRooms.map((room) => (
+                      <button
+                        key={room.id}
+                        onClick={() => void loadDemoRoom(room)}
+                        style={{
+                          border: "1px solid var(--hairline-2)",
+                          borderRadius: 12,
+                          overflow: "hidden",
+                          background: "transparent",
+                          cursor: "pointer",
+                          width: 128,
+                        }}
+                      >
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={`/demo/${room.id}/original.png`}
+                          alt={isArabic ? room.label_ar : room.label_en}
+                          style={{ width: "100%", aspectRatio: "4/3", objectFit: "cover", display: "block" }}
+                        />
+                        <span
+                          className={isArabic ? "font-arabic" : "font-ui"}
+                          style={{ display: "block", padding: "6px 4px", fontSize: "0.72rem", color: "var(--fg-mute)" }}
+                        >
+                          {isArabic ? room.label_ar : room.label_en}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               <div className="stage">
                 {/* DROPZONE */}
