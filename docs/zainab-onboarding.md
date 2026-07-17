@@ -75,7 +75,27 @@ Iterate like a director; commit small; push branch `feat/atlas`.
 While you're in the data: **53 terms still need your verification** — all 30
 Lebanese + all 23 Persian (`ontology/ontology.json`, flip `verified: false`).
 
-## 5 · Where everything lives
+## 5 · Adding features & fixing design
+
+The loop: `npm run dev` in one terminal, **Claude Code** in another, browser on
+localhost:3000. Describe → review the diff → test → commit small.
+
+- **Branches:** create `feat/<your-feature>` off `feat/cinematic-merge` and
+  push that. ⚠️ Pushing to `feat/cinematic-merge` itself **redeploys the live
+  backend within 60 s** (the auto-deploy watchdog) — merge into it only when
+  the work is done and no renders are running.
+- **Design system:** every color is a `--dd-*` CSS variable in
+  `src/app/globals.css` (+ Tailwind aliases like `text-gold`, `bg-charcoal`).
+  The cinematic landing tokens live in `src/components/dar/dar-cinema.css`,
+  the studio chrome in `src/components/cinema/cinema.css`. **Never hardcode a
+  hex** — change the variable and both themes follow.
+- **Bilingual rule:** no hardcoded strings — copy comes from
+  `ThemeLanguageContext` / component copy files, Arabic-first, RTL-aware
+  (`isArabic` patterns are everywhere; copy an existing component).
+- **Before pushing:** `npx tsc --noEmit` and `npm run build` must both pass.
+  CI runs the backend tests + build on every push.
+
+## 6 · Where everything lives
 
 - **Notion HQ** — plan, tasks board (your view: 👤 Zainab), decisions log.
 - **`docs/`** — thesis draft, defense Q&A, demo runbook, survey kit, slides
