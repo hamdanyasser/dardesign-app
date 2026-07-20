@@ -1,6 +1,6 @@
 {
   "_meta": {
-    "description": "Arabic interior-design ontology keyed by ADE20K semantic class. The backend's segmentation map (UPerNet/OneFormer on ADE20K) labels each pixel with one of these classes; the CulturalElementHighlighter looks the class up here to show its Arabic term + a short design note. Keys are the canonical ADE20K labels; add more as the seg model's class set grows.",
+    "description": "Arabic interior-design label map keyed by ADE20K semantic class. The backend's segmentation map (UPerNet/OneFormer on ADE20K) labels each pixel with one of these classes; the CulturalElementHighlighter looks the class up here to show its Arabic term + a short design note. Keys are the canonical ADE20K labels; add more as the seg model's class set grows.",
     "schema": { "ar": "Arabic term", "en": "English term", "note": "short Arabic design/cultural note" }
   },
   "wall": {

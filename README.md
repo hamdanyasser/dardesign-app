@@ -1,128 +1,190 @@
 # DarDesign — دار ديزاين
 
-Bilingual (English / Arabic), AI-assisted Arabic interior design.
-Upload a room photo, pick **Lebanese**, **Khaleeji**, or **Moroccan**, get a
-photorealistic redesign in that style. Built as an undergraduate FYP.
+DarDesign is a bilingual English/Arabic interior-design application built as an
+undergraduate final-year project. A user uploads one room photo and receives
+Lebanese, Khaleeji, and Moroccan redesigns. The system combines SDXL, depth and
+semantic ControlNets, culture-specific LoRAs, and a reviewed cultural ontology.
 
-```
-                photo
-                  │
-                  ▼
-   ┌──────────────────────────┐
-   │ Depth Anything V2 (depth)│
-   │ OneFormer ADE20K (seg)   │      LoRA per culture
-   └──────────────┬───────────┘     (lebanese / khaleeji / moroccan)
-                  │                        │
-                  ▼                        ▼
-       SDXL + dual ControlNet ◄────── prompt builder ◄── ontology.json
-                  │                        ▲
-                  ▼                        │
-              output.png             trigger phrase + EN/AR terms
-```
+The project is designed to run locally first. Laptop development uses a
+lightweight FastAPI mode with placeholder images; real generation and training
+run on a free Kaggle T4.
 
-Free **Kaggle T4** only (15 GB VRAM, no A100, no paid APIs). On OOM the pipeline
-auto-falls back to **SD 1.5 + ControlNet 1.1**.
+## What is available
 
-## Status (Jun 2026)
+| URL | Purpose |
+|---|---|
+| `/` | Cinematic DarDesign landing page |
+| `/studio` | Main upload, redesign, comparison, cultural insight, map, depth, narration, report, and intensity experience |
+| `/studio?demo=1` | Defense Mode using the pre-rendered `public/demo` pack; no backend required |
+| `/v2` | “The Understood Room” experimental landing experience |
+| `/audit` | Metadata-only generation audit viewer |
+| `/atelier.html` | Preserved standalone design reference |
+| `/transform`, `/result` | Compatibility redirects to `/studio` |
 
-- ✅ **All three cultural LoRAs trained** on a free T4 (`models/loras/{lebanese,khaleeji,moroccan}/`). The 16 GB recipe (`scripts/train_lora.py`): cache image latents + text embeddings once, free the VAE/text-encoders, then train only the **fp32-master UNet + LoRA** with autocast + GradScaler — fits, no NaN.
-- ✅ **Three creative features** in `/studio`: Cultural Element Highlighter, **Style Intensity Slider** (`POST /restyle` — the no-LoRA↔full-LoRA ablation made live), and **Bilingual Cultural Narration** (Web Speech API, it speaks Arabic).
-- ✅ **The Understood Room, all three layers live**: `/redesign` now ships `seg_regions` (real on-image highlighter boxes), `object_map` (top-down plan), and `depth_map` (grayscale PNG) from one depth+seg pass — and `/studio` mounts **DepthOrbit**, a three.js parallax orbit of the styled room displaced by its depth map.
-- ✅ **Persian, the prompt-only 4th culture** (`/restyle` + the intensity slider): the scalability claim made live — adding culture N = one ontology entry, no retraining ([docs/add_a_culture.md](docs/add_a_culture.md)). Terms pending Zainab's cultural sign-off (`verified: false`).
-- ✅ **Room Report**: one click composes before/after + Arabic ontology terms + the 2D plan + provenance into a downloadable branded PNG (pure client-side).
-- ✅ **Audit trail**: every render logged (metadata only, never images) → `GET /audit` + the `/audit` page. Token-gated via `DARDESIGN_AUDIT_TOKEN`.
-- ✅ **Dockerfile + CI**: `docker run -p 8000:8000 dardesign-backend` serves the LIGHT API; GitHub Actions runs the pytest suite + the production frontend build on every push.
-- ✅ Defense materials drafted under `docs/`: thesis chapters, the 18-question Q&A, and slides + one-pager (AR + EN).
-- ⏳ Eval figures (CLIP confusion matrix + SSIM/LPIPS) are one T4 run away (`push_verify.py`). Dataset-licensing audit lives in `datasets/LICENSING.csv` — fill it before the defense.
+The three trained cultures are returned together by `POST /redesign`.
+`POST /restyle` renders one culture at a selected intensity and also exposes
+Persian as a prompt-only scalability example.
 
-## Quick start
+## Run locally
+
+Requirements: Node.js 20+, Python 3.10+, and Git.
+
+Install and start the frontend:
 
 ```bash
-# 1. Install deps
-make setup
-
-# 2. Run the frontend (always works)
-make frontend                  # http://localhost:3000
-
-# 3a. Run the backend on a laptop (no GPU)
-make backend-light             # placeholder PNGs; full UI flow exercisable
-# …or containerized:
-docker build -t dardesign-backend . && docker run -p 8000:8000 dardesign-backend
-
-# 3b. Run the backend on Kaggle T4 (real generation)
-# see kaggle/README.md — paste cells in order
+npm ci
+npm run dev
 ```
 
-## Repo layout
-
-```
-backend/         FastAPI service + canonical inference pipeline
-  transform.py     SDXL + dual ControlNet, lazy LoRA, OOM->SD1.5 fallback
-  prompt_builder.py  ontology -> bilingual prompts
-  validators.py / errors.py / jobs.py / share.py / main.py
-ontology/        seed cultural design vocabulary (~25 terms x 3 cultures)
-configs/         pipeline.yaml, sweep_winners.json
-scripts/         train_lora, controlnet_sweep, generate_finals, ablate, baseline_grid, metrics
-datasets/        per-culture images + captions.jsonl + LICENSING.csv (provenance audit)
-models/loras/    trained per-culture LoRAs (weights gitignored); backend lazy-loads them
-kaggle/          paste-into-cell runbooks + push_kernel.py / push_verify.py (REST-API pushers)
-docs/            thesis/DRAFT.md, defense-qa.md, slides-and-one-pager.md, zainab_handoff.md
-src/             Next.js 14 app — DarCinema landing (/) + /studio (upload -> 3 redesigns + features)
-tests/           pytest — prompt builder, validators, jobs, share, full API roundtrip
-```
-
-## Make targets
-
-| Target | What it does |
-|---|---|
-| `make setup` | install backend + frontend deps |
-| `make backend-light` | FastAPI in DARDESIGN_LIGHT mode (no GPU) |
-| `make backend` | FastAPI with the real pipeline (needs GPU/Kaggle) |
-| `make frontend` | Next.js dev server |
-| `make test` | pytest |
-| `make smoke-prompt` | dump the prompt builder output for each culture |
-| `make smoke-train` | train_lora.py with placeholder captions on the 5 test rooms (Kaggle T4) |
-| `make train-lora CULTURE=…` | full LoRA training run |
-| `make sweep` | ControlNet weight sweep -> outputs/sweeps/ |
-| `make finals` | 45-image final batch -> outputs/finals/ |
-| `make ablate` | --no-lora / --no-segmentation / --no-ontology -> outputs/ablations/ |
-| `make baseline-grid` | input grid + Decor8/RoomGPT slot folders + comparison.pdf |
-| `make metrics` | SSIM + LPIPS -> eval/results.csv |
-
-## Add a culture
-
-See [docs/add_a_culture.md](docs/add_a_culture.md). One paragraph: extend
-`ontology/ontology.json` (trigger + 7 categories), add the dataset directory,
-train a LoRA, ship it.
-
-## Backend env vars
-
-| var | meaning |
-|---|---|
-| `NEXT_PUBLIC_API_URL` | frontend -> backend URL (ngrok tunnel in prod, http://localhost:8000 in dev) |
-| `DARDESIGN_LIGHT=1` | placeholder mode for dev without a GPU |
-| `DARDESIGN_ALLOWED_ORIGINS` | comma-separated CORS allowlist (defaults to localhost:3000) |
-| `DARDESIGN_SHARE_SECRET` | HMAC secret for share-link tokens (random per process if unset) |
-| `DARDESIGN_AUDIT_TOKEN` | when set, `GET /audit` requires `?token=…` (audit trail is open in dev) |
-
-## Where Zainab's work lands
-
-The dataset directories ship with READMEs and a captions template. The moment
-her data arrives:
+In a second terminal, install the small backend and start placeholder mode:
 
 ```bash
-# 1. drop her files into datasets/<culture>/images/ + datasets/<culture>/captions.jsonl
-# 2. on Kaggle T4:
-make train-lora CULTURE=lebanese DATA_DIR=datasets/lebanese RANK=16 STEPS=1500
-# 3. copy models/loras/lebanese/dardesign-lebanese-lora.safetensors next to the deployed backend
+python -m pip install -r backend/requirements-light.txt
+DARDESIGN_LIGHT=1 python -m uvicorn backend.main:app --port 8000
 ```
 
-No code changes required — `backend/transform.py` lazy-loads whatever LoRA
-file is present.
+PowerShell uses:
 
-See [docs/zainab_handoff.md](docs/zainab_handoff.md) for the full one-pager.
+```powershell
+$env:DARDESIGN_LIGHT = "1"
+python -m uvicorn backend.main:app --port 8000
+```
 
-## License
+Open <http://localhost:3000/studio>. The frontend defaults to
+`http://localhost:8000`, so `.env.local` is unnecessary for this local setup.
+LIGHT mode exercises the complete API and UI contract, but its generated images
+are clearly marked placeholders.
 
-All code is released for academic use under the FYP rubric. Ontology entries
-cite public sources; Zainab's curated dataset is hers.
+The same lightweight backend can run in Docker:
+
+```bash
+docker build -t dardesign-backend .
+docker run --rm -p 8000:8000 dardesign-backend
+```
+
+## Defense Mode
+
+`/studio?demo=1` reads `public/demo/manifest.json` and loads pre-rendered
+rooms from the same origin. It does not contact FastAPI, so it remains usable
+if the GPU session or tunnel fails.
+
+The demo pack is already present in this working copy. If it must be rebuilt
+from a generated final batch:
+
+```bash
+python scripts/make_demo_pack.py
+npm run dev
+```
+
+`public/demo`, model weights, raw datasets, and generated outputs are ignored
+by Git. A fresh clone therefore needs those assets copied or regenerated.
+
+## Real generation on Kaggle
+
+Follow [kaggle/README.md](kaggle/README.md) for the complete T4 runbook:
+uploading private data, installing without replacing Kaggle's Torch build,
+training, selecting checkpoints, running sweeps and metrics, and exposing the
+real FastAPI backend through a tunnel.
+
+For an existing remote backend, copy `.env.example` to `.env.local`, set:
+
+```dotenv
+NEXT_PUBLIC_API_URL=https://your-current-backend.example
+```
+
+and restart `npm run dev`. Never commit `.env.local` or access tokens.
+
+## FYP training and evaluation workflow
+
+The maintained workflow is:
+
+1. Curate `datasets/<culture>/images/` and `captions.jsonl`; record
+   provenance in `datasets/LICENSING.csv`.
+2. Review bilingual cultural terms in `ontology/ontology.json`.
+3. Smoke-test training, then train one LoRA per core culture.
+4. Sweep ControlNet weights and record the selected pairs in
+   `configs/sweep_winners.json`.
+5. Generate finals, ablations, baseline comparisons, and metrics.
+6. Use `push_verify.py` for the dedicated LoRA-versus-prompt-only evidence
+   run when its Kaggle inputs are attached.
+
+The top-level targets keep those operations reproducible:
+
+| Command | Result |
+|---|---|
+| `make smoke-prompt` | Verify bilingual prompt construction without a GPU |
+| `make smoke-train CULTURE=lebanese` | Short T4 training wiring/OOM check |
+| `make train-lora CULTURE=lebanese DATA_DIR=datasets/lebanese RANK=16 STEPS=1500` | Train a production LoRA |
+| `make sweep` | Generate ControlNet depth/segmentation contact sheets |
+| `make finals` | Generate the canonical three-style room batch |
+| `make ablate` | Compare full, no-LoRA, no-segmentation, and no-ontology variants |
+| `make baseline-grid` | Prepare the Decor8/RoomGPT/ours comparison |
+| `make metrics` | Compute SSIM and LPIPS with `scripts/metrics.py` |
+
+Canonical weights belong at
+`models/loras/<culture>/dardesign-<culture>-lora.safetensors`. The backend
+loads them lazily and falls back to prompt-only generation when a weight is
+missing.
+
+## Project map
+
+```text
+src/                    Next.js application and public UI routes
+backend/                FastAPI surface, validation, audit, jobs, projection, inference
+ontology/ontology.json  Cultural prompt vocabulary (culture-specific)
+src/data/segmentation-labels.json
+                        ADE20K object labels used by frontend visualizations
+configs/                Pipeline settings and selected ControlNet weights
+datasets/               Dataset guidance, local images/captions, licensing audit
+models/loras/           Canonical production LoRA location
+scripts/                Training, generation, ablation, baseline, and metric tools
+kaggle/                 Free-T4 operational runbook
+public/demo/            Generated offline Defense Mode pack
+tests/                  FastAPI, validation, prompt, job, and integration tests
+docs/                   Onboarding, defense, survey, slide, and thesis material
+```
+
+The two JSON knowledge files have different jobs:
+
+- `ontology/ontology.json` supplies culture-specific bilingual prompt terms.
+- `src/data/segmentation-labels.json` translates ADE20K room-object classes
+  for the highlighter, room map, and report.
+
+See [ARCHITECTURE.md](ARCHITECTURE.md) for runtime data flow,
+[docs/add_a_culture.md](docs/add_a_culture.md) for extension points, and
+[docs/zainab-onboarding.md](docs/zainab-onboarding.md) for the data and cultural
+review handoff.
+
+## Configuration
+
+| Variable | Meaning |
+|---|---|
+| `NEXT_PUBLIC_API_URL` | Frontend-to-backend base URL; defaults to `http://localhost:8000` |
+| `DARDESIGN_LIGHT=1` | Run the API with placeholder generation and no heavy ML stack |
+| `DARDESIGN_ALLOWED_ORIGINS` | Comma-separated CORS allowlist; defaults to local frontend origins |
+| `DARDESIGN_SHARE_SECRET` | Stable HMAC secret for legacy share links |
+| `DARDESIGN_AUDIT_TOKEN` | Optional token required by `GET /audit` |
+
+## Verify a change
+
+```bash
+npm ci
+npm run build
+DARDESIGN_LIGHT=1 python -m pytest tests -q
+```
+
+PowerShell:
+
+```powershell
+npm ci
+npm run build
+$env:DARDESIGN_LIGHT = "1"
+python -m pytest tests -q
+```
+
+## License and data
+
+The code is provided for academic use under the FYP rubric. Dataset images and
+model weights have separate provenance and are intentionally not committed.
+Complete `datasets/LICENSING.csv` before publishing results or presenting
+dataset claims.

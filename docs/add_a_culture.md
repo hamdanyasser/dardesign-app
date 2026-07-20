@@ -1,107 +1,148 @@
-# Add a culture (e.g. "Najdi", "Andalusi", "Egyptian")
+# Add a culture to DarDesign
 
-Worked example: adding `najdi` (Saudi central-region heritage).
+DarDesign supports two deliberate extension levels:
 
-## 1 — Extend the ontology
+- **Prompt-only culture:** available through the Style Intensity section in
+  `/studio` and `POST /restyle`; no training or flagship API change.
+- **Core trained culture:** also returned by `POST /redesign` and shown in the
+  main result grid; requires data, a LoRA, UI work, evaluation, and an additive
+  API-contract change.
 
-Edit [`ontology/ontology.json`](../ontology/ontology.json):
+Persian is the working prompt-only example. Lebanese, Khaleeji, and Moroccan
+are the current core cultures. Choose the extension level before editing so a
+simple ontology experiment does not accidentally change the stable
+three-result flow.
+
+## 1. Add the cultural vocabulary
+
+Edit [`ontology/ontology.json`](../ontology/ontology.json). Add both a trigger
+and a culture object with the existing seven categories:
 
 ```jsonc
 {
   "trigger": {
-    ...,
     "najdi": {
       "en": "dardesign-najdi style",
-      "ar": "نمط دار-ديزاين-نجدي"
+      "ar": "the agreed Arabic training trigger"
     }
   },
   "cultures": {
-    ...,
     "najdi": {
-      "negative_specific": ["...things this style is NOT..."],
-      "architectural":  [{"en": "...", "ar": "...", "weight": 1.2, "verified": false}, ...],
-      "materials":      [...],
-      "color_palette":  [...],
-      "lighting":       [...],
-      "furniture":      [...],
-      "textiles":       [...],
-      "ornamentation":  [...]
+      "negative_specific": ["features this culture must avoid"],
+      "architectural": [
+        {
+          "en": "bilingual reviewed term",
+          "ar": "المصطلح العربي المراجع",
+          "weight": 1.2,
+          "verified": false
+        }
+      ],
+      "materials": [],
+      "color_palette": [],
+      "lighting": [],
+      "furniture": [],
+      "textiles": [],
+      "ornamentation": []
     }
   }
 }
 ```
 
-Aim for ~5 entries per category. Everything starts `verified: false`.
+Aim for several precise entries in every category. New entries start with
+`verified: false` and must be reviewed by the cultural/data owner. Once a
+trigger has been used in captions or training, treat it as a model identifier:
+changing it breaks alignment between prompts and weights.
 
-## 2 — Tell the codebase about the new culture
+`src/data/segmentation-labels.json` is a different file. It maps generic
+ADE20K object classes such as wall, sofa, and rug to labels used by the
+highlighter, room map, and report. Adding a culture does **not** require editing
+that file unless the UI also needs a previously unmapped segmentation class.
 
-Two places (TypeScript on the frontend, Python on the backend):
+## 2. Register a prompt-only culture
 
-**[backend/transform.py](../backend/transform.py)** — `StylePack`:
-```python
-StylePack = ("lebanese", "khaleeji", "moroccan", "najdi")
-```
+Update the explicit allowlists and UI selector:
 
-**[backend/prompt_builder.py](../backend/prompt_builder.py)** — `CULTURES`:
-```python
-CULTURES: tuple[CultureId, ...] = ("lebanese", "khaleeji", "moroccan", "najdi")
-```
+1. In `backend/prompt_builder.py`, extend `CultureId` and `CULTURES`.
+2. In `backend/transform.py`, extend `StyleId` and `StylePack`, plus the
+   LIGHT-mode placeholder palette. Do not add the culture to `CORE_STYLES`.
+3. In `src/lib/api.ts`, extend `RestyleStyleId`.
+4. In `src/components/StyleIntensitySlider.tsx`, add the identifier and
+   bilingual display name to `ORDER` and `NAMES`.
 
-**[src/lib/api.ts](../src/lib/api.ts)** — `StyleId`:
-```ts
-export type StyleId = "lebanese" | "khaleeji" | "moroccan" | "najdi";
-```
+The culture will then be selectable after a user completes the main
+`/studio` redesign. `POST /restyle` accepts its `style` and an intensity
+`scale` from 0 to 1. With no canonical LoRA file, the backend logs the missing
+weight and renders prompt-only.
 
-**[src/context/ImageContext.tsx](../src/context/ImageContext.tsx)** — `StyleId`:
-same change.
+Do not add a prompt-only culture to the main `StyleId`,
+`ThemeLanguageContext`, `STYLE_ORDER`, or `RedesignResponse`. Those belong
+to the stable core grid.
 
-**[src/context/ThemeLanguageContext.tsx](../src/context/ThemeLanguageContext.tsx)**:
-add the `najdi` entry to `copy.shared.styles` for both `en` and `ar`
-(flag, name, selectorDescription, origin, landingDescription, tags, learnMore).
+## 3. Promote it to a trained core culture
 
-## 3 — Curate the dataset
+First curate a licensed dataset:
 
-Create [`datasets/najdi/`](../datasets/najdi/) with the same layout as the
-existing per-culture READMEs:
-
-```
+```text
 datasets/najdi/
-├── images/         # 20–40 photos, ≥1024², no people, no watermarks
-├── captions.jsonl  # one JSON/line, EN+AR, trigger phrase mandatory
-└── README.md       # culture-specific style fidelity rules
+├── images/          20–40 high-quality JPG/PNG rooms, at least 1024 px
+├── captions.jsonl   one bilingual JSON object per line
+└── README.md        culture-specific inclusion/exclusion guidance
 ```
 
-## 4 — Train the LoRA
+Every English caption must contain the exact English trigger. Record the source
+URL and license in the caption record and in `datasets/LICENSING.csv`.
 
-On Kaggle T4:
+Train and review the LoRA on a Kaggle T4:
 
 ```bash
+make smoke-train CULTURE=najdi DATA_DIR=datasets/najdi
 make train-lora CULTURE=najdi DATA_DIR=datasets/najdi RANK=16 STEPS=1500
 ```
 
-Drops `models/loras/najdi/dardesign-najdi-lora.safetensors`. The backend picks
-it up on the next request — no restart strictly required since LoRAs are
-lazy-loaded per request.
+Keep the selected production weight at:
 
-## 5 — Pick ControlNet winners
-
-```bash
-make sweep        # generates outputs/sweeps/<room>_contact.png
-# ...review, then edit configs/sweep_winners.json:
+```text
+models/loras/najdi/dardesign-najdi-lora.safetensors
 ```
 
-```jsonc
-{
-  ...,
-  "najdi": [0.7, 0.5]
-}
-```
+Then extend the core contract deliberately:
 
-## 6 — Generate the demo set
+1. Add `najdi` to `CORE_STYLES` and the `RedesignResponse` schema in the
+   backend.
+2. Extend the public frontend `StyleId`, `RedesignResult`, response-key
+   validation, ImageContext style type, bilingual style copy, and the
+   `/studio` tile/order/motif configuration.
+3. Add the culture to the defaults used by
+   `scripts/controlnet_sweep.py`, `scripts/generate_finals.py`, and
+   `scripts/ablate.py`; add its selected pair to
+   `configs/sweep_winners.json`.
+4. Extend `scripts/make_demo_pack.py` and regenerate `public/demo` so Defense
+   Mode contains the new core result for every room.
+5. Preserve the existing Lebanese, Khaleeji, and Moroccan response fields for
+   backward compatibility.
+
+Review the ControlNet contact sheets before generating the final and defense
+sets:
 
 ```bash
+make sweep
+# record the chosen [depth, segmentation] pair in configs/sweep_winners.json
 make finals
+make ablate
+make metrics
+python scripts/make_demo_pack.py
 ```
 
-Done. The new style now shows up in the StyleSelector on `/transform`, lazy-loads
-its LoRA on every request, and is included in metrics + ablations.
+## 4. Acceptance checks
+
+- `python -m backend.prompt_builder --culture najdi --room "living room"`
+  emits the agreed trigger and only valid ontology terms.
+- LIGHT-mode `POST /restyle` accepts the new culture and rejects unknown
+  identifiers.
+- A prompt-only addition leaves the `POST /redesign` response unchanged.
+- A core addition returns a valid image for every documented field and appears
+  consistently in the Studio, generated finals, metrics, and Defense Mode.
+- `npm run build` and
+  `DARDESIGN_LIGHT=1 python -m pytest tests -q` pass.
+- Cultural vocabulary and dataset licenses have named human reviewers; model
+  quality is assessed for both recognizability and memorization.

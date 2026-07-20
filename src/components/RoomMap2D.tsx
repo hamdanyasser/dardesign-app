@@ -6,7 +6,7 @@
  * A top-down ("bird's-eye") 2D layout map of the room's detected objects. Each
  * object is an ADE20K class placed at a normalized top-down position; the map
  * draws furniture footprints + wall openings (door/window) and labels each in
- * Arabic + English (from data/ontology.json). Click a piece to read its note.
+ * Arabic + English (from data/segmentation-labels.json). Click a piece to read its note.
  *
  * Real objects arrive inline in the `POST /redesign` response (`object_map`,
  * computed by project_top_down() in backend/projection.py from Depth Anything
@@ -18,7 +18,7 @@ import { useMemo, useState } from "react";
 import { X } from "lucide-react";
 import { useThemeLanguage } from "@/context/ThemeLanguageContext";
 import { cn } from "@/lib/utils";
-import ontologyRaw from "@/data/ontology.json";
+import segmentationLabelsRaw from "@/data/segmentation-labels.json";
 
 interface OntologyEntry {
   ar: string;
@@ -27,7 +27,7 @@ interface OntologyEntry {
 }
 
 export interface MapObject {
-  /** ADE20K class key, looked up in data/ontology.json. */
+  /** ADE20K class key, looked up in data/segmentation-labels.json. */
   classKey: string;
   /** Normalized top-down centre, 0..1 (x → right, y → far→near). */
   cx: number;
@@ -47,10 +47,10 @@ export interface RoomMap2DProps {
   className?: string;
 }
 
-const ONTOLOGY = ontologyRaw as Record<string, Partial<OntologyEntry>>;
+const SEGMENTATION_LABELS = segmentationLabelsRaw as Record<string, Partial<OntologyEntry>>;
 
 function lookup(classKey: string): OntologyEntry | null {
-  const e = ONTOLOGY[classKey];
+  const e = SEGMENTATION_LABELS[classKey];
   if (e && typeof e.ar === "string" && typeof e.en === "string" && typeof e.note === "string") {
     return e as OntologyEntry;
   }

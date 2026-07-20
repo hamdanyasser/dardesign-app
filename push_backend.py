@@ -29,12 +29,14 @@ sys.path.insert(0, REPO)  # chdir alone doesn't put the repo on script.py's sys.
 # ("No module named numpy.char") because Kaggle's scipy/opencv are built
 # against numpy 2. Install only the pure-python/diffusion pins on top.
 subprocess.run(
-    "sed -i '/^torch==/d;/^torchvision==/d;/^bitsandbytes/d;"
+    "sed -i '/^torch==/d;/^torchvision==/d;"
     "/^numpy==/d;/^scipy==/d;/^opencv-python-headless==/d;"
     "/^pillow==/d;/^scikit-image==/d' backend/requirements.txt",
     shell=True, check=True,
 )
 subprocess.run("pip install -q -r backend/requirements.txt pyngrok 2>/dev/null; pip install -q -r backend/requirements.txt", shell=True)
+# The backend does not use bitsandbytes; remove a Kaggle preinstall so it cannot
+# introduce an unrelated CUDA/ABI import failure into the serving process.
 subprocess.run("pip uninstall -y bitsandbytes", shell=True)
 # Fail LOUDLY here rather than as a silent dead healthz later.
 subprocess.run('python -c "import numpy, scipy, torch; print(\'sanity:\', numpy.__version__, scipy.__version__, torch.__version__)"', shell=True, check=True)

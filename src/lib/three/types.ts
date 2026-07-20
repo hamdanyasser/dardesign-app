@@ -25,12 +25,6 @@ export interface ArchSceneOpts {
 
 export type OrnamentVariant = "lebanese" | "khaleeji" | "moroccan";
 
-export interface OrnamentSceneOpts {
-  variant?: OrnamentVariant;
-  enableAmbientDust?: boolean;
-  starSize?: number;
-}
-
 export interface DissolveSceneOpts {
   count?: number;
   color?: number;
