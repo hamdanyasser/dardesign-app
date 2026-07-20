@@ -1,110 +1,152 @@
-# Zainab — full project access, in one page
+# Zainab onboarding and cultural-data handoff
 
-أهلاً! This gets you from zero to running (and shipping) the whole project.
-Time to first running app: **~10 minutes**. Time to first real render: whenever
-a Kaggle session is up.
+This is the single guide for running DarDesign and completing the cultural
+review, dataset, training-review, and evidence tasks.
 
----
+## Start locally
 
-## 1 · What you need installed (once)
-
-| Tool | Why | Get it |
-|------|-----|--------|
-| Git | clone + commit | git-scm.com |
-| Node.js 20+ | run the frontend | nodejs.org (LTS) |
-| Python 3.10+ | backend LIGHT mode, scripts | python.org |
-| Claude Code | your AI pair — you direct, it types | `npm install -g @anthropic-ai/claude-code` + a Claude Pro account |
-
-Accounts: **GitHub** (accept the repo invite), **Kaggle** (phone-verified — GPU
-access needs it), your **Claude Pro**.
-
-## 2 · Run the app (no GPU needed)
+Install Git, Node.js 20+, and Python 3.10+, then:
 
 ```bash
 git clone https://github.com/hamdanyasser/dardesign-app.git
 cd dardesign-app
-npm install
-npm run dev            # → http://localhost:3000
+npm ci
+npm run dev
 ```
 
-That's the cinematic landing + the full UI. For the complete flow without a GPU:
+In a second terminal, run the laptop-safe backend:
 
 ```bash
-# second terminal — placeholder backend (instant tinted stand-ins)
-pip install -r backend/requirements-light.txt
-DARDESIGN_LIGHT=1 uvicorn backend.main:app --port 8000
+python -m pip install -r backend/requirements-light.txt
+DARDESIGN_LIGHT=1 python -m uvicorn backend.main:app --port 8000
 ```
 
-**Defense Mode** (real pre-rendered results, zero backend): ask Yasser for the
-`public/demo/` folder (~40 MB, not in git) or build it from `outputs/finals/`
-with `python scripts/make_demo_pack.py`, then open
-`http://localhost:3000/studio?demo=1`.
+On PowerShell, set `$env:DARDESIGN_LIGHT = "1"` before the Uvicorn command.
+Open <http://localhost:3000/studio>. LIGHT mode returns labelled placeholder
+images but exercises the real upload, response, map, report, and audit flow.
 
-## 3 · Real generations (Kaggle T4)
+For a backend-free presentation, open
+<http://localhost:3000/studio?demo=1>. Defense Mode reads the pre-rendered
+`public/demo` pack. Rebuild it from `outputs/finals` with
+`python scripts/make_demo_pack.py` when a new final batch is approved.
 
-One of us starts a session: Kaggle → `dardesign-backend` → **GPU T4 x2** →
-**Save & Run All** → after ~6 min the log prints a `https://….trycloudflare.com`
-URL → paste it into `.env.local` as `NEXT_PUBLIC_API_URL=…` → restart
-`npm run dev`. Any photo you upload at `/studio` now renders live (~4 min).
+## Your cultural review
 
-Code changes deploy themselves: any push to `feat/cinematic-merge` restarts the
-live backend within ~60 s (same URL). **Never push while renders are running.**
+Open [`ontology/ontology.json`](../ontology/ontology.json). For each cultural
+entry:
 
-## 4 · Your two flagship tasks
+- confirm the English and Arabic terms have the same meaning;
+- confirm the term genuinely belongs to that culture and category;
+- change `verified` to `true` only after review;
+- correct or remove inaccurate entries, recording the reason in the commit.
 
-### 🧪 A — The Evidence Run (this week)
-1. Kaggle → the `dardesign-verify` notebook (shared with you) → **Copy & Edit**
-   → Session options → **GPU T4 x2** → **Save & Run All**. (~2 h, unattended.)
-   It produces the CLIP confusion matrix, LoRA-vs-prompt-only ablation, and
-   SSIM/LPIPS scores.
-2. Download the outputs, open **Claude Code** in the repo, and drive it:
-   > "Here are raw eval outputs in `outputs/verify/`. Build an analysis
-   > notebook: 3×3 confusion-matrix heatmaps (LoRA vs prompt-only), SSIM/LPIPS
-   > table, per-culture accuracy chart — thesis-quality, gold-on-charcoal."
-3. Write the 1-page interpretation. This is YOUR chapter and the top 3 slides.
+The current review backlog is 30 Lebanese and 23 Persian entries; Khaleeji and
+Moroccan entries are marked verified. Recount before reporting progress because
+the file is the source of truth.
 
-### 🗺️ B — The Cultural Atlas (next week)
-A new `/atlas` route: your 113-term bilingual ontology as a browsable, RTL,
-searchable encyclopedia. You build it by directing Claude Code — first prompt:
-> "Read CLAUDE.md and `ontology/ontology.json`. Create a new `/atlas` route: an
-> RTL, bilingual, searchable encyclopedia of all ontology terms, grouped by
-> culture, using the existing `--dd-*` design tokens and Tajawal/Noto Kufi
-> fonts. Match the gold-on-charcoal style of `/studio`."
+Leave `dardesign-<culture> style` training triggers unchanged. They are model
+identifiers used in every caption and prompt, not translations for display.
 
-Iterate like a director; commit small; push branch `feat/atlas`.
-While you're in the data: **53 terms still need your verification** — all 30
-Lebanese + all 23 Persian (`ontology/ontology.json`, flip `verified: false`).
+`src/data/segmentation-labels.json` is separate: it contains generic ADE20K
+room-object labels for frontend visualizations, not culture-specific prompt
+knowledge.
 
-## 5 · Adding features & fixing design
+## Curate the datasets
 
-The loop: `npm run dev` in one terminal, **Claude Code** in another, browser on
-localhost:3000. Describe → review the diff → test → commit small.
+Each core culture has this local, Git-ignored structure:
 
-- **Branches:** create `feat/<your-feature>` off `feat/cinematic-merge` and
-  push that. ⚠️ Pushing to `feat/cinematic-merge` itself **redeploys the live
-  backend within 60 s** (the auto-deploy watchdog) — merge into it only when
-  the work is done and no renders are running.
-- **Design system:** every color is a `--dd-*` CSS variable in
-  `src/app/globals.css` (+ Tailwind aliases like `text-gold`, `bg-charcoal`).
-  The cinematic landing tokens live in `src/components/dar/dar-cinema.css`,
-  the studio chrome in `src/components/cinema/cinema.css`. **Never hardcode a
-  hex** — change the variable and both themes follow.
-- **Bilingual rule:** no hardcoded strings — copy comes from
-  `ThemeLanguageContext` / component copy files, Arabic-first, RTL-aware
-  (`isArabic` patterns are everywhere; copy an existing component).
-- **Before pushing:** `npx tsc --noEmit` and `npm run build` must both pass.
-  CI runs the backend tests + build on every push.
+```text
+datasets/lebanese/
+├── images/
+│   ├── lebanese_001.jpg
+│   └── ...
+└── captions.jsonl
+```
 
-## 6 · Where everything lives
+Use 20–40 strong room images where possible: at least 1024 px, no people,
+watermarks, or embedded text, and at least one recognizable culture-specific
+element. Quality and licensing matter more than reaching a round number. The
+current local handoff contains 19 Lebanese, 14 Khaleeji, and 12 Moroccan image
+and caption pairs, so the smaller sets need cautious training or prompt-only
+use.
 
-- **Notion HQ** — plan, tasks board (your view: 👤 Zainab), decisions log.
-- **`docs/`** — thesis draft, defense Q&A, demo runbook, survey kit, slides
-  outline, this file.
-- **`datasets/`** — the training images + captions; `datasets/LICENSING.csv`
-  needs sources/licenses filled (panel will ask).
-- **`ontology/ontology.json`** — your knowledge base; the prompt builder reads
-  it live.
-- **CLAUDE.md** — the repo map Claude Code reads automatically; skim it once.
+Each `captions.jsonl` line has this shape:
 
-Questions → Yasser, or honestly: open Claude Code and ask it. It has read the
-whole repo.
+```json
+{
+  "file": "lebanese_001.jpg",
+  "caption_en": "A Lebanese living room in the dardesign-lebanese style, ...",
+  "caption_ar": "An Arabic caption with the agreed Arabic trigger and the same meaning",
+  "tags": ["living_room", "triple_arch"],
+  "license": "CC-BY-4.0",
+  "source_url": "https://source.example/image"
+}
+```
+
+The exact English trigger is mandatory in every English caption; the Arabic
+equivalent is mandatory in the Arabic caption. Use
+[`datasets/captions/template.jsonl`](../datasets/captions/template.jsonl) and
+the per-culture dataset READMEs as the format and fidelity references. Complete
+`datasets/LICENSING.csv` before any public result or defense claim.
+
+## Train and select a LoRA
+
+Follow [`kaggle/README.md`](../kaggle/README.md). Always smoke-test before the
+full T4 run:
+
+```bash
+make smoke-train CULTURE=lebanese
+make train-lora CULTURE=lebanese DATA_DIR=datasets/lebanese RANK=16 STEPS=1500
+```
+
+Training produces checkpoints and preview grids. With a small dataset, compare
+steps 500, 1000, and 1500 for cultural recognizability **and** memorization.
+Keep the best reviewed checkpoint as:
+
+```text
+models/loras/lebanese/dardesign-lebanese-lora.safetensors
+```
+
+Repeat for the other core cultures. For 12–14 images, consider fewer steps or
+rank 8, or retain prompt-only behavior. The backend lazy-loads the canonical
+filename and falls back to prompting if it is absent.
+
+After the ControlNet sweep, inspect every
+`outputs/sweeps/<room>_contact.png` and record the best depth/segmentation pair
+per culture in `configs/sweep_winners.json`. This visual selection is a human
+research decision, not an automatic metric.
+
+## Evidence and optional product work
+
+For the thesis evidence run, use `push_verify.py` on a Kaggle T4 with the
+trained weights attached. Preserve its CLIP confusion matrices,
+LoRA-versus-prompt-only grids, and SSIM/LPIPS outputs, then write a short
+interpretation covering per-culture accuracy, structure preservation, cultural
+distinctiveness, and limitations.
+
+The previously proposed Cultural Atlas is optional future work, not a current
+route. If approved, build `/atlas` as a bilingual, RTL-aware, searchable view
+of `ontology/ontology.json`; do not present it as implemented until it ships.
+
+## Safe contribution loop
+
+1. Create a small feature branch from the team's current integration branch.
+2. Run `npm run dev`, make one focused change, and review the diff.
+3. Keep user copy bilingual and RTL-aware; reuse the existing design tokens
+   instead of hardcoded colors.
+4. Run `npm run build` and
+   `DARDESIGN_LIGHT=1 python -m pytest tests -q` before pushing.
+5. Coordinate before changing a live Kaggle session or its branch; never push
+   while a real render is running.
+
+Useful locations:
+
+- `README.md` — setup, routes, commands, and FYP workflow
+- `ARCHITECTURE.md` — current frontend/API/model data flow
+- `docs/` — thesis, defense, survey, slide, and demo material
+- `ontology/ontology.json` — reviewed cultural prompt knowledge
+- `datasets/` — local training pairs and provenance audit
+- `kaggle/README.md` — T4 upload, training, inference, and evaluation runbook
+
+When uncertain about a caption, replace or rewrite it before retraining.
+Thirty excellent licensed images are better evidence than forty weak ones.

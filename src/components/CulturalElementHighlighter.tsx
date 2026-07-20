@@ -5,7 +5,7 @@
  *
  * Overlays a semantic-segmentation mask on a (re)generated room image. Each
  * region is tagged with an ADE20K class key; clicking it reveals a small card
- * with the element's Arabic term + a short design note (from data/ontology.json).
+ * with the element's Arabic term + a short design note (from data/segmentation-labels.json).
  *
  * Real regions arrive inline in the `POST /redesign` response (`seg_regions`,
  * computed by seg_bounding_boxes() in backend/projection.py from the OneFormer
@@ -18,7 +18,7 @@ import { useMemo, useState } from "react";
 import { X } from "lucide-react";
 import { useThemeLanguage } from "@/context/ThemeLanguageContext";
 import { cn } from "@/lib/utils";
-import ontologyRaw from "@/data/ontology.json";
+import segmentationLabelsRaw from "@/data/segmentation-labels.json";
 
 /* --------------------------------- types ---------------------------------- */
 
@@ -30,7 +30,7 @@ export interface OntologyEntry {
 
 /** A single segmented region. Coordinates are normalized to 0..1 of the image box. */
 export interface SegRegion {
-  /** ADE20K class key, e.g. "wall" | "sofa" — used to look up data/ontology.json. */
+  /** ADE20K class key, e.g. "wall" | "sofa" — used to look up data/segmentation-labels.json. */
   classKey: string;
   /** Optional stable id (defaults to classKey + index). */
   id?: string;
@@ -52,12 +52,12 @@ export interface CulturalElementHighlighterProps {
   className?: string;
 }
 
-/* ----------------------------- ontology lookup ---------------------------- */
+/* ------------------------ segmentation-label lookup ----------------------- */
 
-const ONTOLOGY = ontologyRaw as Record<string, Partial<OntologyEntry>>;
+const SEGMENTATION_LABELS = segmentationLabelsRaw as Record<string, Partial<OntologyEntry>>;
 
 function lookup(classKey: string): OntologyEntry | null {
-  const e = ONTOLOGY[classKey];
+  const e = SEGMENTATION_LABELS[classKey];
   if (e && typeof e.ar === "string" && typeof e.en === "string" && typeof e.note === "string") {
     return e as OntologyEntry;
   }
@@ -106,7 +106,7 @@ export default function CulturalElementHighlighter({
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [hoveredId, setHoveredId] = useState<string | null>(null);
 
-  // Keep only regions we can both place (have a box) and explain (in ontology).
+  // Keep only regions we can both place (have a box) and explain (in the label map).
   const drawable = useMemo(
     () =>
       regions

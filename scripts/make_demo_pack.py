@@ -33,8 +33,13 @@ LABELS = {
 
 
 def main() -> None:
+    if not SRC.is_dir():
+        raise SystemExit(
+            f"no generated finals found at {SRC}; refusing to overwrite the existing demo pack"
+        )
+
     rooms = []
-    for room_dir in sorted(SRC.iterdir()) if SRC.is_dir() else []:
+    for room_dir in sorted(SRC.iterdir()):
         if not room_dir.is_dir():
             continue
         if not all((room_dir / f).is_file() for f in REQUIRED):
@@ -57,6 +62,11 @@ def main() -> None:
             }
         )
         print(f"packed {room_dir.name}")
+
+    if not rooms:
+        raise SystemExit(
+            f"no complete final rooms found at {SRC}; refusing to overwrite the existing demo pack"
+        )
 
     DST.mkdir(parents=True, exist_ok=True)
     (DST / "manifest.json").write_text(

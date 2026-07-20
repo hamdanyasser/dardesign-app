@@ -1,69 +1,81 @@
-# Kaggle T4 runbook — DarDesign
+# DarDesign Kaggle T4 runbook
 
-Free Kaggle T4 (CUDA 12.1, 15 GB VRAM, ~9 hr/week). No A100. No paid APIs.
+This is the single runbook for private dataset upload, LoRA training, batch
+evaluation, and serving the real FastAPI backend on Kaggle's free T4. Use a T4
+accelerator; the project does not require a paid A100.
 
-## 0 — clone the repo into the notebook
+## 1. Upload the private culture data
+
+The raw images and captions are Git-ignored. Prepare a private Kaggle Dataset
+with this structure:
+
+```text
+dardesign-culture-datasets/
+├── lebanese/images/ + captions.jsonl
+├── khaleeji/images/ + captions.jsonl
+└── moroccan/images/ + captions.jsonl
+```
+
+The current local handoff has 19 Lebanese, 14 Khaleeji, and 12 Moroccan pairs.
+Lebanese is the strongest first training run; use fewer steps/rank or
+prompt-only generation for undersized sets if previews show overfitting.
+
+Recommended: Kaggle → Create → New Dataset, upload the folder/zip, and mark it
+Private. The CLI is also valid when a staging directory contains
+`dataset-metadata.json`:
 
 ```bash
-!git clone https://github.com/<you>/dardesign-app.git
+kaggle datasets create -p path/to/staging
+kaggle datasets version -p path/to/staging -m "recaption"
+```
+
+Never commit Kaggle, GitHub, or tunnel tokens.
+
+## 2. Create the T4 notebook
+
+Enable a GPU T4 accelerator, attach the private culture dataset, and run:
+
+```python
+!git clone --depth 1 https://github.com/hamdanyasser/dardesign-app.git
 %cd /kaggle/working/dardesign-app
 ```
 
-## 1 — install (T4 already has torch, so skip torch line)
+Keep Kaggle's CUDA/Torch and ABI-coupled scientific packages. Install the
+remaining project requirements through a temporary filtered file:
 
-```bash
-!sed -i '/^torch==/d;/^torchvision==/d' backend/requirements.txt
-!pip install -q -r backend/requirements.txt
+```python
+!grep -vE '^(torch|torchvision|numpy|scipy|opencv-python-headless|pillow|scikit-image)==' backend/requirements.txt > /tmp/dardesign-kaggle.txt
+!pip install -q -r /tmp/dardesign-kaggle.txt
 ```
 
-## 2 — sanity: GPU + free VRAM
+Confirm the accelerator:
 
 ```python
 import torch
-assert torch.cuda.is_available(), "no GPU"
+assert torch.cuda.is_available(), "Set the notebook accelerator to GPU T4"
 print(torch.cuda.get_device_name(0), torch.cuda.mem_get_info())
 ```
 
-## 3 — run the backend with an ngrok tunnel
-
-```bash
-!pip install -q pyngrok uvicorn
-```
+Copy the attached private data into the repository layout. Adjust `SRC` to
+the actual mounted dataset slug:
 
 ```python
-import os, threading, time
-os.environ["DARDESIGN_ALLOWED_ORIGINS"] = "*"   # demo
-from pyngrok import ngrok
-ngrok.set_auth_token("YOUR_NGROK_TOKEN")
-tunnel = ngrok.connect(8000)
-print("public URL:", tunnel.public_url)
+from pathlib import Path
+import shutil
 
-import uvicorn
-def serve():
-    uvicorn.run("backend.main:app", host="0.0.0.0", port=8000, log_level="info")
-threading.Thread(target=serve, daemon=True).start()
-time.sleep(3)
+SRC = Path("/kaggle/input/dardesign-culture-datasets")
+for culture in ("lebanese", "khaleeji", "moroccan"):
+    destination = Path("datasets") / culture
+    destination.mkdir(parents=True, exist_ok=True)
+    shutil.copytree(SRC / culture / "images", destination / "images", dirs_exist_ok=True)
+    shutil.copy2(SRC / culture / "captions.jsonl", destination / "captions.jsonl")
 ```
 
-Set `NEXT_PUBLIC_API_URL` in `.env.local` on your dev box to that public URL,
-restart the Next.js dev server, and the frontend now drives the T4.
+## 3. Smoke-test, train, and select the checkpoint
 
-## 4 — train a LoRA (real, with Zainab's data)
+Run the short wiring/OOM check first:
 
-```bash
-!python scripts/train_lora.py \
-    --culture lebanese \
-    --data-dir datasets/lebanese \
-    --rank 16 --steps 1500 \
-    --output-dir models/loras/lebanese
-```
-
-LoRA lands at `models/loras/lebanese/dardesign-lebanese-lora.safetensors`
-plus 5-image preview grids at step 500/1000/1500.
-
-## 4b — smoke-train (placeholder captions, today)
-
-```bash
+```python
 !python scripts/train_lora.py \
     --culture lebanese \
     --data-dir /kaggle/input/datasets/yasserhamdanfr/dardesign-test-rooms \
@@ -72,57 +84,110 @@ plus 5-image preview grids at step 500/1000/1500.
     --smoke
 ```
 
-Doesn't produce a usable LoRA; only verifies the loop, dataloader, peft, and
-checkpoint writer are wired. **Run this before a real training session** to
-catch OOM / config drift early.
+Then train with curated captions:
 
-## 5 — ControlNet weight sweep (4 weights × 3 cultures × 5 rooms)
+```python
+!python scripts/train_lora.py \
+    --culture lebanese \
+    --data-dir datasets/lebanese \
+    --rank 16 --steps 1500 \
+    --output-dir models/loras/lebanese
+```
 
-```bash
+Inspect the step 500/1000/1500 preview grids. Select the checkpoint that is
+recognizably Lebanese without copying a training image, and save it under the
+canonical filename:
+
+```text
+models/loras/lebanese/dardesign-lebanese-lora.safetensors
+```
+
+Repeat with `--culture khaleeji` and `--culture moroccan`. For 12–14 images,
+try `--steps 800` or `--rank 8` and compare against prompt-only output.
+Training OOM also means lower the rank. If captions need regeneration,
+`scripts/auto_caption.py` overwrites `captions.jsonl`, so back up and review
+the bilingual data before using it.
+
+## 4. Generate the FYP evidence
+
+The maintained scripts are:
+
+```python
+# ControlNet sweep: review contact sheets and update configs/sweep_winners.json
 !python scripts/controlnet_sweep.py \
     --rooms-dir /kaggle/input/datasets/yasserhamdanfr/dardesign-test-rooms \
     --out outputs/sweeps
-```
 
-Open every `outputs/sweeps/<room>_contact.png` in the Kaggle viewer, pick
-favourites by eye, edit `configs/sweep_winners.json` with the chosen
-`(depth, seg)` per culture.
-
-## 6 — final batch (15 rooms × 3 styles = 45)
-
-```bash
+# Canonical room × culture batch
 !python scripts/generate_finals.py \
     --rooms-dir /kaggle/input/datasets/yasserhamdanfr/dardesign-test-rooms \
     --out outputs/finals
-```
 
-## 7 — ablations
-
-```bash
+# Full versus no-LoRA/no-segmentation/no-ontology
 !python scripts/ablate.py \
     --rooms-dir /kaggle/input/datasets/yasserhamdanfr/dardesign-test-rooms \
     --out outputs/ablations
-```
 
-Produces `outputs/ablations/contact_<ablation>.png` (FULL vs ablated, side-by-side).
-
-## 8 — metrics
-
-```bash
+# Structure/perceptual metrics
 !python scripts/metrics.py \
     --finals outputs/finals \
     --rooms-dir /kaggle/input/datasets/yasserhamdanfr/dardesign-test-rooms \
     --out eval/results.csv
 ```
 
-## 9 — recover from OOM
+`scripts/baseline_grid.py` prepares the Decor8/RoomGPT/ours comparison after
+external baseline screenshots are supplied. `push_verify.py` is the maintained
+specialized evidence run for LoRA-versus-prompt-only grids and CLIP confusion
+matrices. The root `push_kernel.py`, `push_backend.py`, and `push_verify.py`
+helpers require `KAGGLE_API_TOKEN` in the caller's environment and push their
+documented kernels through the Kaggle API.
 
-If SDXL OOMs during inference, `transform_room()` already retries on SD 1.5
-at 768² automatically. If training OOMs, lower `--rank` (e.g. 8) and re-run.
-Don't suggest A100. The whole point is "free T4 only".
+Download approved weights and evidence before the notebook session expires.
+Generated outputs are intentionally not tracked by Git.
 
-## 10 — keep the tunnel up
+## 5. Serve the real backend
 
-The Kaggle notebook stops after ~9 hours of continuous run; the tunnel dies
-with it. The frontend's error banner says "tunnel unreachable" gracefully.
-Restart the cell, copy the new public URL into `.env.local`, restart Next.js.
+Install the tunnel helper:
+
+```python
+!pip install -q pyngrok
+```
+
+Store `NGROK_AUTHTOKEN` as a Kaggle secret, then:
+
+```python
+import os
+import threading
+import time
+from kaggle_secrets import UserSecretsClient
+from pyngrok import ngrok
+import uvicorn
+
+os.environ["DARDESIGN_ALLOWED_ORIGINS"] = "*"
+os.environ.pop("DARDESIGN_LIGHT", None)
+ngrok.set_auth_token(UserSecretsClient().get_secret("NGROK_AUTHTOKEN"))
+
+threading.Thread(
+    target=lambda: uvicorn.run(
+        "backend.main:app", host="0.0.0.0", port=8000, log_level="info"
+    ),
+    daemon=True,
+).start()
+time.sleep(5)
+print("public URL:", ngrok.connect(8000).public_url)
+```
+
+Copy the printed HTTPS URL into the local frontend's uncommitted `.env.local`:
+
+```dotenv
+NEXT_PUBLIC_API_URL=https://current-tunnel.example
+```
+
+Restart `npm run dev`, verify the backend `/healthz`, then use
+`/studio`. A warm `/redesign` can still take minutes and generations are
+serialized. The tunnel dies when the Kaggle session stops; start a new tunnel
+and update `.env.local` when that happens.
+
+If SDXL inference runs out of memory, the canonical pipeline releases it and
+retries with SD 1.5 at a smaller size. Do not describe LIGHT placeholders or
+prompt-only fallback images as trained-model evidence.

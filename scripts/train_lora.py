@@ -27,7 +27,8 @@ Smoke mode (no real dataset needed; uses /kaggle/input/datasets/yasserhamdanfr/d
         --smoke
 
 Notes:
-- The actual training depends on heavy ML libs (torch, diffusers, peft, accelerate, bitsandbytes).
+- The actual training depends on heavy ML libs (torch, torchvision, diffusers,
+  transformers, peft, and safetensors).
   This module is *importable* on a vanilla Windows box so CI/lint works; the heavy imports happen
   inside `train()`.
 - We do NOT pretend to "verify it doesn't OOM" without a GPU. The expected verification is to run

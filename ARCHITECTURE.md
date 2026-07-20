@@ -1,143 +1,174 @@
-# DarDesign — architecture
+# DarDesign architecture
+
+DarDesign has one Next.js frontend, one FastAPI backend, and one canonical
+inference pipeline. Local LIGHT mode and Kaggle GPU mode use the same API
+contracts; only the generation implementation changes.
+
+## Runtime flow
 
 ```mermaid
-flowchart TB
-    subgraph Browser
-        UZ[upload-zone.tsx<br/>≤10MB · ≥256px]
-        SS[style-selector.tsx<br/>3 cultures]
-        TP[/transform/page.tsx/]
-        RP[/result/page.tsx/]
-        BAS[before-after-slider.tsx]
-        SD[share-dialog.tsx]
+flowchart LR
+    subgraph Browser["Next.js browser application"]
+        HOME["/ — DarCinema"]
+        V2["/v2 — Understood Room"]
+        STUDIO["/studio — primary experience"]
+        AUDIT_PAGE["/audit — audit viewer"]
+        REDIRECTS["/transform + /result<br/>redirect to /studio"]
+        DEFENSE["/studio?demo=1<br/>Defense Mode"]
     end
 
-    subgraph FastAPI ["FastAPI (backend/main.py)"]
-        UP[/POST /upload/] --> JR[(jobs registry<br/>backend/jobs.py)]
-        XF[/POST /transform/] --> JR
-        ST[/GET /status/{id}/]
-        RES[/GET /result/{id}/]
-        SHT[/GET /share-token/{id}/]
-        SHARE[/GET /share/{token}/]
-        VAL[validators.py] --> UP
-        ERR[errors.py<br/>bilingual codes]
+    subgraph Static["Static Defense Pack"]
+        MANIFEST["public/demo/manifest.json"]
+        ROOMS["room/original + 3 styles<br/>depth map + metadata"]
     end
 
-    subgraph Pipeline ["backend/transform.py"]
-        PB[prompt_builder.py] --> PROMPT
-        ONT[(ontology/ontology.json<br/>~25 terms × 3 cultures)] --> PB
-        PROMPT([positive + negative<br/>EN + AR])
-
-        IN[input PNG] --> DA[Depth Anything V2]
-        IN --> OF[OneFormer ADE20K]
-        DA --> CN1[ControlNet depth]
-        OF --> CN2[ControlNet seg]
-
-        PROMPT --> SDXL
-        CN1 --> SDXL
-        CN2 --> SDXL
-        LORA[(per-culture LoRA<br/>models/loras/<culture>/)] -.lazy load.-> SDXL
-        SDXL[SDXL base 1.0<br/>fp16 · enable_model_cpu_offload]
-
-        SDXL -- OOM --> SD15[SD 1.5 + ControlNet 1.1<br/>fallback at 768²]
-        SDXL --> OUT[output PNG]
-        SD15 --> OUT
+    subgraph API["FastAPI — backend/main.py"]
+        REDESIGN["POST /redesign"]
+        RESTYLE["POST /restyle"]
+        AUDIT_API["GET /audit"]
+        LEGACY["Legacy async API<br/>/upload → /transform → /status → /result"]
+        VALIDATE["validators + guardrails"]
+        LOCK["single generation lock"]
     end
 
-    subgraph Scripts ["scripts/ (Kaggle T4)"]
-        TRAIN[train_lora.py<br/>DreamBooth-LoRA · rank 16 · 1.5k steps]
-        SWEEP[controlnet_sweep.py<br/>5 rooms × 4 weights × 3 cultures]
-        FIN[generate_finals.py<br/>15 × 3 = 45]
-        ABL[ablate.py<br/>--no-lora / --no-seg / --no-ontology]
-        BL[baseline_grid.py<br/>Decor8 / RoomGPT slots → PDF]
-        MET[metrics.py<br/>SSIM + LPIPS → CSV]
+    subgraph Understanding["One input understanding pass"]
+        DEPTH["Depth Anything V2"]
+        SEG["OneFormer ADE20K"]
+        PROJECT["projection.py"]
+        MAPS["depth_map + object_map + seg_regions"]
     end
 
-    subgraph Data
-        DS[(datasets/<culture>/<br/>images + captions.jsonl<br/>**Zainab handoff**)]
+    subgraph Generation["backend/transform.py"]
+        PROMPT["prompt_builder.py"]
+        CULTURAL[("ontology/ontology.json<br/>cultural prompt terms")]
+        SDXL["SDXL + depth/seg ControlNets"]
+        LORA[("models/loras/&lt;culture&gt;<br/>lazy LoRA")]
+        SD15["SD 1.5 fallback on CUDA OOM"]
+        OUTPUT["PNG + provenance manifest"]
     end
 
-    UZ -- File --> TP
-    SS -- StyleId --> TP
-    TP -- POST --> UP
-    UP -- {job_id} --> TP
-    TP -- POST --> XF
-    XF -- async --> Pipeline
-    TP -- nav --> RP
-    RP -- poll 1.5s --> ST
-    RP -- when done --> RES
-    RP --> SD
-    SD -- POST --> SHT
-    SHARE --> Browser
-    BAS --> RP
+    LABELS[("src/data/segmentation-labels.json<br/>frontend ADE20K labels")]
 
-    DS -.curated by Zainab.-> TRAIN
-    TRAIN -.safetensors.-> LORA
-    SWEEP -.contact sheets.-> Reviewer[/picks winners/]
-    Reviewer -- writes --> WIN[(configs/sweep_winners.json)]
-    WIN --> FIN
-    FIN --> Outputs[(outputs/finals/<br/>45 PNGs)]
-    Outputs --> MET
-    Outputs --> BL
+    HOME --> STUDIO
+    V2 --> STUDIO
+    REDIRECTS --> STUDIO
+    DEFENSE --> MANIFEST --> ROOMS
+    ROOMS --> STUDIO
+
+    STUDIO -->|room file| REDESIGN
+    STUDIO -->|file + culture + scale| RESTYLE
+    AUDIT_PAGE --> AUDIT_API
+    REDESIGN --> VALIDATE --> LOCK
+    RESTYLE --> VALIDATE
+    LEGACY --> VALIDATE
+    LOCK --> Generation
+    REDESIGN --> Understanding
+    DEPTH --> PROJECT
+    SEG --> PROJECT
+    PROJECT --> MAPS --> STUDIO
+    CULTURAL --> PROMPT --> SDXL
+    DEPTH --> SDXL
+    SEG --> SDXL
+    LORA -. optional .-> SDXL
+    SDXL --> OUTPUT
+    SDXL -. CUDA OOM .-> SD15 --> OUTPUT
+    OUTPUT --> STUDIO
+    LABELS --> STUDIO
 ```
 
-## Module responsibilities
+The primary `/redesign` request is synchronous from the client's perspective,
+but the server streams whitespace keepalives before the final JSON so long T4
+renders survive proxy first-byte timeouts. GPU work across `/redesign`,
+`/restyle`, and the legacy flow is serialized because the cached Diffusers
+pipeline and LoRA hot-swap state are not concurrency-safe.
 
-### `backend/`
+## Public routes and API contracts
 
-| file | role |
+### Frontend routes
+
+| Route | Behavior |
 |---|---|
-| `main.py` | FastAPI surface; JobIdResponse / StatusResponse / ShareTokenResponse |
-| `transform.py` | SDXL + dual ControlNet pipeline, lazy LoRA, OOM→SD1.5 fallback |
-| `prompt_builder.py` | ontology → bilingual (positive, negative); seedable; weighted sampling |
-| `validators.py` | mime allowlist, 10 MB cap, 256 px min-dim, PIL.verify |
-| `errors.py` | every HTTPException carries `{code, message_en, message_ar}` |
-| `jobs.py` | thread-safe registry; pending → queued → running → done/error |
-| `share.py` | stateless HMAC token; `DARDESIGN_SHARE_SECRET`; 7-day TTL |
+| `/` | Cinematic landing page and entry to the studio |
+| `/studio` | Upload one room, request all three core redesigns, and explore results |
+| `/studio?demo=1` | Load the static demo manifest and room assets without FastAPI |
+| `/v2` | Alternate “The Understood Room” storytelling experience |
+| `/audit` | Unlinked administration view of metadata-only render events |
+| `/atelier.html` | Preserved standalone static design reference |
+| `/transform`, `/result` | Permanent application redirects to `/studio` |
 
-### `ontology/`
+### Primary FastAPI surface
 
-`ontology.json` is the single source of truth for the design vocabulary.
-Schema: `{trigger, negative_universal, cultures.<culture>.{architectural,
-materials, color_palette, lighting, furniture, textiles, ornamentation}}`.
-Every entry carries a `verified: false` flag flipped to `true` after Zainab's
-review pass.
+| Endpoint | Input | Output |
+|---|---|---|
+| `GET /healthz` | none | mode, version, and queue health |
+| `POST /redesign` | multipart `file` | `original`, `lebanese`, `khaleeji`, and `moroccan` PNG data URLs plus optional `object_map`, `seg_regions`, and `depth_map` |
+| `POST /restyle` | multipart `file`, `style`, `scale` | one PNG data URL, clamped scale, style, and optional provenance manifest |
+| `GET /audit` | optional `limit` and `token` | newest metadata-only render events |
 
-### `scripts/`
+The legacy asynchronous contract remains supported for existing clients:
+`POST /upload`, `POST /transform`, `GET /status/{job_id}`,
+`GET /result/{job_id}`, `POST /retry/{job_id}`,
+`GET /share-token/{job_id}`, and `GET /share/{token}`.
 
-Each script is import-clean on Windows (heavy ML imports are inside functions),
-runs end-to-end on Kaggle T4, and reads `configs/pipeline.yaml` +
-`configs/sweep_winners.json` so weights are tunable without code edits.
+Validation is shared: supported image MIME/format, a 10 MB cap, a minimum
+256-pixel dimension, style validation, prompt-fragment sanitization, and
+server-side ControlNet-weight clamping. Errors use bilingual
+`{code, message_en, message_ar}` payloads.
 
-### Frontend (`src/`)
+## Subsystem responsibilities
 
-| file | role |
+| Subsystem | Responsibility |
 |---|---|
-| `lib/api.ts` | typed client; `ApiError` with bilingual messages |
-| `context/ImageContext.tsx` | image file, preview URL, jobId, result URL |
-| `context/ThemeLanguageContext.tsx` | language (EN/AR), theme, all translations |
-| `app/transform/page.tsx` | two-phase POST (upload → transform), redirect to /result?jobId= |
-| `app/result/page.tsx` | poll /status, render before/after, download / share / try-another-style / start-over |
-| `components/loading-screen.tsx` | progress prop drives the bar from real status; fallback to 8s timer |
-| `components/error-banner.tsx` | bilingual error surface with optional retry CTA |
-| `components/share-dialog.tsx` | copy-to-clipboard share modal (HMAC token URL) |
+| `src/app` | Route composition and the live/Defense Mode user flows |
+| `src/lib/api.ts` | Typed client, timeouts, abort handling, response validation, and bilingual API errors |
+| `backend/main.py` | Stable HTTP contracts, upload persistence, job coordination, audit calls, and generation locking |
+| `backend/transform.py` | Canonical LIGHT/SDXL pipeline, ControlNets, LoRA lifecycle, and OOM fallback |
+| `backend/projection.py` | Convert one depth/segmentation pass into normalized map and highlight payloads |
+| `backend/prompt_builder.py` | Build seeded bilingual prompts from the cultural ontology |
+| `ontology/ontology.json` | Culture triggers and seven categories of weighted bilingual design vocabulary |
+| `src/data/segmentation-labels.json` | ADE20K class labels and notes for browser visualizations; not the prompt ontology |
+| `scripts` | Training, sweeps, final generation, ablations, baselines, demo packing, and metrics |
 
-## Key design decisions
+## Model and data lifecycle
 
-1. **One inference module, two modes.** `backend/transform.py` is canonical: it
-   runs the real SDXL pipeline on Kaggle T4 and a placeholder branch
-   (`DARDESIGN_LIGHT=1`) on a laptop, so FastAPI is testable end-to-end without a
-   GPU. No mocks elsewhere.
-2. **Lazy LoRA, prompt-only fallback.** If
-   `models/loras/<culture>/dardesign-<culture>-lora.safetensors` is missing the
-   pipeline logs a warning and continues prompt-only. Lets the rest of the
-   system ship before training is done.
-3. **Bilingual errors at the data layer.** Every `HTTPException` carries
-   `{code, message_en, message_ar}`. The frontend renders whichever the user's
-   language is — no client-side error mapping table.
-4. **Stateless share tokens.** HMAC over `(job_id, exp)` keyed by
-   `DARDESIGN_SHARE_SECRET`. No DB. Trade-off: tokens don't survive a backend
-   restart unless you fix the env var; for a demo that's fine.
-5. **Progress is real.** `/status` exposes `progress: 0.0–1.0`, the loading
-   screen rides it. The 8-second floor is gone (it was a mock).
-6. **Image quality > features.** Free T4 only, dual ControlNet stays. We
-   accept a slower path (60s/image) before downgrading aesthetic.
+```mermaid
+flowchart LR
+    DATA["datasets/&lt;culture&gt;<br/>images + captions.jsonl"] --> TRAIN["scripts/train_lora.py"]
+    TRAIN --> WEIGHT["canonical .safetensors"]
+    WEIGHT --> PIPE["backend/transform.py"]
+    ROOMS["test rooms"] --> SWEEP["scripts/controlnet_sweep.py"]
+    SWEEP --> REVIEW["human visual review"]
+    REVIEW --> WINNERS["configs/sweep_winners.json"]
+    WINNERS --> FINALS["scripts/generate_finals.py"]
+    FINALS --> ABLATE["scripts/ablate.py"]
+    FINALS --> BASELINE["scripts/baseline_grid.py"]
+    FINALS --> METRICS["scripts/metrics.py"]
+    FINALS --> PACK["scripts/make_demo_pack.py"]
+    PACK --> DEMO["public/demo"]
+```
+
+Raw images, captions, model weights, generated outputs, audit events, and the
+Defense Mode pack are local artifacts rather than Git-tracked source. The
+repository keeps schemas, dataset guidance, scripts, and canonical output
+locations so every artifact can be reproduced.
+
+## Design decisions
+
+1. **One pipeline, two execution modes.** `DARDESIGN_LIGHT=1` returns explicit
+   placeholders without importing the heavy ML stack. GPU mode uses the same
+   functions and response shapes.
+2. **Three stable core styles.** `/redesign` always returns Lebanese,
+   Khaleeji, and Moroccan fields. Persian stays prompt-only on `/restyle`, so
+   it demonstrates extensibility without changing the flagship contract or
+   tripling demo time.
+3. **One understanding pass.** Depth and semantic segmentation are reused for
+   generation controls, the 2D room map, on-image regions, and the depth orbit.
+   A projection failure removes those optional views but does not discard
+   completed redesigns.
+4. **Lazy LoRA with prompt-only fallback.** A missing canonical weight logs a
+   warning and generation continues from the cultural prompt.
+5. **Defense Mode is same-origin and backend-free.** Static rooms exercise the
+   full result storytelling path without depending on a live T4 or tunnel.
+6. **Audit images are never stored in the log.** `backend/audit.jsonl`
+   contains event metadata only and can be token-gated through
+   `DARDESIGN_AUDIT_TOKEN`.

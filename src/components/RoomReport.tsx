@@ -5,7 +5,7 @@
  *
  * One click composes the whole analysis onto a branded canvas and downloads it
  * as a PNG: before/after, the detected cultural elements with their Arabic
- * terms (ontology), the top-down 2D plan, and a provenance footer. Pure
+ * terms (segmentation label map), the top-down 2D plan, and a provenance footer. Pure
  * client-side (data URLs + <canvas>), so it works offline, in LIGHT mode, and
  * can never destabilize the demo. Prints beautifully — hand it to the panel.
  */
@@ -14,11 +14,11 @@ import { useState } from "react";
 import { FileDown, Loader2 } from "lucide-react";
 import { useThemeLanguage } from "@/context/ThemeLanguageContext";
 import { cn } from "@/lib/utils";
-import ontologyRaw from "@/data/ontology.json";
+import segmentationLabelsRaw from "@/data/segmentation-labels.json";
 import type { SegRegion } from "@/components/CulturalElementHighlighter";
 import type { MapObject } from "@/components/RoomMap2D";
 
-const ONTOLOGY = ontologyRaw as Record<string, { ar?: string; en?: string; note?: string }>;
+const SEGMENTATION_LABELS = segmentationLabelsRaw as Record<string, { ar?: string; en?: string; note?: string }>;
 
 // Fixed dark-gold brand palette — the report is an artifact, not a themed page.
 const INK = "#0d0d12";
@@ -155,7 +155,7 @@ async function composeReport(props: RoomReportProps, isArabic: boolean): Promise
   y += 36;
 
   const known = props.regions
-    .map((r) => ({ r, info: ONTOLOGY[r.classKey] }))
+    .map((r) => ({ r, info: SEGMENTATION_LABELS[r.classKey] }))
     .filter((d) => d.info?.ar && d.info?.en)
     .slice(0, 6);
   for (const { info } of known) {
@@ -194,7 +194,7 @@ async function composeReport(props: RoomReportProps, isArabic: boolean): Promise
   ctx.font = `400 14px ${AR_FONT}`;
   ctx.fillText(isArabic ? "الجدار البعيد" : "far wall", planX + planS / 2, planY + 20);
   for (const o of props.mapObjects.slice(0, 14)) {
-    const info = ONTOLOGY[o.classKey];
+    const info = SEGMENTATION_LABELS[o.classKey];
     const w = (o.w ?? 0.08) * planS;
     const h = (o.h ?? 0.08) * planS;
     const cx = planX + o.cx * planS;

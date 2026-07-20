@@ -210,7 +210,7 @@ steps survive session death, eval on the second account.
 - **One inference module, two modes** (`DARDESIGN_LIGHT`): the same code path is
   CI-testable on a laptop and real on a T4 — no mocks, no drift.
 - **Reproducibility:** `requirements.txt` pinned to the T4 CUDA 12.1 stack;
-  `push_kernel.py` + `kaggle/TRAIN_NOW.md` make a training run a paste-and-go.
+  `push_kernel.py` + `kaggle/README.md` make a training run a paste-and-go.
 
 ## 8 · The product (Arabic-first)
 
