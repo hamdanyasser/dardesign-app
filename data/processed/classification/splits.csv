@@ -1,0 +1,46 @@
+path,label,split
+C:\Users\USER\Desktop\dardesign-app\data\processed\classification\cleaned\khaleeji\Warm modern bedroom_979a0bfb.jpg,khaleeji,train
+C:\Users\USER\Desktop\dardesign-app\data\processed\classification\cleaned\khaleeji\Spacious formal majles_7c92037c.jpg,khaleeji,train
+C:\Users\USER\Desktop\dardesign-app\data\processed\classification\cleaned\khaleeji\Neutral corner majles_ba30a7b1.jpg,khaleeji,train
+C:\Users\USER\Desktop\dardesign-app\data\processed\classification\cleaned\khaleeji\Grand red majles_e8d53357.jpg,khaleeji,train
+C:\Users\USER\Desktop\dardesign-app\data\processed\classification\cleaned\khaleeji\Red-carpet floor majles_54b943e2.jpg,khaleeji,train
+C:\Users\USER\Desktop\dardesign-app\data\processed\classification\cleaned\khaleeji\Heritage beamed bedroom_25120923.jpg,khaleeji,train
+C:\Users\USER\Desktop\dardesign-app\data\processed\classification\cleaned\khaleeji\Modern neutral bedroom_97aa795b.jpg,khaleeji,train
+C:\Users\USER\Desktop\dardesign-app\data\processed\classification\cleaned\khaleeji\Elegant chandelier majles_dad6395e.jpg,khaleeji,train
+C:\Users\USER\Desktop\dardesign-app\data\processed\classification\cleaned\khaleeji\Four-poster minimal bedroom_034eecc4.jpg,khaleeji,train
+C:\Users\USER\Desktop\dardesign-app\data\processed\classification\cleaned\khaleeji\Round-rug minimal majles_3c640230.jpg,khaleeji,train
+C:\Users\USER\Desktop\dardesign-app\data\processed\classification\cleaned\lebanese\Wrought-iron bed bedroom_248892b4.jpg,lebanese,train
+C:\Users\USER\Desktop\dardesign-app\data\processed\classification\cleaned\lebanese\Traditional pantry kitchen_01b2747a.jpg,lebanese,train
+C:\Users\USER\Desktop\dardesign-app\data\processed\classification\cleaned\lebanese\Red majlis seating_d21a6437.jpg,lebanese,train
+C:\Users\USER\Desktop\dardesign-app\data\processed\classification\cleaned\lebanese\Traditional banquette salon_3a97b20b.jpg,lebanese,train
+C:\Users\USER\Desktop\dardesign-app\data\processed\classification\cleaned\lebanese\Stone arch salon_0556a35a.jpg,lebanese,train
+C:\Users\USER\Desktop\dardesign-app\data\processed\classification\cleaned\lebanese\Twin red bedroom_38a164a7.jpg,lebanese,train
+C:\Users\USER\Desktop\dardesign-app\data\processed\classification\cleaned\lebanese\Patterned-tile floor kitchen_03760de1.jpg,lebanese,train
+C:\Users\USER\Desktop\dardesign-app\data\processed\classification\cleaned\lebanese\Mountain-view arched salon_2afc4f03.jpg,lebanese,train
+C:\Users\USER\Desktop\dardesign-app\data\processed\classification\cleaned\lebanese\Elegant draped bedroom_4f5f8b37.jpg,lebanese,train
+C:\Users\USER\Desktop\dardesign-app\data\processed\classification\cleaned\lebanese\Modern wood kitchen_9540a58e.jpg,lebanese,train
+C:\Users\USER\Desktop\dardesign-app\data\processed\classification\cleaned\lebanese\Eclectic plated salon_3dbf9e30.jpg,lebanese,train
+C:\Users\USER\Desktop\dardesign-app\data\processed\classification\cleaned\lebanese\Cozy vaulted bedroom_0b373216.jpg,lebanese,train
+C:\Users\USER\Desktop\dardesign-app\data\processed\classification\cleaned\lebanese\Display-cabinet stone kitchen_0fb4dde4.jpg,lebanese,train
+C:\Users\USER\Desktop\dardesign-app\data\processed\classification\cleaned\moroccan\Arched alcove headboard bedroom_ef5c9948.jpg,moroccan,train
+C:\Users\USER\Desktop\dardesign-app\data\processed\classification\cleaned\moroccan\Ornate plated salon_c5751fd9.jpg,moroccan,train
+C:\Users\USER\Desktop\dardesign-app\data\processed\classification\cleaned\moroccan\Colorful lantern bedroom_d01e8429.jpg,moroccan,train
+C:\Users\USER\Desktop\dardesign-app\data\processed\classification\cleaned\moroccan\Cozy neutral salon_addf4a52.jpg,moroccan,train
+C:\Users\USER\Desktop\dardesign-app\data\processed\classification\cleaned\moroccan\Golden arched bedroom_3f672feb.jpg,moroccan,train
+C:\Users\USER\Desktop\dardesign-app\data\processed\classification\cleaned\moroccan\Hanging lanterns salon_e654edfe.jpg,moroccan,train
+C:\Users\USER\Desktop\dardesign-app\data\processed\classification\cleaned\moroccan\Iron-frame arched bedroom_d555d4a6.jpg,moroccan,train
+C:\Users\USER\Desktop\dardesign-app\data\processed\classification\cleaned\moroccan\Wooden island kitchen_7f2502a6.jpg,moroccan,train
+C:\Users\USER\Desktop\dardesign-app\data\processed\classification\cleaned\khaleeji\Patterned-rug seating majles_7d08a36d.jpg,khaleeji,val
+C:\Users\USER\Desktop\dardesign-app\data\processed\classification\cleaned\khaleeji\Ornate arched majles_cdaaf438.jpg,khaleeji,val
+C:\Users\USER\Desktop\dardesign-app\data\processed\classification\cleaned\lebanese\Triple-arch window salon_cbe25417.jpg,lebanese,val
+C:\Users\USER\Desktop\dardesign-app\data\processed\classification\cleaned\lebanese\Grand arched hall salon_48513c12.jpg,lebanese,val
+C:\Users\USER\Desktop\dardesign-app\data\processed\classification\cleaned\lebanese\Rustic stone kitchen_db4db757.jpg,lebanese,val
+C:\Users\USER\Desktop\dardesign-app\data\processed\classification\cleaned\moroccan\Teal carpet salon_34abd364.jpg,moroccan,val
+C:\Users\USER\Desktop\dardesign-app\data\processed\classification\cleaned\moroccan\Patterned canopy bedroom_7ba2343a.jpg,moroccan,val
+C:\Users\USER\Desktop\dardesign-app\data\processed\classification\cleaned\khaleeji\Plated-wall majles_2c5ae645.jpg,khaleeji,test
+C:\Users\USER\Desktop\dardesign-app\data\processed\classification\cleaned\khaleeji\Traditional beamed majles_a2c183fe.jpg,khaleeji,test
+C:\Users\USER\Desktop\dardesign-app\data\processed\classification\cleaned\lebanese\Mosaic-tile cooking kitchen_a6cd6f3a.jpg,lebanese,test
+C:\Users\USER\Desktop\dardesign-app\data\processed\classification\cleaned\lebanese\Green-ceiling rustic salon_7c9a2a2d.jpg,lebanese,test
+C:\Users\USER\Desktop\dardesign-app\data\processed\classification\cleaned\lebanese\Red-rug stone salon_fe7f1c89.jpg,lebanese,test
+C:\Users\USER\Desktop\dardesign-app\data\processed\classification\cleaned\moroccan\Tapestry wall bedroom_89b674df.jpg,moroccan,test
+C:\Users\USER\Desktop\dardesign-app\data\processed\classification\cleaned\moroccan\Garden archway salon_ecc92851.jpg,moroccan,test

@@ -59,7 +59,9 @@ function ResultContent() {
       try {
         const final = await pollStatus(jid, {
           intervalMs: 1500,
-          timeoutMs: 5 * 60_000,
+          // Let backend timeout policy decide terminal failure to avoid
+          // premature client-side aborts on first model download.
+          timeoutMs: 0,
           signal: ctrl.signal,
           onUpdate: (s) => setStatus(s),
         });
@@ -203,14 +205,18 @@ function ResultContent() {
 
   if (!resultImageUrl) {
     const pct = status?.progress;
+    const stageMsg = status
+      ? (isArabic ? status.stage_message_ar : status.stage_message_en) || undefined
+      : undefined;
     const msg = status
-      ? status.status === "queued"
+      ? stageMsg || (status.status === "queued"
         ? isArabic ? "في قائمة الانتظار..." : "Queued..."
         : status.status === "running"
           ? undefined
           : status.status === "pending"
             ? isArabic ? "جارٍ التحضير..." : "Preparing..."
             : undefined
+        )
       : undefined;
     return <LoadingScreen progress={pct} messageOverride={msg} />;
   }

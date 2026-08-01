@@ -1,8 +1,8 @@
-# Add a culture (e.g. "Najdi", "Andalusi", "Egyptian")
+﻿# Add a culture (e.g. "Najdi", "Andalusi", "Egyptian")
 
 Worked example: adding `najdi` (Saudi central-region heritage).
 
-## 1 — Extend the ontology
+## 1 â€” Extend the ontology
 
 Edit [`ontology/ontology.json`](../ontology/ontology.json):
 
@@ -12,7 +12,7 @@ Edit [`ontology/ontology.json`](../ontology/ontology.json):
     ...,
     "najdi": {
       "en": "dardesign-najdi style",
-      "ar": "نمط دار-ديزاين-نجدي"
+      "ar": "Ù†Ù…Ø· Ø¯Ø§Ø±-Ø¯ÙŠØ²Ø§ÙŠÙ†-Ù†Ø¬Ø¯ÙŠ"
     }
   },
   "cultures": {
@@ -33,57 +33,57 @@ Edit [`ontology/ontology.json`](../ontology/ontology.json):
 
 Aim for ~5 entries per category. Everything starts `verified: false`.
 
-## 2 — Tell the codebase about the new culture
+## 2 â€” Tell the codebase about the new culture
 
 Two places (TypeScript on the frontend, Python on the backend):
 
-**[backend/transform.py](../backend/transform.py)** — `StylePack`:
+**[backend/transform.py](../backend/transform.py)** â€” `StylePack`:
 ```python
 StylePack = ("lebanese", "khaleeji", "moroccan", "najdi")
 ```
 
-**[backend/prompt_builder.py](../backend/prompt_builder.py)** — `CULTURES`:
+**[backend/prompt_builder.py](../backend/prompt_builder.py)** â€” `CULTURES`:
 ```python
 CULTURES: tuple[CultureId, ...] = ("lebanese", "khaleeji", "moroccan", "najdi")
 ```
 
-**[src/lib/api.ts](../src/lib/api.ts)** — `StyleId`:
+**[src/lib/api.ts](../src/lib/api.ts)** â€” `StyleId`:
 ```ts
 export type StyleId = "lebanese" | "khaleeji" | "moroccan" | "najdi";
 ```
 
-**[src/context/ImageContext.tsx](../src/context/ImageContext.tsx)** — `StyleId`:
+**[src/context/ImageContext.tsx](../src/context/ImageContext.tsx)** â€” `StyleId`:
 same change.
 
 **[src/context/ThemeLanguageContext.tsx](../src/context/ThemeLanguageContext.tsx)**:
 add the `najdi` entry to `copy.shared.styles` for both `en` and `ar`
 (flag, name, selectorDescription, origin, landingDescription, tags, learnMore).
 
-## 3 — Curate the dataset
+## 3 â€” Curate the dataset
 
 Create [`datasets/najdi/`](../datasets/najdi/) with the same layout as the
 existing per-culture READMEs:
 
 ```
 datasets/najdi/
-├── images/         # 20–40 photos, ≥1024², no people, no watermarks
-├── captions.jsonl  # one JSON/line, EN+AR, trigger phrase mandatory
-└── README.md       # culture-specific style fidelity rules
+â”œâ”€â”€ images/         # 20â€“40 photos, â‰¥1024Â², no people, no watermarks
+â”œâ”€â”€ captions.jsonl  # one JSON/line, EN+AR, trigger phrase mandatory
+â””â”€â”€ README.md       # culture-specific style fidelity rules
 ```
 
-## 4 — Train the LoRA
+## 4 â€” Train the LoRA
 
-On Kaggle T4:
+On Local 8 GB GPU:
 
 ```bash
 make train-lora CULTURE=najdi DATA_DIR=datasets/najdi RANK=16 STEPS=1500
 ```
 
 Drops `models/loras/najdi/dardesign-najdi-lora.safetensors`. The backend picks
-it up on the next request — no restart strictly required since LoRAs are
+it up on the next request â€” no restart strictly required since LoRAs are
 lazy-loaded per request.
 
-## 5 — Pick ControlNet winners
+## 5 â€” Pick ControlNet winners
 
 ```bash
 make sweep        # generates outputs/sweeps/<room>_contact.png
@@ -97,7 +97,7 @@ make sweep        # generates outputs/sweeps/<room>_contact.png
 }
 ```
 
-## 6 — Generate the demo set
+## 6 â€” Generate the demo set
 
 ```bash
 make finals
@@ -105,3 +105,4 @@ make finals
 
 Done. The new style now shows up in the StyleSelector on `/transform`, lazy-loads
 its LoRA on every request, and is included in metrics + ablations.
+

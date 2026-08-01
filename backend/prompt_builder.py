@@ -142,8 +142,11 @@ def build_prompts(
     room_ar = room_ar_map.get(room_en.lower(), room_en)
 
     positive_en = (
-        f"a {room_en} in the {trigger['en']}, photorealistic interior photography, "
-        f"natural daylight, magazine-quality, 8k, intricate detail, "
+        f"Complete interior redesign of a {room_en} in the {trigger['en']}. "
+        "Replace existing furniture, carpets, curtains, lamps, wall decor, and materials with new culturally authentic elements. "
+        "Preserve only architecture and camera geometry: room dimensions, walls, windows, doors, floor structure, and lighting direction. "
+        "Do not keep original furniture shapes or arrangement details. "
+        "Photorealistic interior photography, magazine-quality, 8k, intricate detail, "
         f"{_join(en_terms)}"
     )
     positive_ar = (
@@ -153,7 +156,21 @@ def build_prompts(
 
     neg_universal = ontology.get("negative_universal", [])
     neg_specific = culture_block.get("negative_specific", [])
-    negative_en = _join(list(neg_universal) + list(neg_specific))
+    redesign_neg = [
+        "color change only",
+        "same furniture",
+        "same bed",
+        "same sofa",
+        "same decoration",
+        "unchanged room",
+        "simple recolor",
+        "filter effect",
+        "low transformation",
+        "western modern furniture",
+        "empty room",
+        "distorted furniture",
+    ]
+    negative_en = _join(list(neg_universal) + list(neg_specific) + redesign_neg)
     # AR negatives: short, transliterated where helpful
     neg_ar_terms = [
         "جودة منخفضة", "ضبابي", "علامة مائية", "نص على الصورة", "توقيع",

@@ -1,4 +1,4 @@
-"""ControlNet weight sweep.
+﻿"""ControlNet weight sweep.
 
 For each test room, generates outputs across:
   - 4 weight pairs (depth, seg): (0.5,0.5) (0.7,0.3) (1.0,0.5) (0.5,1.0)
@@ -9,9 +9,9 @@ Output: outputs/sweeps/<room_id>_contact.png (one contact sheet per room, 4 cols
 
 Pick winners by eye, then drop the chosen (depth, seg) pair into configs/sweep_winners.json.
 
-Usage (Kaggle T4):
+Usage (local):
     python scripts/controlnet_sweep.py \\
-        --rooms-dir /kaggle/input/datasets/yasserhamdanfr/dardesign-test-rooms \\
+    --rooms-dir data/raw/test-rooms \\
         --out outputs/sweeps
 """
 from __future__ import annotations
@@ -37,9 +37,11 @@ CULTURES: list[str] = ["lebanese", "khaleeji", "moroccan"]
 
 
 def main() -> None:
+    from backend.settings import SETTINGS
+
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--rooms-dir", required=True, type=Path)
-    p.add_argument("--out", required=True, type=Path)
+    p.add_argument("--rooms-dir", type=Path, default=SETTINGS.raw_dir / "test-rooms")
+    p.add_argument("--out", type=Path, default=Path("outputs") / "sweeps")
     p.add_argument("--limit", type=int, default=5, help="cap on rooms (default 5 = the test set)")
     p.add_argument("--seed", type=int, default=42)
     args = p.parse_args()
@@ -81,7 +83,7 @@ def main() -> None:
             cells,
             cols=len(WEIGHT_PAIRS),
             cell_size=(384, 384),
-            title=f"{room_id} — ControlNet sweep (rows: {', '.join(CULTURES)})",
+            title=f"{room_id} â€” ControlNet sweep (rows: {', '.join(CULTURES)})",
         )
         out_sheet = args.out / f"{room_id}_contact.png"
         sheet.save(out_sheet)
@@ -90,3 +92,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+

@@ -1,0 +1,45 @@
+{
+  "data_root": "C:\\Users\\USER\\Desktop\\dardesign-app\\datasets",
+  "num_classes": 3,
+  "class_names": [
+    "khaleeji",
+    "lebanese",
+    "moroccan"
+  ],
+  "images_per_class": {
+    "khaleeji": 14,
+    "lebanese": 19,
+    "moroccan": 12
+  },
+  "total_images": 45,
+  "class_imbalance_ratio": 1.5833333333333333,
+  "duplicates": {
+    "exact_sha1_duplicates": 0,
+    "perceptual_duplicates_same_hash": 0
+  },
+  "corrupted_images": 0,
+  "blurry_images": 0,
+  "very_small_images": 0,
+  "empty_folders": [
+    "captions"
+  ],
+  "dimensions": {
+    "min_width": 564,
+    "max_width": 4000,
+    "min_height": 533,
+    "max_height": 2252
+  },
+  "aspect_ratio": {
+    "min": 0.5625,
+    "max": 2.0256410256410255,
+    "mean": 1.0800873909130875,
+    "std": 0.41436213892363927
+  },
+  "color_distribution": {
+    "mean_r": 133.06437996775225,
+    "mean_g": 107.86774213894913,
+    "mean_b": 87.36522248499949
+  },
+  "likely_incorrect_labels": [],
+  "corrupted_file_paths": []
+}

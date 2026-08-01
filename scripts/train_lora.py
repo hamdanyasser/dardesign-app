@@ -1,4 +1,4 @@
-"""DreamBooth-LoRA training for SDXL (with SD 1.5 fallback).
+﻿"""DreamBooth-LoRA training for SDXL (with SD 1.5 fallback).
 
 This is a thin, opinionated wrapper around diffusers' DreamBooth-LoRA loop. It:
 - reads `datasets/<culture>/captions.jsonl` (one JSON per line, see datasets README),
@@ -6,9 +6,9 @@ This is a thin, opinionated wrapper around diffusers' DreamBooth-LoRA loop. It:
 - saves checkpoints at 500 / 1000 / final-step,
 - writes 5 sample images per checkpoint (grid PNG),
 - falls back to SD 1.5 + LoRA if SDXL OOMs,
-- supports `--smoke` to run with placeholder captions over the 5 test rooms (Kaggle T4 sanity check).
+- supports `--smoke` to run with placeholder captions over local test rooms.
 
-Usage (Kaggle T4):
+Usage (local):
     python scripts/train_lora.py \\
         --culture lebanese \\
         --data-dir datasets/lebanese \\
@@ -16,10 +16,10 @@ Usage (Kaggle T4):
         --steps 1500 \\
         --output-dir models/loras/lebanese
 
-Smoke mode (no real dataset needed; uses /kaggle/input/datasets/yasserhamdanfr/dardesign-test-rooms):
+Smoke mode (no real dataset needed; uses data/raw/test-rooms):
     python scripts/train_lora.py \\
         --culture lebanese \\
-        --data-dir /kaggle/input/datasets/yasserhamdanfr/dardesign-test-rooms \\
+        --data-dir data/raw/test-rooms \\
         --rank 16 --steps 200 \\
         --output-dir models/loras/lebanese/_smoke \\
         --smoke
@@ -28,8 +28,8 @@ Notes:
 - The actual training depends on heavy ML libs (torch, diffusers, peft, accelerate, bitsandbytes).
   This module is *importable* on a vanilla Windows box so CI/lint works; the heavy imports happen
   inside `train()`.
-- We do NOT pretend to "verify it doesn't OOM" without a GPU. The expected verification is to run
-  the smoke command above on Kaggle T4. See [kaggle/README.md] for the paste-into-cell runbook.
+- For constrained GPUs, tune --batch-size, --grad-accum-steps, --image-size,
+    and --precision to reduce VRAM pressure.
 """
 from __future__ import annotations
 
@@ -42,11 +42,18 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
 
+from backend.settings import (
+    SETTINGS,
+    collect_runtime_metrics,
+    configure_file_logging,
+    detect_hardware_profile,
+)
+
 logger = logging.getLogger(__name__)
 
 ROOT = Path(__file__).resolve().parent.parent
 
-# Per-culture trigger phrases — must match ontology.json
+# Per-culture trigger phrases â€” must match ontology.json
 TRIGGERS = {
     "lebanese": "dardesign-lebanese style",
     "khaleeji": "dardesign-khaleeji style",
@@ -74,6 +81,12 @@ class TrainArgs:
     seed: int
     learning_rate: float
     smoke: bool
+    batch_size: int
+    grad_accum_steps: int
+    num_workers: int
+    image_size: int
+    precision: str
+    checkpoint_every: int
 
 
 def _read_captions(data_dir: Path, smoke: bool, trigger: str) -> list[tuple[Path, str]]:
@@ -149,10 +162,12 @@ def train(args: TrainArgs) -> Path:
     from PIL import Image
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
+    SETTINGS.ensure_dirs()
     pairs = _read_captions(args.data_dir, args.smoke, TRIGGERS[args.culture])
     logger.info("training set: %d (image, caption) pairs", len(pairs))
 
-    accelerator = Accelerator(mixed_precision="fp16" if torch.cuda.is_available() else "no")
+    mp = "fp16" if args.precision == "fp16" and torch.cuda.is_available() else "no"
+    accelerator = Accelerator(mixed_precision=mp)
     device = accelerator.device
 
     tokenizer_one = AutoTokenizer.from_pretrained(args.base_model, subfolder="tokenizer")
@@ -179,8 +194,8 @@ def train(args: TrainArgs) -> Path:
 
     # ---- dataset ----
     image_transform = transforms.Compose([
-        transforms.Resize(1024, interpolation=transforms.InterpolationMode.BILINEAR),
-        transforms.CenterCrop(1024),
+        transforms.Resize(args.image_size, interpolation=transforms.InterpolationMode.BILINEAR),
+        transforms.CenterCrop(args.image_size),
         transforms.ToTensor(),
         transforms.Normalize([0.5], [0.5]),
     ])
@@ -198,7 +213,13 @@ def train(args: TrainArgs) -> Path:
             return {"pixel_values": image_transform(img), "caption": cap}
 
     ds = DreamBoothLoraDataset(pairs)
-    dl = DataLoader(ds, batch_size=1, shuffle=True, num_workers=0)
+    dl = DataLoader(
+        ds,
+        batch_size=max(1, args.batch_size),
+        shuffle=True,
+        num_workers=max(0, args.num_workers),
+        pin_memory=torch.cuda.is_available(),
+    )
 
     optimizer = torch.optim.AdamW([p for p in unet.parameters() if p.requires_grad], lr=args.learning_rate)
     unet, optimizer, dl = accelerator.prepare(unet, optimizer, dl)
@@ -218,7 +239,7 @@ def train(args: TrainArgs) -> Path:
                 pooled = out.text_embeds
         return torch.cat(prompt_embeds_list, dim=-1), pooled
 
-    checkpoints_at = sorted({500, 1000, args.steps})
+    checkpoints_at = sorted({args.checkpoint_every, args.checkpoint_every * 2, args.steps})
     save_paths: list[Path] = []
 
     step = 0
@@ -240,13 +261,20 @@ def train(args: TrainArgs) -> Path:
             }
             model_pred = unet(noisy, timesteps, prompt_embeds, added_cond_kwargs=added_cond_kwargs).sample
             loss = torch.nn.functional.mse_loss(model_pred.float(), target.float())
-            accelerator.backward(loss)
-            optimizer.step()
-            optimizer.zero_grad()
+            accelerator.backward(loss / max(1, args.grad_accum_steps))
+            if (step + 1) % max(1, args.grad_accum_steps) == 0:
+                optimizer.step()
+                optimizer.zero_grad()
 
             step += 1
             if step % 25 == 0:
-                logger.info("step %d/%d loss=%.4f", step, args.steps, loss.item())
+                logger.info(
+                    "step %d/%d loss=%.4f metrics=%s",
+                    step,
+                    args.steps,
+                    loss.item(),
+                    collect_runtime_metrics(),
+                )
             if step in checkpoints_at:
                 ckpt_path = _save_checkpoint(unet, args, step)
                 save_paths.append(ckpt_path)
@@ -312,6 +340,8 @@ def _render_samples(args: TrainArgs, ckpt_path: Path, step: int) -> Path:
 
 
 def _parse() -> TrainArgs:
+    hw = detect_hardware_profile()
+
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--culture", required=True, choices=list(TRIGGERS))
     p.add_argument("--data-dir", required=True, type=Path)
@@ -321,6 +351,12 @@ def _parse() -> TrainArgs:
     p.add_argument("--base-model", default="stabilityai/stable-diffusion-xl-base-1.0")
     p.add_argument("--seed", type=int, default=42)
     p.add_argument("--lr", type=float, default=1e-4, dest="learning_rate")
+    p.add_argument("--batch-size", type=int, default=hw.batch_size)
+    p.add_argument("--grad-accum-steps", type=int, default=hw.grad_accum_steps)
+    p.add_argument("--num-workers", type=int, default=hw.num_workers)
+    p.add_argument("--image-size", type=int, default=hw.image_size)
+    p.add_argument("--precision", choices=["fp16", "fp32"], default=hw.precision)
+    p.add_argument("--checkpoint-every", type=int, default=500)
     p.add_argument("--smoke", action="store_true",
                    help="placeholder-caption sanity run; uses any images in --data-dir")
     a = p.parse_args()
@@ -328,18 +364,26 @@ def _parse() -> TrainArgs:
         culture=a.culture, data_dir=a.data_dir, rank=a.rank, steps=a.steps,
         output_dir=a.output_dir, base_model=a.base_model, seed=a.seed,
         learning_rate=a.learning_rate, smoke=a.smoke,
+        batch_size=a.batch_size,
+        grad_accum_steps=a.grad_accum_steps,
+        num_workers=a.num_workers,
+        image_size=a.image_size,
+        precision=a.precision,
+        checkpoint_every=a.checkpoint_every,
     )
 
 
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s: %(message)s")
+    configure_file_logging("training", SETTINGS.logs_dir)
     args = _parse()
+    logger.info("hardware profile: %s", detect_hardware_profile())
     try:
         train(args)
     except RuntimeError as e:
         if "out of memory" not in str(e).lower():
             raise
-        logger.warning("SDXL OOM — retrying on SD 1.5")
+        logger.warning("SDXL OOM â€” retrying on SD 1.5")
         args.base_model = "runwayml/stable-diffusion-v1-5"
         # SD 1.5 LoRA has different target_modules; the function above is SDXL-shaped.
         # For the smoke command we want to fail loudly here so the user knows to run
@@ -351,3 +395,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+

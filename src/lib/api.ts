@@ -134,6 +134,8 @@ export interface JobStatus {
   status: JobStatusName;
   progress: number;
   style: StyleId | null;
+  stage_message_en: string | null;
+  stage_message_ar: string | null;
   error_code: string | null;
   error_message_en: string | null;
   error_message_ar: string | null;
@@ -210,12 +212,12 @@ export async function pollStatus(
     const s = await getStatus(jobId);
     onUpdate?.(s);
     if (s.status === "done" || s.status === "error") return s;
-    if (Date.now() - started > timeoutMs) {
+    if (timeoutMs > 0 && Date.now() - started > timeoutMs) {
       throw new ApiError(
         {
           code: "timeout",
-          message_en: "Generation timed out",
-          message_ar: "انتهت مهلة التوليد",
+          message_en: "Generation timed out while waiting for status updates",
+          message_ar: "انتهت مهلة التوليد أثناء انتظار تحديثات الحالة",
         },
         0,
       );

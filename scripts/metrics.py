@@ -1,10 +1,10 @@
-"""Compute SSIM (structure preservation) and LPIPS (perceptual similarity)
+﻿"""Compute SSIM (structure preservation) and LPIPS (perceptual similarity)
 between every (input room, generated output) pair, and write a CSV.
 
 Metrics:
 - SSIM: high = structure preserved (we want this; we should NOT regenerate the room)
 - LPIPS: low = perceptually similar to input. Note that for a stylization task,
-  the IDEAL value is moderate, not minimal — we WANT the style to change while
+  the IDEAL value is moderate, not minimal â€” we WANT the style to change while
   the layout stays. Treat these as descriptive, not as a leaderboard.
 
 LPIPS uses torchmetrics. Falls back gracefully if it can't be loaded (logs a
@@ -18,7 +18,7 @@ Output (CSV):
 Usage:
     python scripts/metrics.py \\
         --finals outputs/finals \\
-        --rooms-dir /kaggle/input/.../dardesign-test-rooms \\
+    --rooms-dir data/raw/test-rooms \\
         --out eval/results.csv
 """
 from __future__ import annotations
@@ -86,10 +86,12 @@ def _resolve_input(rooms_dir: Path, room_id: str) -> Path | None:
 
 
 def main() -> None:
+    from backend.settings import SETTINGS
+
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--finals", required=True, type=Path)
-    p.add_argument("--rooms-dir", required=True, type=Path)
-    p.add_argument("--out", required=True, type=Path)
+    p.add_argument("--finals", type=Path, default=Path("outputs") / "finals")
+    p.add_argument("--rooms-dir", type=Path, default=SETTINGS.raw_dir / "test-rooms")
+    p.add_argument("--out", type=Path, default=Path("eval") / "results.csv")
     args = p.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s: %(message)s")
 
@@ -105,7 +107,7 @@ def main() -> None:
         stem = f.stem
         style = next((c for c in CULTURES if stem.endswith(f"_{c}")), None)
         if style is None:
-            logger.warning("skipping %s — filename does not end with a known style", f.name)
+            logger.warning("skipping %s â€” filename does not end with a known style", f.name)
             continue
         room_id = stem[: -(len(style) + 1)]
         in_p = _resolve_input(args.rooms_dir, room_id)
@@ -145,3 +147,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+

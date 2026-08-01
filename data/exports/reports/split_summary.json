@@ -1,0 +1,7 @@
+{
+  "total": 45,
+  "train": 31,
+  "val": 7,
+  "test": 7,
+  "split_csv": "C:\\Users\\USER\\Desktop\\dardesign-app\\data\\processed\\classification\\splits.csv"
+}

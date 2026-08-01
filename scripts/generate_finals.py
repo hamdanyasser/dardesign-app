@@ -1,12 +1,12 @@
-"""Generate the 45-image final batch for the demo.
+﻿"""Generate the 45-image final batch for the demo.
 
 Input: 15 rooms (anywhere in `--rooms-dir`) x 3 styles = 45 outputs
 Output: outputs/finals/<room_id>_<style>.png
 Settings: ControlNet weights from configs/sweep_winners.json (defaults if absent)
 
-Usage (Kaggle T4):
+Usage (local):
     python scripts/generate_finals.py \\
-        --rooms-dir /kaggle/input/datasets/yasserhamdanfr/dardesign-test-rooms \\
+    --rooms-dir data/raw/test-rooms \\
         --out outputs/finals
 """
 from __future__ import annotations
@@ -45,9 +45,11 @@ def _load_winners() -> dict[str, tuple[float, float]]:
 
 
 def main() -> None:
+    from backend.settings import SETTINGS
+
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--rooms-dir", required=True, type=Path)
-    p.add_argument("--out", required=True, type=Path)
+    p.add_argument("--rooms-dir", type=Path, default=SETTINGS.raw_dir / "test-rooms")
+    p.add_argument("--out", type=Path, default=Path("outputs") / "finals")
     p.add_argument("--limit", type=int, default=15)
     p.add_argument("--seed", type=int, default=42)
     p.add_argument("--cultures", nargs="*", default=CULTURES)
@@ -87,3 +89,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+

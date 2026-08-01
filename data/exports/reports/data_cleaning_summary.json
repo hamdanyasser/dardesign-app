@@ -1,0 +1,8 @@
+{
+  "kept": 45,
+  "removed": 0,
+  "removed_by_reason": {},
+  "cleaned_root": "C:\\Users\\USER\\Desktop\\dardesign-app\\data\\processed\\classification\\cleaned",
+  "quarantine_root": "C:\\Users\\USER\\Desktop\\dardesign-app\\data\\temp\\quarantine",
+  "removed_log": "C:\\Users\\USER\\Desktop\\dardesign-app\\data\\exports\\reports\\data_cleaning_removed.csv"
+}

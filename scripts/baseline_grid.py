@@ -1,6 +1,6 @@
-"""Build the baseline-comparison harness.
+﻿"""Build the baseline-comparison harness.
 
-This DOES NOT call any baseline service — it can't, no API access. Instead it:
+This DOES NOT call any baseline service â€” it can't, no API access. Instead it:
   1. Builds a single PNG `outputs/baselines/_input_grid.png` showing the 15 rooms
      so you can paste each room into Decor8 / RoomGPT manually.
   2. Creates `outputs/baselines/{decor8,roomgpt,ours}/` with one named slot per
@@ -14,7 +14,7 @@ Naming: `<room_stem>_<culture>.png`
 
 Usage:
     # 1. After running scripts/generate_finals.py:
-    python scripts/baseline_grid.py --rooms-dir /kaggle/input/.../dardesign-test-rooms --out outputs/baselines
+    python scripts/baseline_grid.py --rooms-dir data/raw/test-rooms --out outputs/baselines
     # 2. Drop your Decor8 + RoomGPT screenshots into outputs/baselines/decor8 and outputs/baselines/roomgpt
     # 3. Build the comparison PDF:
     python scripts/baseline_grid.py --rooms-dir ... --out outputs/baselines --build-pdf
@@ -38,9 +38,11 @@ BASELINES = ("decor8", "roomgpt", "ours")
 
 
 def main() -> None:
+    from backend.settings import SETTINGS
+
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--rooms-dir", required=True, type=Path)
-    p.add_argument("--out", required=True, type=Path)
+    p.add_argument("--rooms-dir", type=Path, default=SETTINGS.raw_dir / "test-rooms")
+    p.add_argument("--out", type=Path, default=Path("outputs") / "baselines")
     p.add_argument("--limit", type=int, default=15)
     p.add_argument("--finals-dir", type=Path, default=ROOT / "outputs" / "finals")
     p.add_argument("--build-pdf", action="store_true",
@@ -121,3 +123,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+

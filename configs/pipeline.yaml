@@ -6,24 +6,32 @@ fallback_model: "runwayml/stable-diffusion-v1-5"
 
 controlnet:
   depth_sdxl: "diffusers/controlnet-depth-sdxl-1.0"
-  seg_sdxl: "diffusers/controlnet-seg-sdxl-1.0"
+  canny_sdxl: "diffusers/controlnet-canny-sdxl-1.0"
   depth_sd15: "lllyasviel/sd-controlnet-depth"
-  seg_sd15:   "lllyasviel/sd-controlnet-seg"
+  canny_sd15: "lllyasviel/sd-controlnet-canny"
 
-# ControlNet conditioning weights (depth, seg) — winners from sweep go in configs/sweep_winners.json
+# ControlNet conditioning weights (depth, canny)
 default_controlnet_weights:
-  depth: 0.7
-  seg: 0.5
+  depth: 0.55
+  canny: 0.35
 
 # Diffusion sampling
-steps: 30
-guidance: 7.0
-strength: 0.7        # img2img-style strength when used; SDXL controlnet ignores this for txt2img
+steps: 32
+guidance: 8.0
+strength: 0.78
+strength_min: 0.65
+strength_max: 0.85
 output_size: [1024, 1024]
 sd15_fallback_size: [768, 768]
+num_candidates: 4
+canny_low: 80
+canny_high: 180
+caption_model: "Salesforce/blip-image-captioning-base"
+segment_model: "nvidia/segformer-b5-finetuned-ade-640-640"
+clip_model: "openai/clip-vit-base-patch32"
 
 # Negative-prompt seeds (additional to ontology negatives)
-extra_negative_en: "low resolution, jpeg artifacts, color banding"
+extra_negative_en: "low resolution, jpeg artifacts, color banding, color change only, same furniture, same bed, same sofa, same decoration, unchanged room, simple recolor, filter effect, low transformation, western modern furniture, empty room, artifacts, distorted furniture"
 
 # LoRA
 lora_dir: "models/loras"

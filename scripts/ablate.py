@@ -1,4 +1,4 @@
-"""Ablation harness.
+﻿"""Ablation harness.
 
 For each of {full pipeline, --no-lora, --no-segmentation, --no-ontology},
 generate 5 rooms x 3 styles = 15 images, plus a per-ablation contact sheet
@@ -10,9 +10,9 @@ Output: outputs/ablations/<ablation>/<room_id>_<style>.png
 The --no-lora case is fully runnable today (no LoRA file required for the
 prompt-only fallback path).
 
-Usage (Kaggle T4):
+Usage (local):
     python scripts/ablate.py \\
-        --rooms-dir /kaggle/input/datasets/yasserhamdanfr/dardesign-test-rooms \\
+    --rooms-dir data/raw/test-rooms \\
         --out outputs/ablations
 """
 from __future__ import annotations
@@ -33,9 +33,11 @@ CULTURES = ("lebanese", "khaleeji", "moroccan")
 
 
 def main() -> None:
+    from backend.settings import SETTINGS
+
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--rooms-dir", required=True, type=Path)
-    p.add_argument("--out", required=True, type=Path)
+    p.add_argument("--rooms-dir", type=Path, default=SETTINGS.raw_dir / "test-rooms")
+    p.add_argument("--out", type=Path, default=Path("outputs") / "ablations")
     p.add_argument("--limit", type=int, default=5)
     p.add_argument("--seed", type=int, default=42)
     p.add_argument("--ablations", nargs="*", default=list(ABLATIONS),
@@ -106,3 +108,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+

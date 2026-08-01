@@ -1,4 +1,4 @@
-# DarDesign — top-level task runner.
+﻿# DarDesign â€” top-level task runner.
 # Targets are POSIX-friendly; on Windows run via `make` from a shell that has it
 # (Git Bash, WSL, or `mingw32-make`). Otherwise, copy the command bodies.
 
@@ -9,6 +9,7 @@ NPM ?= npm
 
 BACKEND_HOST ?= 0.0.0.0
 BACKEND_PORT ?= 8000
+ROOMS_DIR ?= data/raw/test-rooms
 
 CULTURE ?= lebanese
 DATA_DIR ?= datasets/$(CULTURE)
@@ -23,12 +24,12 @@ LORA_OUT ?= models/loras/$(CULTURE)
 help:
 	@echo "DarDesign make targets:"
 	@echo "  setup            install backend + frontend deps"
-	@echo "  backend          run FastAPI (real pipeline; needs GPU/Kaggle)"
+	@echo "  backend          run FastAPI (real pipeline; local GPU/CPU fallback)"
 	@echo "  backend-light    run FastAPI in DARDESIGN_LIGHT mode (no GPU; placeholder outputs)"
 	@echo "  frontend         run Next.js dev server"
 	@echo "  test             run pytest"
 	@echo "  smoke-prompt     prompt-builder smoke test (no GPU)"
-	@echo "  smoke-train      train_lora.py with placeholder captions on the 5 test rooms (Kaggle T4)"
+	@echo "  smoke-train      train_lora.py with placeholder captions on local test rooms"
 	@echo "  train-lora       full LoRA training run (CULTURE=, DATA_DIR=, RANK=, STEPS=)"
 	@echo "  sweep            ControlNet weight sweep -> outputs/sweeps/"
 	@echo "  finals           45-image final batch -> outputs/finals/"
@@ -68,7 +69,7 @@ smoke-prompt:
 smoke-train:
 	$(PY) scripts/train_lora.py \
 		--culture $(CULTURE) \
-		--data-dir /kaggle/input/datasets/yasserhamdanfr/dardesign-test-rooms \
+		--data-dir $(ROOMS_DIR) \
 		--rank $(RANK) \
 		--steps 200 \
 		--output-dir $(LORA_OUT)/_smoke \
@@ -83,22 +84,23 @@ train-lora:
 		--output-dir $(LORA_OUT)
 
 sweep:
-	$(PY) scripts/controlnet_sweep.py --rooms-dir /kaggle/input/datasets/yasserhamdanfr/dardesign-test-rooms --out outputs/sweeps
+	$(PY) scripts/controlnet_sweep.py --rooms-dir $(ROOMS_DIR) --out outputs/sweeps
 
 finals:
-	$(PY) scripts/generate_finals.py --rooms-dir /kaggle/input/datasets/yasserhamdanfr/dardesign-test-rooms --out outputs/finals
+	$(PY) scripts/generate_finals.py --rooms-dir $(ROOMS_DIR) --out outputs/finals
 
 ablate:
-	$(PY) scripts/ablate.py --rooms-dir /kaggle/input/datasets/yasserhamdanfr/dardesign-test-rooms --out outputs/ablations
+	$(PY) scripts/ablate.py --rooms-dir $(ROOMS_DIR) --out outputs/ablations
 
 baseline-grid:
-	$(PY) scripts/baseline_grid.py --rooms-dir /kaggle/input/datasets/yasserhamdanfr/dardesign-test-rooms --out outputs/baselines
+	$(PY) scripts/baseline_grid.py --rooms-dir $(ROOMS_DIR) --out outputs/baselines
 
 metrics:
-	$(PY) scripts/metrics.py --finals outputs/finals --rooms-dir /kaggle/input/datasets/yasserhamdanfr/dardesign-test-rooms --out eval/results.csv
+	$(PY) scripts/metrics.py --finals outputs/finals --rooms-dir $(ROOMS_DIR) --out eval/results.csv
 
 clean:
 	rm -rf .pytest_cache .ruff_cache .mypy_cache backend/__pycache__ scripts/__pycache__ tests/__pycache__
 
 clean-outputs:
 	rm -rf outputs/finals/* outputs/sweeps/* outputs/ablations/* outputs/baselines/decor8/* outputs/baselines/roomgpt/* outputs/baselines/ours/*
+

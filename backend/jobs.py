@@ -28,6 +28,8 @@ class Job:
     error_code: Optional[str] = None
     error_message_en: Optional[str] = None
     error_message_ar: Optional[str] = None
+    stage_message_en: Optional[str] = None
+    stage_message_ar: Optional[str] = None
     created_at: float = field(default_factory=time.time)
     updated_at: float = field(default_factory=time.time)
 
@@ -72,6 +74,8 @@ class Jobs:
         error_code: str | None = None,
         error_en: str | None = None,
         error_ar: str | None = None,
+        stage_en: str | None = None,
+        stage_ar: str | None = None,
     ) -> Optional[Job]:
         with self._lock:
             j = self._store.get(job_id)
@@ -86,15 +90,30 @@ class Jobs:
                 j.error_code = error_code
                 j.error_message_en = error_en
                 j.error_message_ar = error_ar
+            if stage_en is not None:
+                j.stage_message_en = stage_en
+            if stage_ar is not None:
+                j.stage_message_ar = stage_ar
             j.updated_at = time.time()
             return j
 
-    def update_progress(self, job_id: str, progress: float) -> None:
+    def update_progress(
+        self,
+        job_id: str,
+        progress: float,
+        *,
+        stage_en: str | None = None,
+        stage_ar: str | None = None,
+    ) -> None:
         with self._lock:
             j = self._store.get(job_id)
             if j is None:
                 return
             j.progress = max(0.0, min(1.0, progress))
+            if stage_en is not None:
+                j.stage_message_en = stage_en
+            if stage_ar is not None:
+                j.stage_message_ar = stage_ar
             j.updated_at = time.time()
 
 
