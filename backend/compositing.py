@@ -26,7 +26,7 @@ from pathlib import Path
 import numpy as np
 from PIL import Image, ImageEnhance, ImageFilter
 
-from .placement import Box
+from .placement import Box, is_mirrored
 from .room_analysis import RoomAnalysis
 
 logger = logging.getLogger(__name__)
@@ -180,6 +180,13 @@ def composite_item(
     w = max(1, int(round(box.w)))
     h = max(1, int(round(box.h)))
     asset = asset.resize((w, h), Image.LANCZOS)
+
+    # Yaw past 90 degrees means the piece now faces the other way. With one view
+    # per item we cannot reveal its back, but mirroring stops a 180-degree turn
+    # from looking identical to no turn at all. The width compression that sells
+    # the rotation is already baked into box.w by the placement engine.
+    if is_mirrored(box.rotation):
+        asset = asset.transpose(Image.FLIP_LEFT_RIGHT)
 
     room = base_image.convert("RGBA")
     room_lum, room_warmth = _region_stats(room, box)

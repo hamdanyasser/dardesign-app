@@ -535,11 +535,12 @@ export async function fetchCandidatePositions(
   jobId: string,
   furnitureId: string,
   limit = 3,
+  rotation = 0,
 ): Promise<CandidatePositionsResult> {
   const res = await safeFetch(`${API_URL}/api/furniture/candidate-positions`, {
     method: "POST",
     headers: { ...COMMON_HEADERS, "Content-Type": "application/json" },
-    body: JSON.stringify({ job_id: jobId, furniture_id: furnitureId, limit }),
+    body: JSON.stringify({ job_id: jobId, furniture_id: furnitureId, limit, rotation }),
   });
   return (await unwrap(res)) as CandidatePositionsResult;
 }

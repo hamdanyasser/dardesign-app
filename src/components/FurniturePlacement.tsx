@@ -62,7 +62,12 @@ export default function FurniturePlacement({
   const [selected, setSelected] = useState<FurnitureItem | null>(null);
   const [spots, setSpots] = useState<PlacementCandidate[]>([]);
   const [spotIndex, setSpotIndex] = useState(0);
+  // `pos` holds the item's UNROTATED box. The backend applies the yaw and returns
+  // the turned box in `rendered`, so the client never computes rotated widths
+  // itself and can't disagree with the validator about what it just approved.
   const [pos, setPos] = useState<PlacementPosition | null>(null);
+  const [rendered, setRendered] = useState<PlacementPosition | null>(null);
+  const [rotation, setRotation] = useState(0);
   const [imageSize, setImageSize] = useState<{ width: number; height: number } | null>(null);
   const [valid, setValid] = useState(true);
   const [reason, setReason] = useState<string | null>(null);
@@ -153,6 +158,8 @@ export default function FurniturePlacement({
         setSpots(res.positions);
         setSpotIndex(0);
         setPos(res.positions[0].position);
+        setRendered(res.positions[0].position);
+        setRotation(0);
         setValid(true);
         setReason(null);
         setPhase("positioning");
@@ -171,17 +178,19 @@ export default function FurniturePlacement({
 
   /* ---------------- live validation while dragging ---------------- */
   const revalidate = useCallback(
-    (next: PlacementPosition) => {
+    (next: PlacementPosition, deg: number) => {
       if (!selected) return;
       if (validateTimer.current) clearTimeout(validateTimer.current);
       validateTimer.current = setTimeout(() => {
         validateCtrl.current?.abort(); // drop the previous in-flight check
         const ctrl = new AbortController();
         validateCtrl.current = ctrl;
-        validatePlacement(jobId, selected.id, next, { signal: ctrl.signal })
+        validatePlacement(jobId, selected.id, { ...next, rotation: deg }, { signal: ctrl.signal })
           .then((r) => {
             setValid(r.valid);
             setReason(isArabic ? r.reason_ar : r.reason);
+            // Draw what the server actually checked, not our own guess at it.
+            setRendered(r.position);
           })
           .catch((e) => {
             // An aborted check is expected during a fast drag — ignore it.
@@ -194,7 +203,7 @@ export default function FurniturePlacement({
 
   const onPointerDown = (e: React.PointerEvent) => {
     if (!pos || phase !== "positioning") return;
-    const s = toScreen(pos);
+    const s = toScreen(rendered ?? pos);
     const rect = stageRef.current!.getBoundingClientRect();
     dragging.current = {
       dx: e.clientX - rect.left - s.left,
@@ -217,7 +226,8 @@ export default function FurniturePlacement({
       y: Math.max(0, Math.min(ny, imageSize.height - pos.height)),
     };
     setPos(next);
-    revalidate(next);
+    setRendered({ ...next, width: (rendered ?? next).width, rotation });
+    revalidate(next, rotation);
   };
 
   const onPointerUp = (e: React.PointerEvent) => {
@@ -240,12 +250,21 @@ export default function FurniturePlacement({
       height: h,
     };
     setPos(next);
-    revalidate(next);
+    revalidate(next, rotation);
+  };
+
+  const rotate = (deg: number) => {
+    // Wrap to 0-359 so 350 + 20 becomes 10, not 370.
+    const next = ((deg % 360) + 360) % 360;
+    setRotation(next);
+    if (pos) revalidate(pos, next);
   };
 
   const chooseSpot = (i: number) => {
     setSpotIndex(i);
     setPos(spots[i].position);
+    setRendered(spots[i].position);
+    setRotation(0);
     setValid(spots[i].valid);
     setReason(null);
   };
@@ -254,6 +273,8 @@ export default function FurniturePlacement({
     setPhase("browsing");
     setSelected(null);
     setPos(null);
+    setRendered(null);
+    setRotation(0);
     setSpots([]);
     setReason(null);
   };
@@ -263,7 +284,7 @@ export default function FurniturePlacement({
     setPhase("inserting");
     setError(null);
     try {
-      const res = await confirmPlacement(jobId, selected.id, style, pos);
+      const res = await confirmPlacement(jobId, selected.id, style, { ...pos, rotation });
       onPlaced(res.image);
       cancel();
     } catch (e) {
@@ -406,7 +427,7 @@ export default function FurniturePlacement({
                 "absolute z-20 cursor-grab touch-none rounded-sm outline-2 outline-offset-2 active:cursor-grabbing",
                 valid ? "outline-[var(--success)]" : "outline-[var(--error)]",
               )}
-              style={{ ...toScreen(pos), outlineStyle: "solid" }}
+              style={{ ...toScreen(rendered ?? pos), outlineStyle: "solid" }}
             >
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
@@ -414,6 +435,14 @@ export default function FurniturePlacement({
                 alt=""
                 className={cn("h-full w-full object-contain", !valid && "opacity-60")}
                 draggable={false}
+                // Past 90° the piece faces the other way. Mirroring is the only
+                // honest cue available from a single view, and it matches what
+                // the compositor does on confirm, so preview and result agree.
+                style={
+                  Math.cos((rotation * Math.PI) / 180) < 0
+                    ? { transform: "scaleX(-1)" }
+                    : undefined
+                }
               />
             </div>
           </div>
@@ -434,6 +463,49 @@ export default function FurniturePlacement({
                   )
                 : "")}
           </p>
+
+          {/* rotation — degree by degree.
+              This is a yaw: the piece turns on the floor, so its apparent width
+              changes and the backend re-validates against the turned footprint.
+              With one photo per item we can't reveal its back, so past 90° it
+              mirrors rather than showing a genuinely new face. */}
+          <div className={cn("flex items-center gap-3", isArabic && "flex-row-reverse")}>
+            <label
+              htmlFor="furniture-rotation"
+              className="shrink-0 text-sm text-[var(--dd-text-secondary)]"
+            >
+              {t("Rotate", "تدوير")}
+            </label>
+            <input
+              id="furniture-rotation"
+              type="range"
+              min={0}
+              max={359}
+              step={1}
+              value={rotation}
+              onChange={(e) => rotate(Number(e.target.value))}
+              disabled={phase === "inserting"}
+              className="h-1.5 flex-1 cursor-pointer appearance-none rounded-full bg-[var(--dd-surface-strong)] accent-[var(--dd-gold)]"
+            />
+            <input
+              type="number"
+              min={0}
+              max={359}
+              value={rotation}
+              onChange={(e) => rotate(Number(e.target.value))}
+              disabled={phase === "inserting"}
+              aria-label={t("Rotation in degrees", "زاوية التدوير بالدرجات")}
+              className="w-16 rounded-lg border border-[var(--dd-gold-dim)]/40 bg-transparent px-2 py-1 text-sm text-[var(--dd-text)]"
+            />
+            <span className="text-sm text-[var(--dd-text-secondary)]">°</span>
+            <button
+              onClick={() => rotate(0)}
+              disabled={rotation === 0 || phase === "inserting"}
+              className="rounded-lg border border-[var(--dd-gold-dim)]/40 px-2 py-1 text-xs text-[var(--dd-text-soft)] hover:border-[var(--dd-gold)] disabled:opacity-40"
+            >
+              {t("Reset", "إعادة")}
+            </button>
+          </div>
 
           {/* controls */}
           <div className={cn("flex flex-wrap items-center gap-2", isArabic && "flex-row-reverse")}>
