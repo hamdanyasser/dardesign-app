@@ -153,6 +153,17 @@ def _depth_only_mode() -> bool:
     return os.environ.get("DARDESIGN_DEPTH_ONLY", "").lower() in ("1", "true", "yes")
 
 
+def _gpu_resident_mode() -> bool:
+    """Keep pipeline weights in VRAM instead of system RAM.
+
+    Set DARDESIGN_GPU_RESIDENT=1 where VRAM is larger than system RAM — the
+    standard Colab/Kaggle T4 (≈15 GB VRAM, ≈12 GB RAM) is exactly that shape, and
+    the default CPU-offload strategy exhausts RAM there. Pair with
+    DARDESIGN_DEPTH_ONLY=1 so the weights actually fit VRAM.
+    """
+    return os.environ.get("DARDESIGN_GPU_RESIDENT", "").lower() in ("1", "true", "yes")
+
+
 def fit_size(width: int, height: int, long_side: int = 1024) -> tuple[int, int]:
     """Scale (width, height) so the long side == long_side, keeping aspect,
     rounded to multiples of 8 (UNet requirement).
@@ -418,10 +429,35 @@ def _load_pipeline(*, use_sdxl: bool) -> _LoadedPipe:
         )
 
     if device == "cuda":
-        try:
-            pipe.enable_model_cpu_offload()
-        except Exception:
+        if _gpu_resident_mode():
+            # Weights live in VRAM, not system RAM.
+            #
+            # enable_model_cpu_offload() is the opposite trade: it parks every
+            # model in system RAM and streams it to the GPU per step. That is the
+            # right call when VRAM is the scarce resource — but on a standard
+            # Colab/Kaggle T4 the split is ~15 GB VRAM against ~12 GB RAM, so
+            # offloading exhausts the scarce side and the OOM killer takes out the
+            # whole kernel (observed: backend gone, `free -g` showing 12 GB total).
+            #
+            # Depth-only SDXL is ~9.5 GB of fp16 weights, which fits VRAM with room
+            # for activations, and system RAM then only carries OneFormer, Depth
+            # Anything and the torch runtime.
             pipe = pipe.to(device)
+            # Slicing trades a little speed for a lot of peak activation memory —
+            # worth it at 1024x1024, where attention is the spike.
+            try:
+                pipe.enable_attention_slicing()
+                pipe.enable_vae_slicing()
+            except Exception:
+                logger.warning("attention/VAE slicing unavailable", exc_info=True)
+            logger.warning(
+                "DARDESIGN_GPU_RESIDENT set — pipeline pinned to VRAM (no CPU offload)."
+            )
+        else:
+            try:
+                pipe.enable_model_cpu_offload()
+            except Exception:
+                pipe = pipe.to(device)
         try:
             pipe.enable_xformers_memory_efficient_attention()
         except Exception:
