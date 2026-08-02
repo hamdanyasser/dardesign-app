@@ -964,6 +964,40 @@ async def history_list(
     return JSONResponse(db.list_history(user["Id"]))
 
 
+class SuggestRequest(BaseModel):
+    isSuggested: bool = True
+
+
+@app.patch("/api/history/{entry_id}/suggest")
+async def history_set_suggested(
+    entry_id: int,
+    req: SuggestRequest,
+    session: str | None = Cookie(default=None, alias=SESSION_COOKIE),
+) -> JSONResponse:
+    """Share one of your designs to the public gallery, or take it back.
+
+    Owner-only: sharing someone else's work isn't theirs to do. A design that
+    isn't yours returns the same 404 as one that doesn't exist.
+    """
+    user = _require_user(session)
+    if not db.set_suggested(entry_id, user["Id"], req.isSuggested):
+        _raise(ERR_JOB_NOT_FOUND, detail_en="History entry not found.")
+    return JSONResponse({"id": entry_id, "isSuggested": req.isSuggested})
+
+
+@app.get("/api/history/suggested")
+async def history_suggested(
+    session: str | None = Cookie(default=None, alias=SESSION_COOKIE),
+) -> JSONResponse:
+    """Other people's shared designs.
+
+    Excludes the viewer's own work — the point of the gallery is seeing what
+    others made. Only IsSuggested rows are returned, so nothing private surfaces.
+    """
+    user = _require_user(session)
+    return JSONResponse(db.list_suggested(exclude_user_id=user["Id"]))
+
+
 @app.delete("/api/history/{entry_id}")
 async def history_delete(
     entry_id: int,

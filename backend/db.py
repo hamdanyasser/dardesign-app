@@ -190,6 +190,55 @@ def delete_history(entry_id: int, user_id: int) -> bool:
         return cur.rowcount > 0
 
 
+def set_suggested(entry_id: int, user_id: int, value: bool) -> bool:
+    """Publish (or unpublish) one entry to the shared gallery.
+
+    Scoped to the owner: only the person who saved a design may choose to share
+    it. Returns False when the entry isn't theirs, which the caller surfaces as a
+    404 so ids can't be probed.
+    """
+    conn = connect()
+    with _lock:
+        cur = conn.execute(
+            "UPDATE history SET IsSuggested = ? WHERE Id = ? AND UserId = ?",
+            (1 if value else 0, entry_id, user_id),
+        )
+        conn.commit()
+        return cur.rowcount > 0
+
+
+def list_suggested(exclude_user_id: int | None = None, limit: int = 100) -> list[dict]:
+    """Designs other people chose to share, newest first.
+
+    `exclude_user_id` leaves the viewer's own work out — this gallery is for
+    seeing what others made. Only IsSuggested rows are ever returned, so nothing
+    a user kept private can appear here.
+    """
+    if exclude_user_id is None:
+        rows = _query(
+            "SELECT h.*, u.FullName AS AuthorName FROM history h"
+            " LEFT JOIN users u ON u.Id = h.UserId"
+            " WHERE h.IsSuggested = 1 ORDER BY h.CreatedAt DESC LIMIT ?",
+            (limit,),
+        )
+    else:
+        rows = _query(
+            "SELECT h.*, u.FullName AS AuthorName FROM history h"
+            " LEFT JOIN users u ON u.Id = h.UserId"
+            " WHERE h.IsSuggested = 1 AND h.UserId != ? ORDER BY h.CreatedAt DESC LIMIT ?",
+            (exclude_user_id, limit),
+        )
+    out = []
+    for r in rows:
+        d = _history_row(r)
+        # First name only: the gallery is public to signed-in users, so it
+        # shouldn't hand out everyone's full name.
+        author = (r["AuthorName"] or "").strip()
+        d["authorName"] = author.split(" ")[0] if author else None
+        out.append(d)
+    return out
+
+
 def _history_row(r: sqlite3.Row) -> dict:
     return {
         "id": r["Id"],

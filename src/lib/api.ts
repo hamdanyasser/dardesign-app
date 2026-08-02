@@ -729,6 +729,8 @@ export interface HistoryEntry {
   newImageUrl: string;
   isSuggested: boolean;
   createdAt: number;
+  /** Present only on the shared gallery — first name of whoever made it. */
+  authorName?: string | null;
 }
 
 /** Session lives in an httpOnly cookie, so every auth-aware call must opt in to
@@ -799,6 +801,26 @@ export async function saveToHistory(
 
 export async function fetchHistory(): Promise<HistoryEntry[]> {
   const res = await safeFetch(`${API_URL}/api/history`, {
+    headers: COMMON_HEADERS,
+    ...WITH_CREDENTIALS,
+  });
+  return (await unwrap(res)) as HistoryEntry[];
+}
+
+/** Share one of your designs to the public gallery, or take it back. */
+export async function setSuggested(id: number, isSuggested: boolean): Promise<void> {
+  const res = await safeFetch(`${API_URL}/api/history/${id}/suggest`, {
+    method: "PATCH",
+    headers: { ...COMMON_HEADERS, "Content-Type": "application/json" },
+    body: JSON.stringify({ isSuggested }),
+    ...WITH_CREDENTIALS,
+  });
+  await unwrap(res);
+}
+
+/** Other users' shared designs — never your own, never anything unshared. */
+export async function fetchSuggested(): Promise<HistoryEntry[]> {
+  const res = await safeFetch(`${API_URL}/api/history/suggested`, {
     headers: COMMON_HEADERS,
     ...WITH_CREDENTIALS,
   });

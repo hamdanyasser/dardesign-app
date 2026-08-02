@@ -81,6 +81,9 @@ export default function CinemaChrome({ onNavHome }: CinemaChromeProps) {
               <Link className="toggle" href="/history">
                 {isArabic ? "سجلّي" : "History"}
               </Link>
+              <Link className="toggle" href="/others">
+                {isArabic ? "أعمال الآخرين" : "Others' Work"}
+              </Link>
               <button
                 className="toggle"
                 onClick={async () => {
