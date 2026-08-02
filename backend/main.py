@@ -254,9 +254,15 @@ class RedesignResponse(BaseModel):
     depth+seg pass fails — images still ship."""
 
     original: str
-    lebanese: str
-    khaleeji: str
-    moroccan: str
+    # Null when that culture wasn't requested. Optional rather than required
+    # because /redesign now accepts a style subset; asking for one style is ~3x
+    # faster and returns only that one.
+    lebanese: str | None = None
+    khaleeji: str | None = None
+    moroccan: str | None = None
+    # Which styles this response actually carries, so the client renders exactly
+    # what exists instead of inferring it from which fields happen to be null.
+    styles: list[str] = []
     object_map: dict | None = None
     seg_regions: dict | None = None
     depth_map: str | None = None
@@ -398,17 +404,24 @@ def _stream_keepalive(build_coro) -> StreamingResponse:
 
 
 @app.post("/redesign")
-async def redesign(file: UploadFile) -> StreamingResponse:
-    """Synchronous one-shot: original + all three styles + the 2D object map.
+async def redesign(file: UploadFile, styles: str | None = Form(default=None)) -> StreamingResponse:
+    """Synchronous one-shot: original + the requested styles + the 2D object map.
 
-    Runs the three generations sequentially (~1-2 min on the T4; instant in
-    DARDESIGN_LIGHT). The projection (WIRING §1) reuses the depth + raw-id seg
-    of the *input* room, so one compute serves all three style maps.
+    `styles` is an optional comma-separated subset ("lebanese" or
+    "lebanese,moroccan"). It defaults to all three, so the shipped contract and
+    the demo's "one compute serves all three cultures" story are unchanged unless
+    a caller explicitly asks for less.
+
+    Requesting one style is roughly 3x faster, because generation dominates: the
+    depth+seg pass and the room analysis run once regardless of how many styles
+    follow. That makes the iterate-and-retest loop practical without changing the
+    default anyone else relies on.
 
     Responds as a keepalive stream (see _stream_keepalive) so free tunnels
     don't time the request out; upload validation still 4xxes before the
     stream starts.
     """
+    requested = _parse_styles(styles)
     raw = await file.read()
     _guard_upload(file.filename, raw)
     try:
@@ -436,7 +449,7 @@ async def redesign(file: UploadFile) -> StreamingResponse:
             # provenance manifest records a real seed instead of null.
             seed = int(job.id[:8], 16)
             async with _GEN_LOCK:
-                for i, style in enumerate(CORE_STYLES):
+                for i, style in enumerate(requested):
                     last_out = await asyncio.to_thread(
                         transform_room, str(input_path), style, seed=seed
                     )
@@ -445,7 +458,7 @@ async def redesign(file: UploadFile) -> StreamingResponse:
                     # placement edits one specific style's image, and
                     # output_path only survives for the last one rendered.
                     job.style_outputs[style] = str(last_out)
-                    jobs.update_progress(job.id, (i + 1) / (len(CORE_STYLES) + 1))
+                    jobs.update_progress(job.id, (i + 1) / (len(requested) + 1))
         except PipelineError as e:
             jobs.transition(
                 job.id, JobStatus.error,
@@ -505,12 +518,13 @@ async def redesign(file: UploadFile) -> StreamingResponse:
         jobs.transition(job.id, JobStatus.done, output_path=str(last_out) if last_out else None)
         jobs.update_progress(job.id, 1.0)
         log_event(
-            "redesign", job_id=job.id, ok=True, styles=list(CORE_STYLES),
+            "redesign", job_id=job.id, ok=True, styles=list(requested),
             duration_s=round(time.monotonic() - started, 2), light=_light_mode(),
             object_map=object_map is not None, seg_regions=seg_regions is not None,
         )
         return RedesignResponse(
             original=original,
+            styles=requested,
             object_map=object_map,
             seg_regions=seg_regions,
             depth_map=depth_map,
@@ -823,6 +837,24 @@ async def furniture_room_analysis(job_id: str) -> JSONResponse:
             detail_ar="لا يوجد تحليل لهذه الغرفة — انتهت صلاحيته أو لم يتم إنشاؤه.",
         )
     return JSONResponse({"job_id": job_id, **analysis.summary()})
+
+
+def _parse_styles(raw: str | None) -> list[str]:
+    """Validate the optional `styles` filter, preserving CORE_STYLES order.
+
+    Absent or empty means all three — the shipped default. An unknown name is
+    rejected rather than silently dropped, so a typo can't quietly produce a
+    partial render the caller then treats as complete.
+    """
+    if not raw or not raw.strip():
+        return list(CORE_STYLES)
+    names = [s.strip().lower() for s in raw.split(",") if s.strip()]
+    unknown = [n for n in names if n not in CORE_STYLES]
+    if unknown:
+        _raise(ERR_BAD_STYLE, detail_en=f"Unknown style(s): {', '.join(unknown)}")
+    # Dedupe while keeping the canonical order, so callers can't influence
+    # generation sequence or ask for the same style twice.
+    return [s for s in CORE_STYLES if s in names]
 
 
 def _analysis_or_404(job_id: str):

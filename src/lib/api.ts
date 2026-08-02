@@ -307,9 +307,13 @@ export interface SegRegionsPayload {
  */
 export interface RedesignResult {
   original: string;
-  lebanese: string;
-  khaleeji: string;
-  moroccan: string;
+  /** Null when that culture wasn't requested — see `styles`. */
+  lebanese?: string | null;
+  khaleeji?: string | null;
+  moroccan?: string | null;
+  /** Which cultures this result actually carries. Render from this rather than
+   *  guessing from which image fields happen to be present. */
+  styles?: StyleId[];
   /** 2D top-down object map (Week 2). Null/absent when projection fails. */
   object_map?: ObjectMapPayload | null;
   /** On-image highlighter regions from the same seg pass. Null on failure. */
@@ -324,7 +328,7 @@ export interface RedesignResult {
   placeholder?: boolean | null;
 }
 
-const REDESIGN_KEYS = ["original", "lebanese", "khaleeji", "moroccan"] as const;
+const REDESIGN_STYLE_KEYS = ["lebanese", "khaleeji", "moroccan"] as const;
 
 /**
  * Send a room photo to the backend and get back the original plus all three
@@ -338,10 +342,18 @@ const REDESIGN_KEYS = ["original", "lebanese", "khaleeji", "moroccan"] as const;
  */
 export async function redesignRoom(
   file: File,
-  { timeoutMs = 300_000, signal }: { timeoutMs?: number; signal?: AbortSignal } = {},
+  {
+    timeoutMs = 300_000,
+    signal,
+    styles,
+  }: { timeoutMs?: number; signal?: AbortSignal; styles?: StyleId[] } = {},
 ): Promise<RedesignResult> {
   const fd = new FormData();
   fd.append("file", file);
+  // Omitted means all three — the server's default. Requesting a single culture
+  // is roughly 3x faster, since the depth/segmentation pass and room analysis
+  // run once regardless of how many styles follow.
+  if (styles?.length) fd.append("styles", styles.join(","));
 
   // Compose the internal timeout with any caller-provided abort signal.
   const ctrl = new AbortController();
@@ -391,11 +403,16 @@ export async function redesignRoom(
 
   const data = (await unwrap(res)) as Partial<RedesignResult>;
 
-  // Validate the payload so a partial/garbled backend response fails loudly
-  // and predictably instead of rendering broken <img> tags.
-  const missing = REDESIGN_KEYS.filter(
-    (k) => typeof data[k] !== "string" || !data[k]!.startsWith("data:image"),
-  );
+  // Validate so a partial/garbled response fails loudly instead of rendering
+  // broken <img> tags. The original is always required; styles are checked
+  // against what the server says it produced, because a single-culture request
+  // legitimately returns nulls for the other two.
+  const isImage = (v: unknown) => typeof v === "string" && v.startsWith("data:image");
+  const produced = (data.styles?.length ? data.styles : REDESIGN_STYLE_KEYS) as StyleId[];
+  const missing = [
+    ...(isImage(data.original) ? [] : ["original"]),
+    ...produced.filter((k) => !isImage(data[k])),
+  ];
   if (missing.length) {
     throw new ApiError(
       {
@@ -407,7 +424,7 @@ export async function redesignRoom(
     );
   }
 
-  return data as RedesignResult;
+  return { ...data, styles: produced } as RedesignResult;
 }
 
 /* -------------------------------------------------------------------------- */
