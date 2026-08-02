@@ -443,13 +443,23 @@ def _load_pipeline(*, use_sdxl: bool) -> _LoadedPipe:
             # for activations, and system RAM then only carries OneFormer, Depth
             # Anything and the torch runtime.
             pipe = pipe.to(device)
-            # Slicing trades a little speed for a lot of peak activation memory —
-            # worth it at 1024x1024, where attention is the spike.
+            # VAE slicing only, by default.
+            #
+            # Attention slicing was here too, and it cost far more speed than it
+            # was worth: generation went from ~4 min to 10+ on a T4. Measured on
+            # a live run, depth-only SDXL sits at 9.6 GB of the T4's 15.3 GB, so
+            # ~5.7 GB of headroom was going unused to buy memory we already had.
+            #
+            # VAE slicing stays because the decode spike is real and it costs
+            # almost no time. Set DARDESIGN_SAFE_ATTENTION=1 to put attention
+            # slicing back if a larger render or a busier GPU ever does OOM.
             try:
-                pipe.enable_attention_slicing()
                 pipe.enable_vae_slicing()
+                if os.environ.get("DARDESIGN_SAFE_ATTENTION", "").lower() in ("1", "true", "yes"):
+                    pipe.enable_attention_slicing()
+                    logger.warning("DARDESIGN_SAFE_ATTENTION — attention slicing on (slower)")
             except Exception:
-                logger.warning("attention/VAE slicing unavailable", exc_info=True)
+                logger.warning("VAE slicing unavailable", exc_info=True)
             logger.warning(
                 "DARDESIGN_GPU_RESIDENT set — pipeline pinned to VRAM (no CPU offload)."
             )
