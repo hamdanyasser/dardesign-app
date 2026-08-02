@@ -124,6 +124,40 @@ def normalize_room_type(value: str | None, path: Path | None = None) -> str | No
     return key if key in known_room_types(path) else None
 
 
+@lru_cache(maxsize=64)
+def asset_aspect(item_id: str, asset_rel: str) -> float | None:
+    """width/height of the item's actual PNG, or None if it can't be read.
+
+    The catalogue's real_width_cm/real_height_cm are physical measurements; the
+    generated asset has its own proportions, and the two disagree by up to 65%
+    across the catalogue. Drawing a physically-proportioned box and fitting the
+    image inside it leaves a gap, which reads as the furniture floating in mid-air.
+    The renderer therefore has to size boxes from the asset's true aspect.
+    """
+    path = ROOT / "public" / asset_rel
+    if not path.is_file():
+        return None
+    try:
+        from PIL import Image
+        with Image.open(path) as im:
+            w, h = im.size
+        return (w / h) if h > 0 else None
+    except Exception:  # noqa: BLE001
+        logger.warning("could not read asset dimensions for %s", item_id, exc_info=True)
+        return None
+
+
+def item_aspect(item: dict) -> float:
+    """Aspect ratio to render this item at — the asset's if readable, else the
+    catalogue's declared proportions."""
+    a = asset_aspect(item.get("id", ""), item.get("asset", ""))
+    if a and a > 0:
+        return a
+    w = float(item.get("real_width_cm") or 60.0)
+    h = float(item.get("real_height_cm") or 60.0)
+    return w / h if h > 0 else 1.0
+
+
 def _overlap(a: Iterable[str] | None, b: Iterable[str] | None) -> int:
     if not a or not b:
         return 0

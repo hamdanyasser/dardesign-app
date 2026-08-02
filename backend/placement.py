@@ -37,6 +37,7 @@ from typing import Any
 
 import numpy as np
 
+from .furniture import item_aspect
 from .room_analysis import RoomAnalysis, depth_to_distance
 
 logger = logging.getLogger(__name__)
@@ -231,11 +232,19 @@ def item_box_at(
 
     real_w = float(item.get("real_width_cm") or 60.0)
     real_h = float(item.get("real_height_cm") or 60.0)
+    # The box must match the ASSET's proportions, not the catalogue's. The two
+    # disagree by up to 65%, and the renderer fits the image inside the box with
+    # object-contain — so a mismatched box leaves a gap and the furniture appears
+    # to hover in mid-air above where it was actually placed.
+    aspect = item_aspect(item)
 
     ppc = local_px_per_cm(analysis, depth)
     if ppc:
-        w_px = real_w * ppc
-        h_px = real_h * ppc
+        # Preserve the item's real-world footprint *area* while adopting the
+        # asset's aspect, so the error is shared between width and height rather
+        # than distorting one of them entirely.
+        w_px = float(np.sqrt(real_w * real_h * aspect)) * ppc
+        h_px = w_px / aspect if aspect > 0 else real_h * ppc
         confidence = analysis.scale_confidence
     else:
         # No metric calibration in this room. Fall back to local clearance: size
@@ -243,7 +252,7 @@ def item_box_at(
         # its real aspect ratio. Honest but coarse, hence the low confidence.
         clearance = _clearance_at(analysis, xi, yi)
         w_px = max(clearance * 1.4, W * MIN_WIDTH_FRAC)
-        h_px = w_px * (real_h / max(real_w, 1e-6))
+        h_px = w_px / aspect if aspect > 0 else w_px
         confidence = 0.3
 
     box = Box(x=cx - w_px / 2.0, y=cy - h_px, w=w_px, h=h_px)

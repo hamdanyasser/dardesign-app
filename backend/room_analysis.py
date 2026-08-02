@@ -230,14 +230,28 @@ def _normalize_depth(depth: np.ndarray, near_is_large: bool = True) -> np.ndarra
     return 1.0 - d if near_is_large else d
 
 
+# How much nearer/farther the two extremes of one photo actually are.
+#
+# depth_norm is relative *within the image*, so this range decides how much an
+# item may grow toward the camera. An earlier 0.35–1.6 span allowed a 4.6x size
+# swing across a single frame, which made anything placed near the camera balloon
+# — a 120 cm coffee table rendered wider than the whole room.
+#
+# A room photographed in one shot spans far less than that: near floor to far
+# wall is typically well under 2:1 in apparent scale. 0.72–1.32 caps the swing at
+# ~1.8x, which still reads as perspective without exploding.
+NEAR_DISTANCE = 0.72
+FAR_DISTANCE = 1.32
+
+
 def depth_to_distance(depth: float | np.ndarray):
     """Map normalized depth (0 near … 1 far) to a relative camera distance.
 
-    Shared by the area correction and by apparent-size scaling so the two can
-    never disagree. The 0.35 floor keeps the near plane from dividing toward
-    zero and blowing an object up to absurd size right at the camera.
+    Shared by the free-area correction and by apparent-size scaling so the two
+    can never disagree.
     """
-    return np.clip(0.35 + np.asarray(depth, dtype=np.float32), 0.35, 1.6)
+    d = np.clip(np.asarray(depth, dtype=np.float32), 0.0, 1.0)
+    return NEAR_DISTANCE + d * (FAR_DISTANCE - NEAR_DISTANCE)
 
 
 def _estimate_scale(
