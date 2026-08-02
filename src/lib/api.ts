@@ -316,6 +316,10 @@ export interface RedesignResult {
   seg_regions?: SegRegionsPayload | null;
   /** Grayscale depth PNG data URL (brighter = closer) for DepthOrbit. */
   depth_map?: string | null;
+  /** Placement masks summary. Null when the depth/seg pass or analysis failed. */
+  room_analysis?: RoomAnalysisSummary | null;
+  /** Needed by the furniture endpoints, which look the cached analysis up by job. */
+  job_id?: string | null;
   /** True in DARDESIGN_LIGHT: images are tinted stand-ins, not real renders. */
   placeholder?: boolean | null;
 }
@@ -404,6 +408,199 @@ export async function redesignRoom(
   }
 
   return data as RedesignResult;
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Cultural furniture recommendation + placement                             */
+/* -------------------------------------------------------------------------- */
+
+/** One catalogue item (ontology/furniture.json). */
+export interface FurnitureItem {
+  id: string;
+  culture: StyleId;
+  category: string;
+  name_en: string;
+  name_ar: string;
+  description_en: string;
+  description_ar: string;
+  /** Path under /public, e.g. "furniture/lebanese/leb-chair-001.png". */
+  asset: string;
+  placement_type: string;
+  room_types: string[];
+  real_width_cm: number;
+  real_height_cm: number;
+  must_touch_wall: boolean;
+  must_stand_on_floor: boolean;
+  cultural_tags: string[];
+  material_tags: string[];
+  color_tags: string[];
+  /** Present on recommendations: ranking score and why it was suggested. */
+  score?: number;
+  reasons?: string[];
+}
+
+/** An open spot the room analysis found (normalized image coords). */
+export interface CandidateSpot {
+  cx: number;
+  cy: number;
+  clearance_px: number;
+  depth: number;
+  max_width_cm: number | null;
+}
+
+export interface RoomAnalysisSummary {
+  free_floor_ratio: number;
+  free_floor_of_floor: number;
+  free_floor_m2: number | null;
+  /** 0..1 — how much to trust free_floor_m2. Low means treat it loosely. */
+  scale_confidence: number;
+  existing_categories: string[];
+  candidates: CandidateSpot[];
+  warnings: string[];
+  placeholder?: boolean;
+}
+
+/** A placement box in **rendered-image pixels** (not mask space). */
+export interface PlacementPosition {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  rotation: number;
+}
+
+export interface PlacementCandidate {
+  valid: boolean;
+  score: number;
+  position: PlacementPosition;
+  depth: number;
+  reason: string | null;
+  reason_ar: string | null;
+  confidence: number;
+  breakdown: Record<string, number>;
+}
+
+export interface CandidatePositionsResult {
+  job_id: string;
+  furniture_id: string;
+  /** Pixel size of the rendered image these positions are expressed in. */
+  image_size: { width: number; height: number } | null;
+  positions: PlacementCandidate[];
+  /** Set only when `positions` is empty — no safe space was found. */
+  message: string | null;
+  message_ar: string | null;
+}
+
+export interface ValidatePositionResult extends PlacementCandidate {
+  adjusted_position: PlacementPosition | null;
+}
+
+export interface ConfirmPlacementResult {
+  job_id: string;
+  style: StyleId;
+  furniture_id: string;
+  /** The edited room as a base64 PNG data URL. */
+  image: string;
+  position: PlacementPosition;
+  score: number;
+  compositing: { brightness_factor: number; warmth_shift: number };
+}
+
+/** Ranked 3–6 culturally appropriate items for this room. */
+export async function fetchFurnitureRecommendations(
+  culture: StyleId,
+  opts: {
+    roomType?: string;
+    mood?: string;
+    freeFloorM2?: number | null;
+    existing?: string[];
+    limit?: number;
+  } = {},
+): Promise<FurnitureItem[]> {
+  const qs = new URLSearchParams({ culture });
+  if (opts.roomType) qs.set("room_type", opts.roomType);
+  if (opts.mood) qs.set("mood", opts.mood);
+  if (opts.freeFloorM2 != null) qs.set("free_floor_m2", String(opts.freeFloorM2));
+  if (opts.existing?.length) qs.set("existing", opts.existing.join(","));
+  if (opts.limit) qs.set("limit", String(opts.limit));
+  const res = await safeFetch(`${API_URL}/api/furniture/recommendations?${qs}`, {
+    headers: COMMON_HEADERS,
+  });
+  const data = (await unwrap(res)) as { items: FurnitureItem[] };
+  return data.items ?? [];
+}
+
+/** Best few places this item could go. Empty `positions` is a valid answer. */
+export async function fetchCandidatePositions(
+  jobId: string,
+  furnitureId: string,
+  limit = 3,
+): Promise<CandidatePositionsResult> {
+  const res = await safeFetch(`${API_URL}/api/furniture/candidate-positions`, {
+    method: "POST",
+    headers: { ...COMMON_HEADERS, "Content-Type": "application/json" },
+    body: JSON.stringify({ job_id: jobId, furniture_id: furnitureId, limit }),
+  });
+  return (await unwrap(res)) as CandidatePositionsResult;
+}
+
+/**
+ * Is this exact box valid? Called while dragging, so callers should debounce and
+ * pass a `signal` to drop stale in-flight checks.
+ *
+ * The backend is authoritative — this is the same check `confirm-placement` runs,
+ * so the green/red outline can never disagree with what confirming will do.
+ */
+export async function validatePlacement(
+  jobId: string,
+  furnitureId: string,
+  pos: PlacementPosition,
+  { signal }: { signal?: AbortSignal } = {},
+): Promise<ValidatePositionResult> {
+  const res = await safeFetch(`${API_URL}/api/furniture/validate-position`, {
+    method: "POST",
+    headers: { ...COMMON_HEADERS, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      job_id: jobId,
+      furniture_id: furnitureId,
+      x: pos.x,
+      y: pos.y,
+      width: pos.width,
+      height: pos.height,
+      rotation: pos.rotation ?? 0,
+    }),
+    signal,
+  });
+  return (await unwrap(res)) as ValidatePositionResult;
+}
+
+/** Insert the item and get the edited room back. Re-validated server-side. */
+export async function confirmPlacement(
+  jobId: string,
+  furnitureId: string,
+  style: StyleId,
+  pos: PlacementPosition,
+): Promise<ConfirmPlacementResult> {
+  const res = await safeFetch(`${API_URL}/api/furniture/confirm-placement`, {
+    method: "POST",
+    headers: { ...COMMON_HEADERS, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      job_id: jobId,
+      furniture_id: furnitureId,
+      style,
+      x: pos.x,
+      y: pos.y,
+      width: pos.width,
+      height: pos.height,
+      rotation: pos.rotation ?? 0,
+    }),
+  });
+  return (await unwrap(res)) as ConfirmPlacementResult;
+}
+
+/** Absolute URL for a catalogue item's PNG (served from /public). */
+export function furnitureAssetUrl(item: FurnitureItem): string {
+  return `/${item.asset.replace(/^\/+/, "")}`;
 }
 
 export interface RestyleResult {

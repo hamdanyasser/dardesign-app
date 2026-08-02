@@ -23,6 +23,10 @@ class Job:
     status: JobStatus = JobStatus.pending
     input_path: Optional[str] = None
     output_path: Optional[str] = None
+    # style -> rendered PNG path. /redesign produces one per culture, and
+    # output_path only keeps the last; furniture placement has to edit the
+    # specific style the user is looking at.
+    style_outputs: dict = field(default_factory=dict)
     style: Optional[str] = None
     progress: float = 0.0          # 0.0–1.0; updated by worker via Jobs.update_progress
     error_code: Optional[str] = None
@@ -37,6 +41,7 @@ class Job:
         # Don't leak filesystem paths over the wire
         d.pop("input_path", None)
         d.pop("output_path", None)
+        d.pop("style_outputs", None)
         return d
 
 

@@ -61,6 +61,26 @@ ERR_BAD_SHARE_TOKEN = ApiError(
     "Share link is invalid or expired.",
     "رابط المشاركة غير صالح أو منتهي الصلاحية.",
 )
+ERR_BAD_FURNITURE_ID = ApiError(
+    "bad_furniture_id", 400,
+    "Unknown furniture item.",
+    "قطعة الأثاث غير معروفة.",
+)
+ERR_CATALOGUE_UNAVAILABLE = ApiError(
+    "catalogue_unavailable", 500,
+    "Furniture catalogue could not be loaded.",
+    "تعذّر تحميل كتالوج الأثاث.",
+)
+ERR_INVALID_PLACEMENT = ApiError(
+    "invalid_placement", 400,
+    "The furniture cannot be placed at this position.",
+    "لا يمكن وضع الأثاث في هذا الموضع.",
+)
+ERR_COMPOSITING_FAILED = ApiError(
+    "compositing_failed", 500,
+    "Could not insert the furniture into the room.",
+    "تعذّر إدراج الأثاث في الغرفة.",
+)
 
 # 5xx — server-side
 ERR_PIPELINE = ApiError(

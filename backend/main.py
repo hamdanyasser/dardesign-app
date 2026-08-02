@@ -39,9 +39,14 @@ from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
 from .audit import log_event, read_events
+from .compositing import CompositingError, composite_item
 from .errors import (
+    ERR_BAD_FURNITURE_ID,
     ERR_BAD_SHARE_TOKEN,
     ERR_BAD_STYLE,
+    ERR_CATALOGUE_UNAVAILABLE,
+    ERR_COMPOSITING_FAILED,
+    ERR_INVALID_PLACEMENT,
     ERR_FILE_TOO_LARGE,
     ERR_JOB_BAD_STATE,
     ERR_JOB_NOT_FOUND,
@@ -49,6 +54,28 @@ from .errors import (
     ERR_OUTPUT_MISSING,
     ERR_PIPELINE,
     ApiError,
+)
+from .placement import (
+    NO_SPACE_AR,
+    NO_SPACE_EN,
+    Box as PlacementBox,
+    box_to_image_space,
+    box_to_mask_space,
+    candidate_positions,
+    validate_placement,
+)
+from .room_analysis import (
+    analyze_room,
+    cache_analysis as cache_room_analysis,
+    get_analysis as get_room_analysis,
+    mark_occupied as mark_room_occupied,
+)
+from .furniture import (
+    CatalogueError as FurnitureCatalogueError,
+    all_items as furniture_all_items,
+    get_item as furniture_get_item,
+    items_for_culture as furniture_items_for_culture,
+    recommend as furniture_recommend,
 )
 from .guardrails import (
     clamp_params,
@@ -232,9 +259,43 @@ class RedesignResponse(BaseModel):
     object_map: dict | None = None
     seg_regions: dict | None = None
     depth_map: str | None = None
+    # Furniture placement: the small JSON summary only (free-floor ratio and area,
+    # existing categories, candidate spots). The masks themselves stay server-side
+    # in the room-analysis cache — they are megabytes of boolean arrays that only
+    # the placement engine needs. Null when the depth/seg pass or the analysis fails.
+    room_analysis: dict | None = None
+    # Needed by the placement endpoints, which look the cached analysis up by job.
+    job_id: str | None = None
     # True in DARDESIGN_LIGHT: images are tinted stand-ins, not real renders.
     placeholder: bool | None = None
     privacy_notice: str = PRIVACY_NOTICE
+
+
+class CandidatePositionsRequest(BaseModel):
+    job_id: str
+    furniture_id: str
+    limit: int = 3
+
+
+class ValidatePositionRequest(BaseModel):
+    job_id: str
+    furniture_id: str
+    x: float
+    y: float
+    width: float
+    height: float
+    rotation: float = 0.0
+
+
+class ConfirmPlacementRequest(BaseModel):
+    job_id: str
+    furniture_id: str
+    style: str
+    x: float
+    y: float
+    width: float
+    height: float
+    rotation: float = 0.0
 
 
 class RestyleResponse(BaseModel):
@@ -375,6 +436,10 @@ async def redesign(file: UploadFile) -> StreamingResponse:
                         transform_room, str(input_path), style, seed=seed
                     )
                     images[style] = _png_data_url(last_out)
+                    # Remember where each style's render lives: furniture
+                    # placement edits one specific style's image, and
+                    # output_path only survives for the last one rendered.
+                    job.style_outputs[style] = str(last_out)
                     jobs.update_progress(job.id, (i + 1) / (len(CORE_STYLES) + 1))
         except PipelineError as e:
             jobs.transition(
@@ -397,8 +462,24 @@ async def redesign(file: UploadFile) -> StreamingResponse:
         object_map: dict | None = None
         seg_regions: dict | None = None
         depth_map: str | None = None
+        room_analysis: dict | None = None
         try:
             depth, seg_ids = await asyncio.to_thread(compute_depth_seg, input_path)
+
+            # Furniture placement: derive the floor/occupied/protected masks and
+            # candidate spots from this same pass and cache them against the job.
+            # They can only be built here — recomputing later would mean re-running
+            # the depth+seg models on a GPU, and the placement UI re-validates on
+            # every drag. ~0.35 s at 1024x1024, against a 1-2 min generation.
+            # Isolated in its own try: this is an enhancement, and it must never
+            # cost the user the object map or the depth PNG below it.
+            try:
+                analysis = analyze_room(depth, seg_ids)
+                cache_room_analysis(job.id, analysis)
+                room_analysis = analysis.summary()
+            except Exception:
+                logger.exception("room analysis failed for job %s — placement disabled", job.id)
+
             objects = project_top_down(depth, seg_ids)
             for o in objects:
                 # projection.py cy: 0 = nearest the camera. RoomMap2D draws cy=0 at
@@ -411,6 +492,8 @@ async def redesign(file: UploadFile) -> StreamingResponse:
             if _light_mode():
                 object_map["placeholder"] = True  # synthetic layout, not detections
                 seg_regions["placeholder"] = True
+                if room_analysis is not None:
+                    room_analysis["placeholder"] = True
         except Exception:
             logger.exception("depth/seg pass failed for job %s — images only", job.id)
 
@@ -426,6 +509,8 @@ async def redesign(file: UploadFile) -> StreamingResponse:
             object_map=object_map,
             seg_regions=seg_regions,
             depth_map=depth_map,
+            room_analysis=room_analysis,
+            job_id=job.id,
             placeholder=True if _light_mode() else None,
             **images,
         )
@@ -655,6 +740,273 @@ async def resolve_share(token: str):
 async def list_jobs(limit: int = 50) -> JSONResponse:
     items = sorted(jobs.list(), key=lambda j: j.created_at, reverse=True)[:limit]
     return JSONResponse([j.public() for j in items])
+
+
+# ---------- cultural furniture ----------
+
+
+@app.get("/api/furniture/catalogue")
+async def furniture_catalogue(culture: str | None = None) -> JSONResponse:
+    """Full catalogue, or one culture's items. Static data — no room context needed,
+    so the frontend can render the panel before any room analysis exists."""
+    try:
+        items = furniture_items_for_culture(culture) if culture else furniture_all_items()
+    except FurnitureCatalogueError as e:
+        _raise(ERR_BAD_STYLE if culture else ERR_CATALOGUE_UNAVAILABLE, detail_en=str(e))
+    return JSONResponse({"items": items, "count": len(items)})
+
+
+@app.get("/api/furniture/recommendations")
+async def furniture_recommendations(
+    culture: str,
+    room_type: str | None = None,
+    mood: str | None = None,
+    free_floor_m2: float | None = None,
+    existing: str | None = None,   # comma-separated categories already in the room
+    colors: str | None = None,     # comma-separated colour tags detected in the room
+    materials: str | None = None,  # comma-separated material tags detected in the room
+    limit: int = 6,
+) -> JSONResponse:
+    """Ranked 3-6 items for this culture and room.
+
+    Only `culture` is required. Every other parameter sharpens the ranking but its
+    absence never fails the request — the room-analysis pass that supplies
+    free_floor_m2 / existing / colors / materials lands after this endpoint, and the
+    furniture panel has to work in the meantime.
+    """
+    def _split(v: str | None) -> list[str] | None:
+        return [s.strip() for s in v.split(",") if s.strip()] if v else None
+
+    try:
+        recs = furniture_recommend(
+            culture,
+            # NOT sanitize_prompt_fragment: that strips underscores, turning the
+            # catalogue key "living_room" into "living room" so nothing matched.
+            # room_type is a lookup key, never prompt text — normalize_room_type
+            # allowlists it against the catalogue instead.
+            room_type=room_type,
+            existing_categories=_split(existing),
+            room_colors=_split(colors),
+            room_materials=_split(materials),
+            free_floor_m2=free_floor_m2,
+            mood=mood,
+            limit=limit,
+        )
+    except FurnitureCatalogueError as e:
+        _raise(ERR_BAD_STYLE, detail_en=str(e))
+    return JSONResponse({
+        "culture": culture,
+        "room_type": room_type,
+        "items": [r.to_dict() for r in recs],
+    })
+
+
+@app.get("/api/furniture/room-analysis/{job_id}")
+async def furniture_room_analysis(job_id: str) -> JSONResponse:
+    """Cached placement analysis for a generated room.
+
+    404 rather than recomputing when it's absent: rebuilding it needs the depth and
+    segmentation models, which means a GPU. An expired entry is a real state the
+    frontend must handle (hide the furniture panel), not something to paper over
+    with a slow, silent re-render.
+    """
+    analysis = get_room_analysis(job_id)
+    if analysis is None:
+        _raise(
+            ERR_JOB_NOT_FOUND,
+            detail_en="No room analysis for this job — it expired or was never generated.",
+            detail_ar="لا يوجد تحليل لهذه الغرفة — انتهت صلاحيته أو لم يتم إنشاؤه.",
+        )
+    return JSONResponse({"job_id": job_id, **analysis.summary()})
+
+
+def _analysis_or_404(job_id: str):
+    analysis = get_room_analysis(job_id)
+    if analysis is None:
+        _raise(
+            ERR_JOB_NOT_FOUND,
+            detail_en="No room analysis for this job — it expired or was never generated.",
+            detail_ar="لا يوجد تحليل لهذه الغرفة — انتهت صلاحيته أو لم يتم إنشاؤه.",
+        )
+    return analysis
+
+
+def _item_or_400(furniture_id: str) -> dict:
+    try:
+        return furniture_get_item(furniture_id)
+    except FurnitureCatalogueError as e:
+        _raise(ERR_BAD_FURNITURE_ID, detail_en=str(e))
+
+
+def _render_size(job_id: str, style: str | None = None) -> tuple[int, int] | None:
+    """(width, height) of a job's rendered image.
+
+    The depth/seg masks run at a fixed square resolution while renders keep the
+    room's aspect, so every box crossing the API boundary has to be converted
+    between the two. Returns None if nothing has been rendered yet.
+    """
+    job = jobs.get(job_id)
+    outputs = (job.style_outputs if job else None) or {}
+    path = outputs.get(style) if style else next(iter(outputs.values()), None)
+    if not path or not Path(path).exists():
+        return None
+    try:
+        from PIL import Image as _Image
+        with _Image.open(path) as im:
+            return im.size
+    except Exception:  # noqa: BLE001
+        logger.exception("could not read render size for job %s", job_id)
+        return None
+
+
+@app.post("/api/furniture/candidate-positions")
+async def furniture_candidate_positions(req: CandidatePositionsRequest) -> JSONResponse:
+    """Best few places this item could realistically go in this room.
+
+    An empty `positions` list is a legitimate answer, not an error: some items
+    genuinely do not fit some rooms, and forcing an insertion would put a chair
+    inside a wall. The message says so in both languages.
+    """
+    analysis = _analysis_or_404(req.job_id)
+    item = _item_or_400(req.furniture_id)
+    results = candidate_positions(analysis, item, limit=max(1, min(req.limit, 5)))
+
+    # Convert to rendered-image pixels — that's the space the client draws in.
+    target = _render_size(req.job_id)
+    mask_shape = analysis.free_floor_mask.shape[:2]
+    payload = []
+    for r in results:
+        d = r.to_dict()
+        if target:
+            d["position"] = box_to_image_space(r.box, mask_shape, target).to_dict()
+        payload.append(d)
+
+    return JSONResponse({
+        "job_id": req.job_id,
+        "furniture_id": req.furniture_id,
+        "image_size": {"width": target[0], "height": target[1]} if target else None,
+        "positions": payload,
+        "message": None if results else NO_SPACE_EN,
+        "message_ar": None if results else NO_SPACE_AR,
+    })
+
+
+@app.post("/api/furniture/validate-position")
+async def furniture_validate_position(req: ValidatePositionRequest) -> JSONResponse:
+    """Is this exact box valid? Called on every drag, so it must stay cheap.
+
+    The backend is authoritative here. The frontend's green/red outline is a UX
+    convenience computed from these same answers — it is never trusted as the
+    decision, because a client can send any box it likes.
+    """
+    analysis = _analysis_or_404(req.job_id)
+    item = _item_or_400(req.furniture_id)
+
+    # Client sends rendered-image pixels; the masks live in analysis space.
+    incoming = PlacementBox(x=req.x, y=req.y, w=req.width, h=req.height, rotation=req.rotation)
+    target = _render_size(req.job_id)
+    mask_shape = analysis.free_floor_mask.shape[:2]
+    box = box_to_mask_space(incoming, mask_shape, target) if target else incoming
+
+    result = validate_placement(analysis, item, box)
+    payload = result.to_dict()
+    # Echo the position back in the client's own space.
+    payload["position"] = (
+        box_to_image_space(result.box, mask_shape, target).to_dict() if target
+        else result.box.to_dict()
+    )
+    # Spec contract: an "adjusted_position" the client can snap to. We only ever
+    # offer the box unchanged when valid — silently moving a rejected item would
+    # undermine the point of asking the user to confirm a position.
+    payload["adjusted_position"] = payload["position"] if result.valid else None
+    return JSONResponse(payload)
+
+
+@app.post("/api/furniture/confirm-placement")
+async def furniture_confirm_placement(req: ConfirmPlacementRequest) -> JSONResponse:
+    """Insert the item and return the edited room.
+
+    Re-validates server-side before compositing. The client already validated
+    while dragging, but that is a convenience — a request can carry any box, and
+    the contract is that a successful response never means furniture was placed
+    somewhere invalid. A rejected position returns 400 with the reason, not a
+    quietly corrected image.
+    """
+    analysis = _analysis_or_404(req.job_id)
+    item = _item_or_400(req.furniture_id)
+
+    style = req.style
+    try:
+        style = guard_validate_style(style)
+    except ValueError:
+        _raise(ERR_BAD_STYLE)
+
+    job = jobs.get(req.job_id)
+    if job is None:
+        _raise(ERR_JOB_NOT_FOUND)
+    base_path = (job.style_outputs or {}).get(style)
+    if not base_path or not Path(base_path).exists():
+        _raise(ERR_OUTPUT_MISSING, detail_en=f"No rendered image for style {style!r}.")
+
+    # The client's box is in rendered-image pixels. Validate in mask space, then
+    # composite in image space — the two must not be confused, or the furniture
+    # lands somewhere other than where the user confirmed it.
+    incoming = PlacementBox(x=req.x, y=req.y, w=req.width, h=req.height, rotation=req.rotation)
+    target = _render_size(req.job_id, style)
+    mask_shape = analysis.free_floor_mask.shape[:2]
+    mask_box = box_to_mask_space(incoming, mask_shape, target) if target else incoming
+    box = incoming if target else mask_box
+
+    verdict = validate_placement(analysis, item, mask_box)
+    if not verdict.valid:
+        _raise(
+            ERR_INVALID_PLACEMENT,
+            detail_en=verdict.reason_en or "Invalid placement.",
+            detail_ar=verdict.reason_ar or "موضع غير صالح.",
+        )
+
+    try:
+        from PIL import Image as _Image
+        base = await asyncio.to_thread(_Image.open, base_path)
+        result = await asyncio.to_thread(composite_item, base, item, box, analysis=analysis)
+        out_path = Path(base_path).with_name(
+            f"{req.job_id}_{style}_{req.furniture_id}_{int(time.time())}.png"
+        )
+        await asyncio.to_thread(result.image.save, out_path, "PNG")
+    except CompositingError as e:
+        logger.exception("compositing failed for job %s", req.job_id)
+        _raise(ERR_COMPOSITING_FAILED, detail_en=str(e))
+    except Exception as e:  # noqa: BLE001
+        logger.exception("unexpected compositing failure for job %s", req.job_id)
+        _raise(ERR_COMPOSITING_FAILED, detail_en=str(e))
+
+    # The edited render becomes the job's current image, so a second placement
+    # builds on the first instead of silently discarding it.
+    job.style_outputs[style] = str(out_path)
+    # Teach the cached analysis about the new item, so the next suggestion avoids
+    # it rather than proposing the same corner again.
+    mark_room_occupied(analysis, mask_box.x, mask_box.y, mask_box.w, mask_box.h)
+    log_event(
+        "furniture_placement", job_id=req.job_id, style=style,
+        furniture_id=req.furniture_id, score=round(verdict.score, 3), ok=True,
+    )
+    return JSONResponse({
+        "job_id": req.job_id,
+        "style": style,
+        "furniture_id": req.furniture_id,
+        "image": _png_data_url(out_path),
+        "position": box.to_dict(),
+        "score": round(verdict.score, 3),
+        "compositing": result.to_meta(),
+    })
+
+
+@app.get("/api/furniture/item/{item_id}")
+async def furniture_item(item_id: str) -> JSONResponse:
+    try:
+        return JSONResponse(furniture_get_item(item_id))
+    except FurnitureCatalogueError as e:
+        _raise(ERR_BAD_FURNITURE_ID, detail_en=str(e))
 
 
 @app.get("/audit")

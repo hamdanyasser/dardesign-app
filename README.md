@@ -53,6 +53,22 @@ docker build -t dardesign-backend . && docker run -p 8000:8000 dardesign-backend
 # see kaggle/README.md — paste cells in order
 ```
 
+### Every session: Kaggle backend + local frontend
+
+The notebook prints a fresh tunnel URL each run. One command points the app at
+it and starts the dev server:
+
+```bash
+npm run dev:tunnel https://nut-resist-wal-crossing.trycloudflare.com
+npm run dev:tunnel        # later runs — reuses the URL saved in .env.local
+```
+
+It writes `.env.local`, probes `/healthz` (reporting version, LIGHT-vs-real, and
+queue depth), and runs `next dev` on **:3000** — the only origin in the backend's
+default CORS allowlist, so it refuses to start on a fallback port rather than
+let every redesign call fail on CORS. Flags need npm's `--` separator:
+`-- --set-only` (env only, no server), `-- --no-check`, `-- --any-port`.
+
 ## Repo layout
 
 ```

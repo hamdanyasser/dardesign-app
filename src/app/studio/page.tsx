@@ -23,6 +23,7 @@ import CulturalElementHighlighter, { DEMO_REGIONS } from "@/components/CulturalE
 import RoomMap2D, { DEMO_MAP } from "@/components/RoomMap2D";
 import CulturalNarration from "@/components/CulturalNarration";
 import DepthOrbit from "@/components/DepthOrbit";
+import FurniturePlacement from "@/components/FurniturePlacement";
 import RoomReport from "@/components/RoomReport";
 import StyleIntensitySlider from "@/components/StyleIntensitySlider";
 import { useImage, type StyleId } from "@/context/ImageContext";
@@ -823,6 +824,23 @@ export default function StudioPage() {
                       </p>
                       <DepthOrbit imageUrl={result[featured]} depthUrl={result.depth_map} />
                     </div>
+                  )}
+
+                  {/* Cultural furniture: recommend, position, confirm, insert.
+                      Needs the cached room analysis (masks live server-side), so
+                      it only renders when /redesign returned a job id and an
+                      analysis — otherwise placement has nothing to validate
+                      against and the panel would offer a broken promise. */}
+                  {result.job_id && result.room_analysis && (
+                    <FurniturePlacement
+                      jobId={result.job_id}
+                      style={featured}
+                      imageSrc={result[featured]}
+                      analysis={result.room_analysis}
+                      onPlaced={(image) =>
+                        setResult((prev) => (prev ? { ...prev, [featured]: image } : prev))
+                      }
+                    />
                   )}
 
                   <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
