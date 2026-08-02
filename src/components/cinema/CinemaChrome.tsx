@@ -6,7 +6,10 @@
    Ported from the dar-design-2 bundle (jsx/chrome.jsx).
    ============================================================ */
 
+import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { useAuth } from "@/context/AuthContext";
 import { useThemeLanguage } from "@/context/ThemeLanguageContext";
 import { useCinemaCopy } from "@/components/cinema/copy";
 import { DarAudio } from "@/lib/audio";
@@ -17,6 +20,8 @@ interface CinemaChromeProps {
 
 export default function CinemaChrome({ onNavHome }: CinemaChromeProps) {
   const { isArabic, theme, toggleLanguage, toggleTheme } = useThemeLanguage();
+  const { user, loading, signOut } = useAuth();
+  const router = useRouter();
   const [audioOn, setAudioOn] = useState<boolean>(false);
 
   const t = useCinemaCopy().chrome;
@@ -67,6 +72,31 @@ export default function CinemaChrome({ onNavHome }: CinemaChromeProps) {
         <button className="toggle" onClick={() => toggleLanguage()}>
           {t.langToggle}
         </button>
+
+        {/* Account. Rendered only once the initial session check has settled,
+            so a signed-in user never sees "Sign in" flash first. */}
+        {!loading &&
+          (user ? (
+            <>
+              <Link className="toggle" href="/history">
+                {isArabic ? "سجلّي" : "History"}
+              </Link>
+              <button
+                className="toggle"
+                onClick={async () => {
+                  await signOut();
+                  router.push("/");
+                }}
+                title={user.email}
+              >
+                {isArabic ? "خروج" : "Log out"}
+              </button>
+            </>
+          ) : (
+            <Link className="toggle" href="/login">
+              {isArabic ? "دخول" : "Sign in"}
+            </Link>
+          ))}
       </div>
     </header>
   );

@@ -25,6 +25,7 @@ import CulturalNarration from "@/components/CulturalNarration";
 import DepthOrbit from "@/components/DepthOrbit";
 import FurniturePlacement from "@/components/FurniturePlacement";
 import RoomReport from "@/components/RoomReport";
+import SaveDesignButton from "@/components/SaveDesignButton";
 import StyleIntensitySlider from "@/components/StyleIntensitySlider";
 import { useImage, type StyleId } from "@/context/ImageContext";
 import { useThemeLanguage } from "@/context/ThemeLanguageContext";
@@ -735,6 +736,10 @@ export default function StudioPage() {
                 {isArabic ? "كل البيوت الثلاثة" : "All three houses"}
               </h2>
               <div className={cn("flex items-center gap-3", isArabic && "flex-row-reverse")}>
+                {/* Save the CURRENT state: featuredSrc is replaced after every
+                    furniture insertion, so pressing this after editing stores
+                    the edited room, not the freshly generated one. */}
+                <SaveDesignButton oldImage={result.original} newImage={featuredSrc} />
                 <RoomReport
                   beforeSrc={result.original}
                   afterSrc={featuredSrc}

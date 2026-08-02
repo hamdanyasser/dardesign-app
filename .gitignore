@@ -92,3 +92,10 @@ Thumbs.db
 # both are regenerable with scripts/generate_furniture_assets.py.
 /assets/furniture_raw/
 /public/furniture/*/*_v*.png
+
+# accounts + saved designs (local runtime data, never committed)
+backend/dardesign.db
+backend/dardesign.db-wal
+backend/dardesign.db-shm
+/images/old/
+/images/new/

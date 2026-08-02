@@ -30,23 +30,42 @@ import logging
 import os
 import shutil
 import time
+import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, Form, HTTPException, UploadFile
+from fastapi import Cookie, FastAPI, Form, HTTPException, Request, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+from . import db
 from .audit import log_event, read_events
+from .auth import (
+    SESSION_COOKIE,
+    SESSION_TTL_SECONDS,
+    cookie_params,
+    hash_password,
+    make_session,
+    read_session,
+    verify_password,
+)
 from .compositing import CompositingError, composite_item
 from .errors import (
+    ERR_BAD_CREDENTIALS,
     ERR_BAD_FURNITURE_ID,
+    ERR_BAD_IMAGE_DATA,
     ERR_BAD_SHARE_TOKEN,
     ERR_BAD_STYLE,
     ERR_CATALOGUE_UNAVAILABLE,
     ERR_COMPOSITING_FAILED,
+    ERR_EMAIL_TAKEN,
+    ERR_INVALID_EMAIL,
     ERR_INVALID_PLACEMENT,
+    ERR_MISSING_NAME,
+    ERR_NOT_AUTHENTICATED,
+    ERR_WEAK_PASSWORD,
     ERR_FILE_TOO_LARGE,
     ERR_JOB_BAD_STATE,
     ERR_JOB_NOT_FOUND,
@@ -107,6 +126,7 @@ from .validators import ValidationFailure, validate_upload
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger("dardesign.api")
 
+ROOT = Path(__file__).resolve().parent.parent
 UPLOAD_DIR = Path(__file__).parent / "uploads"
 UPLOAD_DIR.mkdir(exist_ok=True)
 
@@ -126,6 +146,7 @@ async def lifespan(_: FastAPI):
     # Privacy: uploads AND generated PNGs both land in backend/uploads
     # (DEFAULT_OUT_DIR == UPLOAD_DIR), so one root covers them. saved/ and
     # *.keep siblings survive the sweep; everything else dies after 24h.
+    db.connect()
     stop_sweeper = start_background_sweeper([UPLOAD_DIR], ttl_hours=24, interval_min=60)
     logger.info("24h TTL sweeper running on %s — %s", UPLOAD_DIR, PRIVACY_NOTICE)
     try:
@@ -135,13 +156,33 @@ async def lifespan(_: FastAPI):
 
 
 app = FastAPI(title="DarDesign API", version="0.3.0", lifespan=lifespan)
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=ALLOWED_ORIGINS,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# Browsers refuse to send cookies to a wildcard origin, and the Colab notebook
+# sets DARDESIGN_ALLOWED_ORIGINS="*". allow_origin_regex echoes the caller's
+# origin instead, which is credential-safe — without this, login appears to
+# succeed and then every following request arrives anonymous.
+if ALLOWED_ORIGINS == ["*"]:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origin_regex=".*",
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+else:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=ALLOWED_ORIGINS,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
+# Saved designs: images/old holds the room as uploaded, images/new the final
+# edited render. Served statically so History can show them by URL.
+IMAGES_DIR = ROOT / "images"
+(IMAGES_DIR / "old").mkdir(parents=True, exist_ok=True)
+(IMAGES_DIR / "new").mkdir(parents=True, exist_ok=True)
+app.mount("/images", StaticFiles(directory=str(IMAGES_DIR)), name="images")
 
 
 # ---------- helpers ----------
@@ -759,6 +800,181 @@ async def resolve_share(token: str):
 async def list_jobs(limit: int = 50) -> JSONResponse:
     items = sorted(jobs.list(), key=lambda j: j.created_at, reverse=True)[:limit]
     return JSONResponse([j.public() for j in items])
+
+
+# ---------- accounts + saved designs ----------
+
+
+class RegisterRequest(BaseModel):
+    fullName: str
+    phoneNumber: str | None = None
+    email: str
+    password: str
+
+
+class LoginRequest(BaseModel):
+    email: str
+    password: str
+
+
+class SaveHistoryRequest(BaseModel):
+    """Both images as data URLs.
+
+    The client sends the pixels rather than a job id on purpose: the design it
+    wants saved is whatever is on screen *after* any furniture placements, and
+    it holds that already. Referencing server state would also break after a
+    backend restart, which is exactly when someone wants to save.
+    """
+
+    oldImage: str
+    newImage: str
+
+
+def _current_user(session: str | None):
+    """The logged-in user, or None. Never raises — callers decide if auth is required."""
+    uid = read_session(session)
+    return db.get_user(uid) if uid is not None else None
+
+
+def _require_user(session: str | None):
+    user = _current_user(session)
+    if user is None:
+        _raise(ERR_NOT_AUTHENTICATED)
+    return user
+
+
+def _with_session_cookie(response: JSONResponse, request: Request, user_id: int) -> JSONResponse:
+    """Attach the session cookie to the response we actually return.
+
+    It must be set on this object, not on an injected `Response` parameter:
+    FastAPI only merges that one's headers when the handler returns a plain
+    value. Returning a JSONResponse silently discards it, which looks exactly
+    like a successful login that leaves the user signed out.
+
+    Behind the Cloudflare tunnel the app sees http internally while the browser
+    sees https, so trust the forwarded scheme — otherwise the cookie goes out
+    without Secure and the browser drops it on a cross-site request.
+    """
+    forwarded = (request.headers.get("x-forwarded-proto") or "").split(",")[0].strip()
+    is_https = (forwarded or request.url.scheme) == "https"
+    response.set_cookie(
+        SESSION_COOKIE,
+        make_session(user_id),
+        max_age=SESSION_TTL_SECONDS,
+        httponly=True,  # not readable from JS, so XSS can't lift the session
+        path="/",
+        **cookie_params(is_https),
+    )
+    return response
+
+
+def _save_data_url(data_url: str, folder: str) -> str:
+    """Write a base64 data URL under images/<folder>/ and return its public path."""
+    if not data_url.startswith("data:image"):
+        _raise(ERR_BAD_IMAGE_DATA)
+    try:
+        _, _, b64 = data_url.partition(",")
+        raw = base64.b64decode(b64, validate=True)
+    except Exception:  # noqa: BLE001
+        _raise(ERR_BAD_IMAGE_DATA)
+    if not raw:
+        _raise(ERR_BAD_IMAGE_DATA)
+    name = f"{uuid.uuid4().hex}.png"
+    (IMAGES_DIR / folder).mkdir(parents=True, exist_ok=True)
+    (IMAGES_DIR / folder / name).write_bytes(raw)
+    return f"images/{folder}/{name}"
+
+
+@app.post("/api/auth/register")
+async def auth_register(req: RegisterRequest, request: Request) -> JSONResponse:
+    """Create an account and sign in immediately.
+
+    The first account created becomes Admin — otherwise a fresh install has no
+    way to reach an admin-only surface. Everyone after that is a User.
+    """
+    email = (req.email or "").strip().lower()
+    if "@" not in email or "." not in email.split("@")[-1]:
+        _raise(ERR_INVALID_EMAIL)
+    if len((req.password or "")) < 6:
+        _raise(ERR_WEAK_PASSWORD)
+    if not (req.fullName or "").strip():
+        _raise(ERR_MISSING_NAME)
+
+    role = db.ROLE_ADMIN if db.user_count() == 0 else db.ROLE_USER
+    try:
+        uid = db.create_user(req.fullName, req.phoneNumber, email, hash_password(req.password), role)
+    except db.EmailTaken:
+        _raise(ERR_EMAIL_TAKEN)
+
+    return _with_session_cookie(JSONResponse(db.public_user(db.get_user(uid))), request, uid)
+
+
+@app.post("/api/auth/login")
+async def auth_login(req: LoginRequest, request: Request) -> JSONResponse:
+    row = db.get_user_by_email((req.email or "").strip().lower())
+    # One message for both "no such email" and "wrong password", so the endpoint
+    # can't be used to discover which addresses have accounts.
+    if row is None or not verify_password(req.password or "", row["Password"]):
+        _raise(ERR_BAD_CREDENTIALS)
+    return _with_session_cookie(JSONResponse(db.public_user(row)), request, row["Id"])
+
+
+@app.post("/api/auth/logout")
+async def auth_logout() -> JSONResponse:
+    # Same reasoning as above: clear the cookie on the returned response.
+    out = JSONResponse({"ok": True})
+    out.delete_cookie(SESSION_COOKIE, path="/")
+    return out
+
+
+@app.get("/api/auth/me")
+async def auth_me(session: str | None = Cookie(default=None, alias=SESSION_COOKIE)) -> JSONResponse:
+    """Who am I? 200 with null when signed out, so the client can boot without
+    treating "not logged in" as an error."""
+    user = _current_user(session)
+    return JSONResponse(db.public_user(user) if user is not None else None)
+
+
+@app.post("/api/history")
+async def history_save(
+    req: SaveHistoryRequest,
+    session: str | None = Cookie(default=None, alias=SESSION_COOKIE),
+) -> JSONResponse:
+    """Save the current design. Nothing is stored until this is called."""
+    user = _require_user(session)
+    old_url = _save_data_url(req.oldImage, "old")
+    new_url = _save_data_url(req.newImage, "new")
+    entry_id = db.add_history(user["Id"], old_url, new_url)
+    log_event("history_save", user_id=user["Id"], entry_id=entry_id, ok=True)
+    return JSONResponse({
+        "id": entry_id,
+        "oldImageUrl": old_url,
+        "newImageUrl": new_url,
+        "isSuggested": False,
+    })
+
+
+@app.get("/api/history")
+async def history_list(
+    session: str | None = Cookie(default=None, alias=SESSION_COOKIE),
+) -> JSONResponse:
+    """The signed-in user's saved designs. Scoped by UserId in the query, so one
+    account can never see another's."""
+    user = _require_user(session)
+    return JSONResponse(db.list_history(user["Id"]))
+
+
+@app.delete("/api/history/{entry_id}")
+async def history_delete(
+    entry_id: int,
+    session: str | None = Cookie(default=None, alias=SESSION_COOKIE),
+) -> JSONResponse:
+    user = _require_user(session)
+    if not db.delete_history(entry_id, user["Id"]):
+        # Same 404 whether it doesn't exist or belongs to someone else — the
+        # difference would leak that an id is in use.
+        _raise(ERR_JOB_NOT_FOUND, detail_en="History entry not found.")
+    return JSONResponse({"ok": True})
 
 
 # ---------- cultural furniture ----------

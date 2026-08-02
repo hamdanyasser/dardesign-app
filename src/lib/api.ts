@@ -707,3 +707,114 @@ export async function restyleRoom(
   }
   return { image: data.image, style, scale, manifest: data.manifest ?? null };
 }
+
+/* -------------------------------------------------------------------------- */
+/*  Accounts + saved designs                                                   */
+/* -------------------------------------------------------------------------- */
+
+export type UserRole = "User" | "Admin";
+
+export interface AuthUser {
+  id: number;
+  fullName: string;
+  phoneNumber: string | null;
+  email: string;
+  role: UserRole;
+}
+
+export interface HistoryEntry {
+  id: number;
+  userId: number;
+  oldImageUrl: string;
+  newImageUrl: string;
+  isSuggested: boolean;
+  createdAt: number;
+}
+
+/** Session lives in an httpOnly cookie, so every auth-aware call must opt in to
+ *  sending credentials — cross-origin fetch omits cookies by default. */
+const WITH_CREDENTIALS: RequestInit = { credentials: "include" };
+
+export async function register(input: {
+  fullName: string;
+  phoneNumber?: string;
+  email: string;
+  password: string;
+}): Promise<AuthUser> {
+  const res = await safeFetch(`${API_URL}/api/auth/register`, {
+    method: "POST",
+    headers: { ...COMMON_HEADERS, "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+    ...WITH_CREDENTIALS,
+  });
+  return (await unwrap(res)) as AuthUser;
+}
+
+export async function login(email: string, password: string): Promise<AuthUser> {
+  const res = await safeFetch(`${API_URL}/api/auth/login`, {
+    method: "POST",
+    headers: { ...COMMON_HEADERS, "Content-Type": "application/json" },
+    body: JSON.stringify({ email, password }),
+    ...WITH_CREDENTIALS,
+  });
+  return (await unwrap(res)) as AuthUser;
+}
+
+export async function logout(): Promise<void> {
+  await safeFetch(`${API_URL}/api/auth/logout`, {
+    method: "POST",
+    headers: COMMON_HEADERS,
+    ...WITH_CREDENTIALS,
+  });
+}
+
+/** Current user, or null when signed out. Never throws on "not logged in" —
+ *  that's a normal state the app boots into, not an error. */
+export async function fetchMe(): Promise<AuthUser | null> {
+  try {
+    const res = await safeFetch(`${API_URL}/api/auth/me`, {
+      headers: COMMON_HEADERS,
+      ...WITH_CREDENTIALS,
+    });
+    if (!res.ok) return null;
+    return (await res.json()) as AuthUser | null;
+  } catch {
+    return null;
+  }
+}
+
+/** Save the current design. Nothing is persisted until this is called. */
+export async function saveToHistory(
+  oldImage: string,
+  newImage: string,
+): Promise<HistoryEntry> {
+  const res = await safeFetch(`${API_URL}/api/history`, {
+    method: "POST",
+    headers: { ...COMMON_HEADERS, "Content-Type": "application/json" },
+    body: JSON.stringify({ oldImage, newImage }),
+    ...WITH_CREDENTIALS,
+  });
+  return (await unwrap(res)) as HistoryEntry;
+}
+
+export async function fetchHistory(): Promise<HistoryEntry[]> {
+  const res = await safeFetch(`${API_URL}/api/history`, {
+    headers: COMMON_HEADERS,
+    ...WITH_CREDENTIALS,
+  });
+  return (await unwrap(res)) as HistoryEntry[];
+}
+
+export async function deleteHistoryEntry(id: number): Promise<void> {
+  const res = await safeFetch(`${API_URL}/api/history/${id}`, {
+    method: "DELETE",
+    headers: COMMON_HEADERS,
+    ...WITH_CREDENTIALS,
+  });
+  await unwrap(res);
+}
+
+/** Saved images are served by the backend, not Next's /public. */
+export function storedImageUrl(path: string): string {
+  return `${API_URL}/${path.replace(/^\/+/, "")}`;
+}
