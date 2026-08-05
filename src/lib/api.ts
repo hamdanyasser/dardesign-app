@@ -483,7 +483,6 @@ export interface PlacementPosition {
   y: number;
   width: number;
   height: number;
-  rotation: number;
 }
 
 export interface PlacementCandidate {
@@ -512,6 +511,15 @@ export interface ValidatePositionResult extends PlacementCandidate {
   adjusted_position: PlacementPosition | null;
 }
 
+/** One confirmed placement, as stored on the job. */
+export interface PlacementRecord {
+  furniture_id: string;
+  style: StyleId;
+  position: PlacementPosition;
+  score: number;
+  created_at: number;
+}
+
 export interface ConfirmPlacementResult {
   job_id: string;
   style: StyleId;
@@ -521,6 +529,8 @@ export interface ConfirmPlacementResult {
   position: PlacementPosition;
   score: number;
   compositing: { brightness_factor: number; warmth_shift: number };
+  /** Every placement confirmed on this job so far, oldest first. */
+  placements: PlacementRecord[];
 }
 
 /** Ranked 3–6 culturally appropriate items for this room. */
@@ -552,12 +562,11 @@ export async function fetchCandidatePositions(
   jobId: string,
   furnitureId: string,
   limit = 3,
-  rotation = 0,
 ): Promise<CandidatePositionsResult> {
   const res = await safeFetch(`${API_URL}/api/furniture/candidate-positions`, {
     method: "POST",
     headers: { ...COMMON_HEADERS, "Content-Type": "application/json" },
-    body: JSON.stringify({ job_id: jobId, furniture_id: furnitureId, limit, rotation }),
+    body: JSON.stringify({ job_id: jobId, furniture_id: furnitureId, limit }),
   });
   return (await unwrap(res)) as CandidatePositionsResult;
 }
@@ -585,7 +594,6 @@ export async function validatePlacement(
       y: pos.y,
       width: pos.width,
       height: pos.height,
-      rotation: pos.rotation ?? 0,
     }),
     signal,
   });
@@ -610,7 +618,6 @@ export async function confirmPlacement(
       y: pos.y,
       width: pos.width,
       height: pos.height,
-      rotation: pos.rotation ?? 0,
     }),
   });
   return (await unwrap(res)) as ConfirmPlacementResult;

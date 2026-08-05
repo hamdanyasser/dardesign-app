@@ -81,7 +81,6 @@ from .placement import (
     box_to_image_space,
     box_to_mask_space,
     candidate_positions,
-    rotated_footprint_ratio,
     validate_placement,
 )
 from .room_analysis import (
@@ -323,7 +322,6 @@ class CandidatePositionsRequest(BaseModel):
     job_id: str
     furniture_id: str
     limit: int = 3
-    rotation: float = 0.0
 
 
 class ValidatePositionRequest(BaseModel):
@@ -331,12 +329,8 @@ class ValidatePositionRequest(BaseModel):
     furniture_id: str
     x: float
     y: float
-    # width/height are the item's UNROTATED size. Rotation is applied
-    # server-side so the client can never disagree with the validator about how
-    # wide a turned piece is — the response's `position` is what to draw.
     width: float
     height: float
-    rotation: float = 0.0
 
 
 class ConfirmPlacementRequest(BaseModel):
@@ -347,7 +341,6 @@ class ConfirmPlacementRequest(BaseModel):
     y: float
     width: float
     height: float
-    rotation: float = 0.0
 
 
 class RestyleResponse(BaseModel):
@@ -1156,9 +1149,7 @@ async def furniture_candidate_positions(req: CandidatePositionsRequest) -> JSONR
     """
     analysis = _analysis_or_404(req.job_id)
     item = _item_or_400(req.furniture_id)
-    results = candidate_positions(
-        analysis, item, limit=max(1, min(req.limit, 5)), rotation=req.rotation
-    )
+    results = candidate_positions(analysis, item, limit=max(1, min(req.limit, 5)))
 
     # Convert to rendered-image pixels — that's the space the client draws in.
     target = _render_size(req.job_id)
@@ -1191,17 +1182,7 @@ async def furniture_validate_position(req: ValidatePositionRequest) -> JSONRespo
     analysis = _analysis_or_404(req.job_id)
     item = _item_or_400(req.furniture_id)
 
-    # Apply the yaw here, not on the client: a turned piece presents a different
-    # width to the camera, and the width the validator checks must be the width
-    # the user is looking at.
-    ratio = rotated_footprint_ratio(item, req.rotation)
-    incoming = PlacementBox(
-        x=req.x - (req.width * ratio - req.width) / 2.0,  # keep the base centred
-        y=req.y,
-        w=req.width * ratio,
-        h=req.height,
-        rotation=req.rotation,
-    )
+    incoming = PlacementBox(x=req.x, y=req.y, w=req.width, h=req.height)
     target = _render_size(req.job_id)
     mask_shape = analysis.free_floor_mask.shape[:2]
     box = box_to_mask_space(incoming, mask_shape, target) if target else incoming
@@ -1213,6 +1194,7 @@ async def furniture_validate_position(req: ValidatePositionRequest) -> JSONRespo
         box_to_image_space(result.box, mask_shape, target).to_dict() if target
         else result.box.to_dict()
     )
+
     # Spec contract: an "adjusted_position" the client can snap to. We only ever
     # offer the box unchanged when valid — silently moving a rejected item would
     # undermine the point of asking the user to confirm a position.
@@ -1249,14 +1231,7 @@ async def furniture_confirm_placement(req: ConfirmPlacementRequest) -> JSONRespo
     # The client's box is in rendered-image pixels. Validate in mask space, then
     # composite in image space — the two must not be confused, or the furniture
     # lands somewhere other than where the user confirmed it.
-    ratio = rotated_footprint_ratio(item, req.rotation)
-    incoming = PlacementBox(
-        x=req.x - (req.width * ratio - req.width) / 2.0,
-        y=req.y,
-        w=req.width * ratio,
-        h=req.height,
-        rotation=req.rotation,
-    )
+    incoming = PlacementBox(x=req.x, y=req.y, w=req.width, h=req.height)
     target = _render_size(req.job_id, style)
     mask_shape = analysis.free_floor_mask.shape[:2]
     mask_box = box_to_mask_space(incoming, mask_shape, target) if target else incoming
@@ -1291,6 +1266,17 @@ async def furniture_confirm_placement(req: ConfirmPlacementRequest) -> JSONRespo
     # Teach the cached analysis about the new item, so the next suggestion avoids
     # it rather than proposing the same corner again.
     mark_room_occupied(analysis, mask_box.x, mask_box.y, mask_box.w, mask_box.h)
+
+    # Record the placement on the job: what was put where is part of the design,
+    # not a transient UI state, and re-rendering or auditing the room needs it.
+    job.placements.append({
+        "furniture_id": req.furniture_id,
+        "style": style,
+        "position": box.to_dict(),   # rendered-image pixels
+        "score": round(verdict.score, 3),
+        "created_at": time.time(),
+    })
+
     log_event(
         "furniture_placement", job_id=req.job_id, style=style,
         furniture_id=req.furniture_id, score=round(verdict.score, 3), ok=True,
@@ -1303,6 +1289,7 @@ async def furniture_confirm_placement(req: ConfirmPlacementRequest) -> JSONRespo
         "position": box.to_dict(),
         "score": round(verdict.score, 3),
         "compositing": result.to_meta(),
+        "placements": job.placements,
     })
 
 

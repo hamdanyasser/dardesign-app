@@ -32,7 +32,6 @@ falls back to sizing from local clearance and flags lower confidence.
 from __future__ import annotations
 
 import logging
-import math
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -78,13 +77,11 @@ class Box:
     y: float
     w: float
     h: float
-    rotation: float = 0.0
 
     def to_dict(self) -> dict:
         return {
             "x": int(round(self.x)), "y": int(round(self.y)),
             "width": int(round(self.w)), "height": int(round(self.h)),
-            "rotation": round(self.rotation, 1),
         }
 
 
@@ -159,41 +156,6 @@ NO_SPACE_AR = (
 )
 
 
-def rotated_footprint_ratio(item: dict, rotation: float) -> float:
-    """How much wider/narrower the piece looks after turning it `rotation` degrees.
-
-    Rotation is *yaw* — turning the item about its vertical axis, the way you turn
-    a chair on a floor. It is NOT an in-plane spin of the picture: spinning a
-    chair's photograph 45 degrees produces a chair falling over, not a chair
-    facing a new direction.
-
-    Yawing changes what the camera sees. A rectangular footprint w x d presents a
-    bounding width of w|cos t| + d|sin t|, so a 210x88 cm sofa turned 40 degrees
-    covers noticeably different floor than head-on. Returning the ratio against
-    the unrotated width lets both the collision check and the renderer stay
-    consistent with one another.
-
-    Height is unaffected — turning something on the spot does not change how tall
-    it is.
-    """
-    w = float(item.get("real_width_cm") or 60.0)
-    d = float(item.get("real_depth_cm") or w)
-    if w <= 0:
-        return 1.0
-    t = math.radians(float(rotation or 0.0))
-    return (abs(w * math.cos(t)) + abs(d * math.sin(t))) / w
-
-
-def is_mirrored(rotation: float) -> bool:
-    """True once the item has turned past 90 degrees and faces the other way.
-
-    With a single view per item we cannot show its back, but mirroring at least
-    makes a piece turned 180 degrees face the opposite direction rather than
-    looking identical to its 0-degree pose.
-    """
-    return math.cos(math.radians(float(rotation or 0.0))) < 0
-
-
 def box_to_image_space(box: Box, mask_shape: tuple[int, int], target_size: tuple[int, int]) -> Box:
     """Map a box from analysis-mask pixels into rendered-image pixels.
 
@@ -220,7 +182,7 @@ def box_to_image_space(box: Box, mask_shape: tuple[int, int], target_size: tuple
     base_cy = (box.y + box.h) * sy
     w = box.w * sx
     h = box.h * sx
-    return Box(x=base_cx - w / 2.0, y=base_cy - h, w=w, h=h, rotation=box.rotation)
+    return Box(x=base_cx - w / 2.0, y=base_cy - h, w=w, h=h)
 
 
 def box_to_mask_space(box: Box, mask_shape: tuple[int, int], target_size: tuple[int, int]) -> Box:
@@ -238,7 +200,7 @@ def box_to_mask_space(box: Box, mask_shape: tuple[int, int], target_size: tuple[
     base_cy = (box.y + box.h) * sy
     w = box.w * sx
     h = box.h * sx
-    return Box(x=base_cx - w / 2.0, y=base_cy - h, w=w, h=h, rotation=box.rotation)
+    return Box(x=base_cx - w / 2.0, y=base_cy - h, w=w, h=h)
 
 
 def local_px_per_cm(analysis: RoomAnalysis, depth: float) -> float | None:
@@ -253,16 +215,13 @@ def local_px_per_cm(analysis: RoomAnalysis, depth: float) -> float | None:
 
 
 def item_box_at(
-    analysis: RoomAnalysis, item: dict, cx: float, cy: float, rotation: float = 0.0
+    analysis: RoomAnalysis, item: dict, cx: float, cy: float
 ) -> tuple[Box, float, float]:
     """Size `item` for a spot whose *base centre* is at pixel (cx, cy).
 
     Returns (box, depth, confidence). (cx, cy) is where the item touches the
     floor, so the box is built upward from there — that is what keeps a
     floor-standing piece standing on the floor instead of centred on it.
-
-    `rotation` yaws the piece, which changes the width it presents to the camera
-    but not its height.
     """
     H, W = analysis.free_floor_mask.shape[:2]
     yi = int(np.clip(cy, 0, H - 1))
@@ -294,10 +253,7 @@ def item_box_at(
         h_px = w_px / aspect if aspect > 0 else w_px
         confidence = 0.3
 
-    # Yaw widens or narrows what the camera sees, without changing height.
-    w_px *= rotated_footprint_ratio(item, rotation)
-
-    box = Box(x=cx - w_px / 2.0, y=cy - h_px, w=w_px, h=h_px, rotation=float(rotation or 0.0))
+    box = Box(x=cx - w_px / 2.0, y=cy - h_px, w=w_px, h=h_px)
     return box, depth, confidence
 
 
@@ -394,12 +350,6 @@ def validate_placement(
         wall_ratio = float(contact_wall.mean()) if contact_wall.size else 0.0
         return reject("wall" if wall_ratio > 0.35 else "no_floor")
 
-    # Rotation is already reflected in box.w — a yawed piece presents a different
-    # width to the camera, so every check above operated on the turned footprint.
-    # That is what makes re-validating on rotation meaningful rather than
-    # cosmetic: turning a sofa toward a wall genuinely changes what it overlaps.
-    breakdown["rotation"] = float(box.rotation or 0.0)
-
     # --- walking space around the base ---
     pad = box.w * WALKWAY_MARGIN
     around = Box(x=box.x - pad, y=box.y + box.h - contact_h, w=box.w + 2 * pad, h=contact_h)
@@ -481,7 +431,7 @@ def _zone_score(analysis: RoomAnalysis, item: dict, box: Box) -> float:
 
 
 def candidate_positions(
-    analysis: RoomAnalysis, item: dict, *, limit: int = 3, rotation: float = 0.0
+    analysis: RoomAnalysis, item: dict, *, limit: int = 3
 ) -> list[PlacementResult]:
     """Best places this item could go, highest score first.
 
@@ -495,7 +445,7 @@ def candidate_positions(
     for spot in analysis.candidates:
         cx = spot.cx * W
         cy = spot.cy * H
-        box, depth, conf = item_box_at(analysis, item, cx, cy, rotation)
+        box, depth, conf = item_box_at(analysis, item, cx, cy)
         res = validate_placement(analysis, item, box, depth=depth)
         res.confidence = min(res.confidence, conf)
         if res.valid:
@@ -509,7 +459,7 @@ def candidate_positions(
             ny = cy - H * dy
             if ny <= 0:
                 break
-            box2, depth2, conf2 = item_box_at(analysis, item, cx, ny, rotation)
+            box2, depth2, conf2 = item_box_at(analysis, item, cx, ny)
             res2 = validate_placement(analysis, item, box2, depth=depth2)
             if res2.valid:
                 res2.confidence = min(res2.confidence, conf2)
