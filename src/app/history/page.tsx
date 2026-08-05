@@ -11,6 +11,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { Eye, EyeOff, Loader2, Trash2 } from "lucide-react";
+import FeedbackForm from "@/components/FeedbackForm";
 import GalleryShell, { DesignCard } from "@/components/GalleryShell";
 import { useAuth } from "@/context/AuthContext";
 import { useThemeLanguage } from "@/context/ThemeLanguageContext";
@@ -128,11 +129,18 @@ export default function HistoryPage() {
               afterUrl={storedImageUrl(e.newImageUrl)}
               createdAt={e.createdAt}
               caption={
-                e.isSuggested ? (
-                  <span className="rounded-full border border-[var(--dd-gold)]/50 px-2 py-0.5 text-xs text-[var(--dd-gold)]">
-                    {t("Shared", "مشارَك")}
-                  </span>
-                ) : null
+                <span className="flex flex-wrap items-center gap-2">
+                  {e.culture && (
+                    <span className="rounded-full border border-[var(--dd-gold-dim)]/50 px-2 py-0.5 text-xs text-[var(--dd-text-secondary)]">
+                      {e.culture}
+                    </span>
+                  )}
+                  {e.isSuggested && (
+                    <span className="rounded-full border border-[var(--dd-gold)]/50 px-2 py-0.5 text-xs text-[var(--dd-gold)]">
+                      {t("Shared", "مشارَك")}
+                    </span>
+                  )}
+                </span>
               }
               actions={
                 <>
@@ -164,6 +172,10 @@ export default function HistoryPage() {
                     <Trash2 className="h-3.5 w-3.5" />
                     {t("Delete", "حذف")}
                   </button>
+                  {/* Collapsed by default: the form loads any rating already
+                      given, so opening it shows what was said rather than a
+                      blank form. */}
+                  <FeedbackForm historyId={e.id} />
                 </>
               }
             />

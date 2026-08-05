@@ -739,7 +739,13 @@ export default function StudioPage() {
                 {/* Save the CURRENT state: featuredSrc is replaced after every
                     furniture insertion, so pressing this after editing stores
                     the edited room, not the freshly generated one. */}
-                <SaveDesignButton oldImage={result.original} newImage={featuredSrc} />
+                {/* `featured` is the culture actually on screen, so it is the
+                    one this design should be recorded and rated as. */}
+                <SaveDesignButton
+                  oldImage={result.original}
+                  newImage={featuredSrc}
+                  culture={featured}
+                />
                 <RoomReport
                   beforeSrc={result.original}
                   afterSrc={featuredSrc}

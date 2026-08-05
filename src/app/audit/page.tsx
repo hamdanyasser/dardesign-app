@@ -12,6 +12,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { RefreshCw, ShieldCheck } from "lucide-react";
+import AdminFeedbackPanel from "@/components/AdminFeedbackPanel";
 import { ApiError, fetchAuditLog, type AuditEvent } from "@/lib/api";
 import { useThemeLanguage } from "@/context/ThemeLanguageContext";
 import { cn } from "@/lib/utils";
@@ -62,6 +63,10 @@ export default function AuditPage() {
             ? "كل عملية توليد تُسجَّل — بيانات وصفية فقط، لا صور. الأحدث أولاً."
             : "Every generation is logged — metadata only, never image bytes. Newest first."}
         </p>
+
+        {/* User feedback sits above the render log: the log says what was
+            produced, this says how it landed. Same admin page, same styling. */}
+        <AdminFeedbackPanel />
 
         <div className={cn("mb-6 flex flex-wrap items-center gap-3", isArabic && "flex-row-reverse")}>
           <input

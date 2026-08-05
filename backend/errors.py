@@ -56,6 +56,21 @@ ERR_BAD_STYLE = ApiError(
     "Unknown style.",
     "النمط غير معروف.",
 )
+ERR_HISTORY_NOT_FOUND = ApiError(
+    "history_not_found", 404,
+    "Design not found.",
+    "التصميم غير موجود.",
+)
+ERR_FEEDBACK_INVALID = ApiError(
+    "feedback_invalid", 400,
+    "Please check the ratings and try again.",
+    "يرجى مراجعة التقييمات والمحاولة مرة أخرى.",
+)
+ERR_FORBIDDEN = ApiError(
+    "forbidden", 403,
+    "You do not have access to this.",
+    "ليس لديك صلاحية الوصول إلى هذا.",
+)
 ERR_BAD_SHARE_TOKEN = ApiError(
     "bad_share_token", 400,
     "Share link is invalid or expired.",

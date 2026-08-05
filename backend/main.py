@@ -61,6 +61,9 @@ from .errors import (
     ERR_CATALOGUE_UNAVAILABLE,
     ERR_COMPOSITING_FAILED,
     ERR_EMAIL_TAKEN,
+    ERR_FEEDBACK_INVALID,
+    ERR_FORBIDDEN,
+    ERR_HISTORY_NOT_FOUND,
     ERR_INVALID_EMAIL,
     ERR_INVALID_PLACEMENT,
     ERR_MISSING_NAME,
@@ -821,6 +824,11 @@ class SaveHistoryRequest(BaseModel):
 
     oldImage: str
     newImage: str
+    # How this design was generated. Recorded on the history row so anything that
+    # later rates the image reads the culture from the database rather than
+    # believing whatever the rating form claims.
+    culture: str | None = None
+    intensity: float | None = None
 
 
 def _current_user(session: str | None):
@@ -937,13 +945,21 @@ async def history_save(
     user = _require_user(session)
     old_url = _save_data_url(req.oldImage, "old")
     new_url = _save_data_url(req.newImage, "new")
-    entry_id = db.add_history(user["Id"], old_url, new_url)
-    log_event("history_save", user_id=user["Id"], entry_id=entry_id, ok=True)
+    # An unknown culture is stored as NULL rather than guessed at: a wrong label
+    # would quietly poison the per-culture feedback averages.
+    culture = req.culture if req.culture in StylePack else None
+    intensity = (
+        max(0.0, min(1.0, float(req.intensity))) if req.intensity is not None else None
+    )
+    entry_id = db.add_history(user["Id"], old_url, new_url, culture=culture, intensity=intensity)
+    log_event("history_save", user_id=user["Id"], entry_id=entry_id, culture=culture, ok=True)
     return JSONResponse({
         "id": entry_id,
         "oldImageUrl": old_url,
         "newImageUrl": new_url,
         "isSuggested": False,
+        "culture": culture,
+        "intensity": intensity,
     })
 
 
@@ -1002,6 +1018,159 @@ async def history_delete(
         # difference would leak that an id is in use.
         _raise(ERR_JOB_NOT_FOUND, detail_en="History entry not found.")
     return JSONResponse({"ok": True})
+
+
+# ---------- feedback on a generated design ----------
+
+
+class FeedbackRequest(BaseModel):
+    """What the rating form sends.
+
+    Note what is NOT here: user id, culture, intensity, and any claim of
+    ownership. All four are read server-side — the user from the session cookie,
+    the rest from the history row — because a form that can name its own author
+    or relabel a design's culture is a form that can forge feedback.
+    """
+
+    historyId: int
+    culturalAccuracy: int
+    imageQuality: int
+    roomPreservation: int
+    furniturePlacement: str
+    comment: str | None = None
+
+
+def _owned_history_or_404(entry_id: int, user_id: int):
+    """The user's own design, or 404.
+
+    Someone else's design and a nonexistent id give the identical answer, the
+    same way /api/history/{id} already behaves: distinguishing them would let an
+    id be probed for existence.
+    """
+    row = db.get_history_entry(entry_id)
+    if row is None or row["UserId"] != user_id:
+        _raise(ERR_HISTORY_NOT_FOUND)
+    return row
+
+
+def _clean_feedback(req: FeedbackRequest) -> dict:
+    """Validate and normalise. Raises 400 with a specific reason, in both languages."""
+    ratings = {
+        "culturalAccuracy": req.culturalAccuracy,
+        "imageQuality": req.imageQuality,
+        "roomPreservation": req.roomPreservation,
+    }
+    for field, value in ratings.items():
+        # bool is an int subclass in Python, and True would sail through a
+        # 1..5 range check as 1.
+        if isinstance(value, bool) or not isinstance(value, int):
+            _raise(ERR_FEEDBACK_INVALID, detail_en=f"{field} must be a whole number from 1 to 5.")
+        if not db.RATING_MIN <= value <= db.RATING_MAX:
+            _raise(
+                ERR_FEEDBACK_INVALID,
+                detail_en=f"{field} must be between {db.RATING_MIN} and {db.RATING_MAX}.",
+                detail_ar=f"يجب أن تكون قيمة {field} بين {db.RATING_MIN} و {db.RATING_MAX}.",
+            )
+
+    if req.furniturePlacement not in db.FURNITURE_PLACEMENT_VALUES:
+        _raise(
+            ERR_FEEDBACK_INVALID,
+            detail_en="furniturePlacement must be one of: "
+                      + ", ".join(db.FURNITURE_PLACEMENT_VALUES) + ".",
+            detail_ar="قيمة توزيع الأثاث غير صالحة.",
+        )
+
+    # A comment of spaces is not a comment. Store NULL so "has a comment" stays a
+    # question the data can answer.
+    comment = (req.comment or "").strip() or None
+    if comment is not None and len(comment) > db.COMMENT_MAX_LEN:
+        _raise(
+            ERR_FEEDBACK_INVALID,
+            detail_en=f"Comment must be {db.COMMENT_MAX_LEN} characters or fewer.",
+            detail_ar=f"يجب ألا يتجاوز التعليق {db.COMMENT_MAX_LEN} حرفاً.",
+        )
+
+    return {**ratings, "furniturePlacement": req.furniturePlacement, "comment": comment}
+
+
+@app.post("/api/feedback")
+async def feedback_submit(
+    req: FeedbackRequest,
+    session: str | None = Cookie(default=None, alias=SESSION_COOKIE),
+) -> JSONResponse:
+    """Rate one of your own generated designs, or revise your earlier rating.
+
+    One record per design: submitting again edits what is there rather than
+    adding a second opinion, so the admin averages count each design once.
+    """
+    user = _require_user(session)
+    entry = _owned_history_or_404(req.historyId, user["Id"])
+    clean = _clean_feedback(req)
+
+    existing = db.get_feedback_for_history(req.historyId)
+    saved = db.upsert_feedback(
+        history_id=req.historyId,
+        user_id=user["Id"],
+        # Straight off the design record — the request has no say in either.
+        culture=entry["Culture"],
+        intensity=entry["Intensity"],
+        cultural_accuracy=clean["culturalAccuracy"],
+        image_quality=clean["imageQuality"],
+        room_preservation=clean["roomPreservation"],
+        furniture_placement=clean["furniturePlacement"],
+        comment=clean["comment"],
+    )
+    log_event(
+        "feedback", user_id=user["Id"], history_id=req.historyId,
+        culture=entry["Culture"], updated=existing is not None, ok=True,
+    )
+    return JSONResponse({**saved, "updated": existing is not None})
+
+
+@app.get("/api/feedback/{history_id}")
+async def feedback_get(
+    history_id: int,
+    session: str | None = Cookie(default=None, alias=SESSION_COOKIE),
+) -> JSONResponse:
+    """This user's feedback for one design, or null. Powers the "reopen from
+    history and see what you said" case, and prefills the form for editing."""
+    user = _require_user(session)
+    _owned_history_or_404(history_id, user["Id"])
+    row = db.get_feedback_for_history(history_id)
+    return JSONResponse(db.public_feedback(row) if row is not None else None)
+
+
+def _require_admin(session: str | None):
+    user = _require_user(session)
+    if user["Role"] != db.ROLE_ADMIN:
+        _raise(ERR_FORBIDDEN)
+    return user
+
+
+@app.get("/api/admin/feedback")
+async def admin_feedback(
+    culture: str | None = None,
+    since: float | None = None,
+    until: float | None = None,
+    limit: int = 50,
+    session: str | None = Cookie(default=None, alias=SESSION_COOKIE),
+) -> JSONResponse:
+    """Aggregated feedback for the admin panel.
+
+    Admin-only by role, not by obscurity: this returns other people's comments,
+    so an ordinary signed-in account must not be able to read it.
+    `since`/`until` are unix seconds.
+    """
+    _require_admin(session)
+    if culture is not None and culture not in StylePack:
+        _raise(ERR_BAD_STYLE)
+    limit = max(1, min(200, limit))
+    return JSONResponse({
+        "stats": db.feedback_stats(culture, since, until),
+        "byCulture": db.feedback_by_culture(since, until),
+        "recent": db.list_feedback(culture, since, until, limit),
+        "cultures": list(StylePack),
+    })
 
 
 # ---------- cultural furniture ----------
