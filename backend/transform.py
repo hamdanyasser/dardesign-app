@@ -143,6 +143,27 @@ def _is_light_mode() -> bool:
     return os.environ.get("DARDESIGN_LIGHT", "").lower() in ("1", "true", "yes")
 
 
+def _depth_only_mode() -> bool:
+    """Skip the segmentation ControlNet to fit a ~12.7 GB runtime.
+
+    Set DARDESIGN_DEPTH_ONLY=1 on standard Colab/Kaggle GPU runtimes, where the
+    full dual-ControlNet stack exceeds available system RAM and the process gets
+    OOM-killed. Leave it unset anywhere with more headroom.
+    """
+    return os.environ.get("DARDESIGN_DEPTH_ONLY", "").lower() in ("1", "true", "yes")
+
+
+def _gpu_resident_mode() -> bool:
+    """Keep pipeline weights in VRAM instead of system RAM.
+
+    Set DARDESIGN_GPU_RESIDENT=1 where VRAM is larger than system RAM — the
+    standard Colab/Kaggle T4 (≈15 GB VRAM, ≈12 GB RAM) is exactly that shape, and
+    the default CPU-offload strategy exhausts RAM there. Pair with
+    DARDESIGN_DEPTH_ONLY=1 so the weights actually fit VRAM.
+    """
+    return os.environ.get("DARDESIGN_GPU_RESIDENT", "").lower() in ("1", "true", "yes")
+
+
 def fit_size(width: int, height: int, long_side: int = 1024) -> tuple[int, int]:
     """Scale (width, height) so the long side == long_side, keeping aspect,
     rounded to multiples of 8 (UNet requirement).
@@ -365,16 +386,32 @@ def _load_pipeline(*, use_sdxl: bool) -> _LoadedPipe:
     # Depth is the structure anchor and non-negotiable; a seg checkpoint failure
     # degrades to depth-only (loudly) instead of killing the demo.
     has_seg = True
-    try:
-        seg_cn = ControlNetModel.from_pretrained(cn_cfg[seg_key], torch_dtype=dtype)
-        controlnet: Any = [depth_cn, seg_cn]
-    except Exception:
-        logger.exception(
-            "seg ControlNet %s failed to load — falling back to DEPTH-ONLY conditioning",
-            cn_cfg[seg_key],
+    if _depth_only_mode():
+        # Deliberate low-memory mode. enable_model_cpu_offload() keeps every model
+        # resident in *system* RAM, and on a standard 12.7 GB Colab/Kaggle runtime
+        # SDXL + two SDXL ControlNets + OneFormer + Depth Anything lands around
+        # 13.5 GB — enough for the OOM killer to take the process out mid-load.
+        # Dropping the seg ControlNet frees ~2.5 GB, the cheapest single saving
+        # available, and costs only conditioning fidelity: depth still pins the
+        # geometry. Placement masks are unaffected, since those come from
+        # compute_depth_seg()'s own OneFormer pass, not from this ControlNet.
+        logger.warning(
+            "DARDESIGN_DEPTH_ONLY set — loading depth ControlNet only (~2.5 GB saved). "
+            "Structural conditioning is depth-only for this session."
         )
-        controlnet = depth_cn
+        controlnet: Any = depth_cn
         has_seg = False
+    else:
+        try:
+            seg_cn = ControlNetModel.from_pretrained(cn_cfg[seg_key], torch_dtype=dtype)
+            controlnet = [depth_cn, seg_cn]
+        except Exception:
+            logger.exception(
+                "seg ControlNet %s failed to load — falling back to DEPTH-ONLY conditioning",
+                cn_cfg[seg_key],
+            )
+            controlnet = depth_cn
+            has_seg = False
 
     if use_sdxl:
         pipe = StableDiffusionXLControlNetPipeline.from_pretrained(
@@ -392,10 +429,45 @@ def _load_pipeline(*, use_sdxl: bool) -> _LoadedPipe:
         )
 
     if device == "cuda":
-        try:
-            pipe.enable_model_cpu_offload()
-        except Exception:
+        if _gpu_resident_mode():
+            # Weights live in VRAM, not system RAM.
+            #
+            # enable_model_cpu_offload() is the opposite trade: it parks every
+            # model in system RAM and streams it to the GPU per step. That is the
+            # right call when VRAM is the scarce resource — but on a standard
+            # Colab/Kaggle T4 the split is ~15 GB VRAM against ~12 GB RAM, so
+            # offloading exhausts the scarce side and the OOM killer takes out the
+            # whole kernel (observed: backend gone, `free -g` showing 12 GB total).
+            #
+            # Depth-only SDXL is ~9.5 GB of fp16 weights, which fits VRAM with room
+            # for activations, and system RAM then only carries OneFormer, Depth
+            # Anything and the torch runtime.
             pipe = pipe.to(device)
+            # VAE slicing only, by default.
+            #
+            # Attention slicing was here too, and it cost far more speed than it
+            # was worth: generation went from ~4 min to 10+ on a T4. Measured on
+            # a live run, depth-only SDXL sits at 9.6 GB of the T4's 15.3 GB, so
+            # ~5.7 GB of headroom was going unused to buy memory we already had.
+            #
+            # VAE slicing stays because the decode spike is real and it costs
+            # almost no time. Set DARDESIGN_SAFE_ATTENTION=1 to put attention
+            # slicing back if a larger render or a busier GPU ever does OOM.
+            try:
+                pipe.enable_vae_slicing()
+                if os.environ.get("DARDESIGN_SAFE_ATTENTION", "").lower() in ("1", "true", "yes"):
+                    pipe.enable_attention_slicing()
+                    logger.warning("DARDESIGN_SAFE_ATTENTION — attention slicing on (slower)")
+            except Exception:
+                logger.warning("VAE slicing unavailable", exc_info=True)
+            logger.warning(
+                "DARDESIGN_GPU_RESIDENT set — pipeline pinned to VRAM (no CPU offload)."
+            )
+        else:
+            try:
+                pipe.enable_model_cpu_offload()
+            except Exception:
+                pipe = pipe.to(device)
         try:
             pipe.enable_xformers_memory_efficient_attention()
         except Exception:

@@ -12,6 +12,7 @@ import {
 import "./globals.css";
 import "@/components/cinema/cinema.css";
 import "@/components/dar/dar-cinema.css";
+import { AuthProvider } from "@/context/AuthContext";
 import { ImageProvider } from "@/context/ImageContext";
 import { ThemeLanguageProvider } from "@/context/ThemeLanguageContext";
 
@@ -125,7 +126,9 @@ export default function RootLayout({
     >
       <body className="antialiased">
         <ThemeLanguageProvider>
-          <ImageProvider>{children}</ImageProvider>
+          <AuthProvider>
+            <ImageProvider>{children}</ImageProvider>
+          </AuthProvider>
         </ThemeLanguageProvider>
       </body>
     </html>

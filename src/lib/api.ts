@@ -307,20 +307,28 @@ export interface SegRegionsPayload {
  */
 export interface RedesignResult {
   original: string;
-  lebanese: string;
-  khaleeji: string;
-  moroccan: string;
+  /** Null when that culture wasn't requested — see `styles`. */
+  lebanese?: string | null;
+  khaleeji?: string | null;
+  moroccan?: string | null;
+  /** Which cultures this result actually carries. Render from this rather than
+   *  guessing from which image fields happen to be present. */
+  styles?: StyleId[];
   /** 2D top-down object map (Week 2). Null/absent when projection fails. */
   object_map?: ObjectMapPayload | null;
   /** On-image highlighter regions from the same seg pass. Null on failure. */
   seg_regions?: SegRegionsPayload | null;
   /** Grayscale depth PNG data URL (brighter = closer) for DepthOrbit. */
   depth_map?: string | null;
+  /** Placement masks summary. Null when the depth/seg pass or analysis failed. */
+  room_analysis?: RoomAnalysisSummary | null;
+  /** Needed by the furniture endpoints, which look the cached analysis up by job. */
+  job_id?: string | null;
   /** True in DARDESIGN_LIGHT: images are tinted stand-ins, not real renders. */
   placeholder?: boolean | null;
 }
 
-const REDESIGN_KEYS = ["original", "lebanese", "khaleeji", "moroccan"] as const;
+const REDESIGN_STYLE_KEYS = ["lebanese", "khaleeji", "moroccan"] as const;
 
 /**
  * Send a room photo to the backend and get back the original plus all three
@@ -334,10 +342,18 @@ const REDESIGN_KEYS = ["original", "lebanese", "khaleeji", "moroccan"] as const;
  */
 export async function redesignRoom(
   file: File,
-  { timeoutMs = 300_000, signal }: { timeoutMs?: number; signal?: AbortSignal } = {},
+  {
+    timeoutMs = 300_000,
+    signal,
+    styles,
+  }: { timeoutMs?: number; signal?: AbortSignal; styles?: StyleId[] } = {},
 ): Promise<RedesignResult> {
   const fd = new FormData();
   fd.append("file", file);
+  // Omitted means all three — the server's default. Requesting a single culture
+  // is roughly 3x faster, since the depth/segmentation pass and room analysis
+  // run once regardless of how many styles follow.
+  if (styles?.length) fd.append("styles", styles.join(","));
 
   // Compose the internal timeout with any caller-provided abort signal.
   const ctrl = new AbortController();
@@ -387,11 +403,16 @@ export async function redesignRoom(
 
   const data = (await unwrap(res)) as Partial<RedesignResult>;
 
-  // Validate the payload so a partial/garbled backend response fails loudly
-  // and predictably instead of rendering broken <img> tags.
-  const missing = REDESIGN_KEYS.filter(
-    (k) => typeof data[k] !== "string" || !data[k]!.startsWith("data:image"),
-  );
+  // Validate so a partial/garbled response fails loudly instead of rendering
+  // broken <img> tags. The original is always required; styles are checked
+  // against what the server says it produced, because a single-culture request
+  // legitimately returns nulls for the other two.
+  const isImage = (v: unknown) => typeof v === "string" && v.startsWith("data:image");
+  const produced = (data.styles?.length ? data.styles : REDESIGN_STYLE_KEYS) as StyleId[];
+  const missing = [
+    ...(isImage(data.original) ? [] : ["original"]),
+    ...produced.filter((k) => !isImage(data[k])),
+  ];
   if (missing.length) {
     throw new ApiError(
       {
@@ -403,7 +424,201 @@ export async function redesignRoom(
     );
   }
 
-  return data as RedesignResult;
+  return { ...data, styles: produced } as RedesignResult;
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Cultural furniture recommendation + placement                             */
+/* -------------------------------------------------------------------------- */
+
+/** One catalogue item (ontology/furniture.json). */
+export interface FurnitureItem {
+  id: string;
+  culture: StyleId;
+  category: string;
+  name_en: string;
+  name_ar: string;
+  description_en: string;
+  description_ar: string;
+  /** Path under /public, e.g. "furniture/lebanese/leb-chair-001.png". */
+  asset: string;
+  placement_type: string;
+  room_types: string[];
+  real_width_cm: number;
+  real_height_cm: number;
+  must_touch_wall: boolean;
+  must_stand_on_floor: boolean;
+  cultural_tags: string[];
+  material_tags: string[];
+  color_tags: string[];
+  /** Present on recommendations: ranking score and why it was suggested. */
+  score?: number;
+  reasons?: string[];
+}
+
+/** An open spot the room analysis found (normalized image coords). */
+export interface CandidateSpot {
+  cx: number;
+  cy: number;
+  clearance_px: number;
+  depth: number;
+  max_width_cm: number | null;
+}
+
+export interface RoomAnalysisSummary {
+  free_floor_ratio: number;
+  free_floor_of_floor: number;
+  free_floor_m2: number | null;
+  /** 0..1 — how much to trust free_floor_m2. Low means treat it loosely. */
+  scale_confidence: number;
+  existing_categories: string[];
+  candidates: CandidateSpot[];
+  warnings: string[];
+  placeholder?: boolean;
+}
+
+/** A placement box in **rendered-image pixels** (not mask space). */
+export interface PlacementPosition {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  rotation: number;
+}
+
+export interface PlacementCandidate {
+  valid: boolean;
+  score: number;
+  position: PlacementPosition;
+  depth: number;
+  reason: string | null;
+  reason_ar: string | null;
+  confidence: number;
+  breakdown: Record<string, number>;
+}
+
+export interface CandidatePositionsResult {
+  job_id: string;
+  furniture_id: string;
+  /** Pixel size of the rendered image these positions are expressed in. */
+  image_size: { width: number; height: number } | null;
+  positions: PlacementCandidate[];
+  /** Set only when `positions` is empty — no safe space was found. */
+  message: string | null;
+  message_ar: string | null;
+}
+
+export interface ValidatePositionResult extends PlacementCandidate {
+  adjusted_position: PlacementPosition | null;
+}
+
+export interface ConfirmPlacementResult {
+  job_id: string;
+  style: StyleId;
+  furniture_id: string;
+  /** The edited room as a base64 PNG data URL. */
+  image: string;
+  position: PlacementPosition;
+  score: number;
+  compositing: { brightness_factor: number; warmth_shift: number };
+}
+
+/** Ranked 3–6 culturally appropriate items for this room. */
+export async function fetchFurnitureRecommendations(
+  culture: StyleId,
+  opts: {
+    roomType?: string;
+    mood?: string;
+    freeFloorM2?: number | null;
+    existing?: string[];
+    limit?: number;
+  } = {},
+): Promise<FurnitureItem[]> {
+  const qs = new URLSearchParams({ culture });
+  if (opts.roomType) qs.set("room_type", opts.roomType);
+  if (opts.mood) qs.set("mood", opts.mood);
+  if (opts.freeFloorM2 != null) qs.set("free_floor_m2", String(opts.freeFloorM2));
+  if (opts.existing?.length) qs.set("existing", opts.existing.join(","));
+  if (opts.limit) qs.set("limit", String(opts.limit));
+  const res = await safeFetch(`${API_URL}/api/furniture/recommendations?${qs}`, {
+    headers: COMMON_HEADERS,
+  });
+  const data = (await unwrap(res)) as { items: FurnitureItem[] };
+  return data.items ?? [];
+}
+
+/** Best few places this item could go. Empty `positions` is a valid answer. */
+export async function fetchCandidatePositions(
+  jobId: string,
+  furnitureId: string,
+  limit = 3,
+  rotation = 0,
+): Promise<CandidatePositionsResult> {
+  const res = await safeFetch(`${API_URL}/api/furniture/candidate-positions`, {
+    method: "POST",
+    headers: { ...COMMON_HEADERS, "Content-Type": "application/json" },
+    body: JSON.stringify({ job_id: jobId, furniture_id: furnitureId, limit, rotation }),
+  });
+  return (await unwrap(res)) as CandidatePositionsResult;
+}
+
+/**
+ * Is this exact box valid? Called while dragging, so callers should debounce and
+ * pass a `signal` to drop stale in-flight checks.
+ *
+ * The backend is authoritative — this is the same check `confirm-placement` runs,
+ * so the green/red outline can never disagree with what confirming will do.
+ */
+export async function validatePlacement(
+  jobId: string,
+  furnitureId: string,
+  pos: PlacementPosition,
+  { signal }: { signal?: AbortSignal } = {},
+): Promise<ValidatePositionResult> {
+  const res = await safeFetch(`${API_URL}/api/furniture/validate-position`, {
+    method: "POST",
+    headers: { ...COMMON_HEADERS, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      job_id: jobId,
+      furniture_id: furnitureId,
+      x: pos.x,
+      y: pos.y,
+      width: pos.width,
+      height: pos.height,
+      rotation: pos.rotation ?? 0,
+    }),
+    signal,
+  });
+  return (await unwrap(res)) as ValidatePositionResult;
+}
+
+/** Insert the item and get the edited room back. Re-validated server-side. */
+export async function confirmPlacement(
+  jobId: string,
+  furnitureId: string,
+  style: StyleId,
+  pos: PlacementPosition,
+): Promise<ConfirmPlacementResult> {
+  const res = await safeFetch(`${API_URL}/api/furniture/confirm-placement`, {
+    method: "POST",
+    headers: { ...COMMON_HEADERS, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      job_id: jobId,
+      furniture_id: furnitureId,
+      style,
+      x: pos.x,
+      y: pos.y,
+      width: pos.width,
+      height: pos.height,
+      rotation: pos.rotation ?? 0,
+    }),
+  });
+  return (await unwrap(res)) as ConfirmPlacementResult;
+}
+
+/** Absolute URL for a catalogue item's PNG (served from /public). */
+export function furnitureAssetUrl(item: FurnitureItem): string {
+  return `/${item.asset.replace(/^\/+/, "")}`;
 }
 
 export interface RestyleResult {
@@ -491,4 +706,137 @@ export async function restyleRoom(
     );
   }
   return { image: data.image, style, scale, manifest: data.manifest ?? null };
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Accounts + saved designs                                                   */
+/* -------------------------------------------------------------------------- */
+
+export type UserRole = "User" | "Admin";
+
+export interface AuthUser {
+  id: number;
+  fullName: string;
+  phoneNumber: string | null;
+  email: string;
+  role: UserRole;
+}
+
+export interface HistoryEntry {
+  id: number;
+  userId: number;
+  oldImageUrl: string;
+  newImageUrl: string;
+  isSuggested: boolean;
+  createdAt: number;
+  /** Present only on the shared gallery — first name of whoever made it. */
+  authorName?: string | null;
+}
+
+/** Session lives in an httpOnly cookie, so every auth-aware call must opt in to
+ *  sending credentials — cross-origin fetch omits cookies by default. */
+const WITH_CREDENTIALS: RequestInit = { credentials: "include" };
+
+export async function register(input: {
+  fullName: string;
+  phoneNumber?: string;
+  email: string;
+  password: string;
+}): Promise<AuthUser> {
+  const res = await safeFetch(`${API_URL}/api/auth/register`, {
+    method: "POST",
+    headers: { ...COMMON_HEADERS, "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+    ...WITH_CREDENTIALS,
+  });
+  return (await unwrap(res)) as AuthUser;
+}
+
+export async function login(email: string, password: string): Promise<AuthUser> {
+  const res = await safeFetch(`${API_URL}/api/auth/login`, {
+    method: "POST",
+    headers: { ...COMMON_HEADERS, "Content-Type": "application/json" },
+    body: JSON.stringify({ email, password }),
+    ...WITH_CREDENTIALS,
+  });
+  return (await unwrap(res)) as AuthUser;
+}
+
+export async function logout(): Promise<void> {
+  await safeFetch(`${API_URL}/api/auth/logout`, {
+    method: "POST",
+    headers: COMMON_HEADERS,
+    ...WITH_CREDENTIALS,
+  });
+}
+
+/** Current user, or null when signed out. Never throws on "not logged in" —
+ *  that's a normal state the app boots into, not an error. */
+export async function fetchMe(): Promise<AuthUser | null> {
+  try {
+    const res = await safeFetch(`${API_URL}/api/auth/me`, {
+      headers: COMMON_HEADERS,
+      ...WITH_CREDENTIALS,
+    });
+    if (!res.ok) return null;
+    return (await res.json()) as AuthUser | null;
+  } catch {
+    return null;
+  }
+}
+
+/** Save the current design. Nothing is persisted until this is called. */
+export async function saveToHistory(
+  oldImage: string,
+  newImage: string,
+): Promise<HistoryEntry> {
+  const res = await safeFetch(`${API_URL}/api/history`, {
+    method: "POST",
+    headers: { ...COMMON_HEADERS, "Content-Type": "application/json" },
+    body: JSON.stringify({ oldImage, newImage }),
+    ...WITH_CREDENTIALS,
+  });
+  return (await unwrap(res)) as HistoryEntry;
+}
+
+export async function fetchHistory(): Promise<HistoryEntry[]> {
+  const res = await safeFetch(`${API_URL}/api/history`, {
+    headers: COMMON_HEADERS,
+    ...WITH_CREDENTIALS,
+  });
+  return (await unwrap(res)) as HistoryEntry[];
+}
+
+/** Share one of your designs to the public gallery, or take it back. */
+export async function setSuggested(id: number, isSuggested: boolean): Promise<void> {
+  const res = await safeFetch(`${API_URL}/api/history/${id}/suggest`, {
+    method: "PATCH",
+    headers: { ...COMMON_HEADERS, "Content-Type": "application/json" },
+    body: JSON.stringify({ isSuggested }),
+    ...WITH_CREDENTIALS,
+  });
+  await unwrap(res);
+}
+
+/** Other users' shared designs — never your own, never anything unshared. */
+export async function fetchSuggested(): Promise<HistoryEntry[]> {
+  const res = await safeFetch(`${API_URL}/api/history/suggested`, {
+    headers: COMMON_HEADERS,
+    ...WITH_CREDENTIALS,
+  });
+  return (await unwrap(res)) as HistoryEntry[];
+}
+
+export async function deleteHistoryEntry(id: number): Promise<void> {
+  const res = await safeFetch(`${API_URL}/api/history/${id}`, {
+    method: "DELETE",
+    headers: COMMON_HEADERS,
+    ...WITH_CREDENTIALS,
+  });
+  await unwrap(res);
+}
+
+/** Saved images are served by the backend, not Next's /public. */
+export function storedImageUrl(path: string): string {
+  return `${API_URL}/${path.replace(/^\/+/, "")}`;
 }

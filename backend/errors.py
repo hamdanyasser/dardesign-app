@@ -61,6 +61,26 @@ ERR_BAD_SHARE_TOKEN = ApiError(
     "Share link is invalid or expired.",
     "رابط المشاركة غير صالح أو منتهي الصلاحية.",
 )
+ERR_BAD_FURNITURE_ID = ApiError(
+    "bad_furniture_id", 400,
+    "Unknown furniture item.",
+    "قطعة الأثاث غير معروفة.",
+)
+ERR_CATALOGUE_UNAVAILABLE = ApiError(
+    "catalogue_unavailable", 500,
+    "Furniture catalogue could not be loaded.",
+    "تعذّر تحميل كتالوج الأثاث.",
+)
+ERR_INVALID_PLACEMENT = ApiError(
+    "invalid_placement", 400,
+    "The furniture cannot be placed at this position.",
+    "لا يمكن وضع الأثاث في هذا الموضع.",
+)
+ERR_COMPOSITING_FAILED = ApiError(
+    "compositing_failed", 500,
+    "Could not insert the furniture into the room.",
+    "تعذّر إدراج الأثاث في الغرفة.",
+)
 
 # 5xx — server-side
 ERR_PIPELINE = ApiError(
@@ -72,4 +92,42 @@ ERR_OUTPUT_MISSING = ApiError(
     "output_missing", 500,
     "Output file missing.",
     "ملف الناتج غير موجود.",
+)
+
+
+# --- accounts ---
+ERR_NOT_AUTHENTICATED = ApiError(
+    "not_authenticated", 401,
+    "Please sign in to continue.",
+    "يرجى تسجيل الدخول للمتابعة.",
+)
+ERR_BAD_CREDENTIALS = ApiError(
+    "bad_credentials", 401,
+    "Incorrect email or password.",
+    "البريد الإلكتروني أو كلمة المرور غير صحيحة.",
+)
+ERR_EMAIL_TAKEN = ApiError(
+    "email_taken", 409,
+    "An account with this email already exists.",
+    "يوجد حساب مسجّل بهذا البريد الإلكتروني.",
+)
+ERR_INVALID_EMAIL = ApiError(
+    "invalid_email", 400,
+    "Please enter a valid email address.",
+    "يرجى إدخال بريد إلكتروني صالح.",
+)
+ERR_WEAK_PASSWORD = ApiError(
+    "weak_password", 400,
+    "Password must be at least 6 characters.",
+    "يجب أن تتكون كلمة المرور من ٦ أحرف على الأقل.",
+)
+ERR_MISSING_NAME = ApiError(
+    "missing_name", 400,
+    "Please enter your full name.",
+    "يرجى إدخال الاسم الكامل.",
+)
+ERR_BAD_IMAGE_DATA = ApiError(
+    "bad_image_data", 400,
+    "The image could not be read.",
+    "تعذّرت قراءة الصورة.",
 )

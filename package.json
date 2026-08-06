@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "dev:tunnel": "node scripts/dev-tunnel.mjs",
     "build": "next build",
     "start": "next start",
     "lint": "next lint"

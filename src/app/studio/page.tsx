@@ -23,7 +23,9 @@ import CulturalElementHighlighter, { DEMO_REGIONS } from "@/components/CulturalE
 import RoomMap2D, { DEMO_MAP } from "@/components/RoomMap2D";
 import CulturalNarration from "@/components/CulturalNarration";
 import DepthOrbit from "@/components/DepthOrbit";
+import FurniturePlacement from "@/components/FurniturePlacement";
 import RoomReport from "@/components/RoomReport";
+import SaveDesignButton from "@/components/SaveDesignButton";
 import StyleIntensitySlider from "@/components/StyleIntensitySlider";
 import { useImage, type StyleId } from "@/context/ImageContext";
 import { useThemeLanguage } from "@/context/ThemeLanguageContext";
@@ -94,6 +96,11 @@ export default function StudioPage() {
   const [result, setResult] = useState<RedesignResult | null>(null);
   const [err, setErr] = useState<{ en: string; ar: string } | null>(null);
   const [featured, setFeatured] = useState<StyleId>("lebanese");
+  // Which cultures to generate. "all" keeps the shipped behaviour (and the
+  // "one compute serves all three" demo story); a single culture is ~3x faster
+  // because generation dominates — depth/seg and the room analysis run once
+  // either way.
+  const [generateScope, setGenerateScope] = useState<StyleId | "all">("all");
   const [progress, setProgress] = useState(0);
   const [elapsed, setElapsed] = useState(0);
   const [comparePos, setComparePos] = useState(50);
@@ -187,8 +194,16 @@ export default function StudioPage() {
     try {
       // 7 min: covers the T4's cold first call (SDXL+ControlNet download) —
       // warm calls finish in ~1.5–3 min and resolve long before this fires.
-      const r = await redesignRoom(imageFile, { timeoutMs: 420_000, signal: ctrl.signal });
+      const r = await redesignRoom(imageFile, {
+        timeoutMs: 420_000,
+        signal: ctrl.signal,
+        styles: generateScope === "all" ? undefined : [generateScope],
+      });
       setResult(r);
+      // The featured tile must be one that actually exists, or every consumer of
+      // result[featured] (slider, download, report, 3D orbit, furniture panel)
+      // would read undefined.
+      if (r.styles?.length && !r.styles.includes(featured)) setFeatured(r.styles[0]);
       setProgress(1);
       DarAudio.chime();
       // brief hold so the assembled arch is felt before the reveal
@@ -204,7 +219,7 @@ export default function StudioPage() {
       }
       setPhase("error");
     }
-  }, [imageFile]);
+  }, [imageFile, generateScope, featured]);
 
   // Defense Mode: hydrate `result` from the static pack — no network beyond
   // same-origin fetches, so the full reveal (grid, highlighter, map, orbit)
@@ -458,7 +473,9 @@ export default function StudioPage() {
                   )}
                 </div>
 
-                {/* FEATURED-STYLE PICKER (all three are generated; this picks the reveal lead) */}
+                {/* STYLE PICKER — chooses what to GENERATE. "All three" keeps
+                    the original behaviour; picking one culture renders only it,
+                    which is roughly 3x faster. */}
                 <div className="styles-picker">
                   <div className="label">{tc.pickLabel}</div>
                   {STYLE_ORDER.map((id) => {
@@ -466,18 +483,37 @@ export default function StudioPage() {
                     return (
                       <button
                         key={id}
-                        className={"style-card " + (featured === id ? "selected" : "")}
-                        onClick={() => setFeatured(id)}
+                        className={"style-card " + (generateScope === id ? "selected" : "")}
+                        onClick={() => {
+                          setGenerateScope(id);
+                          setFeatured(id);
+                        }}
                       >
                         <div className="motif">{Motif ? <Motif /> : null}</div>
                         <div>
                           <h3 className="name">{tc.styles[id].name}</h3>
                           <p className="desc">{tc.styles[id].desc}</p>
                         </div>
-                        <div className="check">{featured === id ? "✓" : ""}</div>
+                        <div className="check">{generateScope === id ? "✓" : ""}</div>
                       </button>
                     );
                   })}
+
+                  <button
+                    className={"style-card " + (generateScope === "all" ? "selected" : "")}
+                    onClick={() => setGenerateScope("all")}
+                  >
+                    <div className="motif" />
+                    <div>
+                      <h3 className="name">{isArabic ? "الثلاثة معاً" : "All three"}</h3>
+                      <p className="desc">
+                        {isArabic
+                          ? "يولّد الثقافات الثلاث للمقارنة — أبطأ بثلاث مرات"
+                          : "Generate all three cultures to compare — about 3x slower"}
+                      </p>
+                    </div>
+                    <div className="check">{generateScope === "all" ? "✓" : ""}</div>
+                  </button>
 
                   <div className="transform-cta">
                     <button
@@ -565,7 +601,12 @@ export default function StudioPage() {
       )}
 
       {/* ---------- DONE: cinematic reveal + compare, then the FYP grid ---------- */}
-      {phase === "done" && result && (
+      {phase === "done" && result && (() => {
+        // The featured style is guaranteed to be one that was generated (see
+        // runRedesign), but fall back to the original so a null can never reach
+        // an <img src> or the report/orbit/furniture panel.
+        const featuredSrc = result[featured] ?? result.original;
+        return (
         <>
           <div className="cinema">
             <section className="result-scene">
@@ -666,7 +707,7 @@ export default function StudioPage() {
                   <img src={result.original} alt={rc.before} />
                   <div className="after-wrap" style={{ clipPath: clipAfter }}>
                     {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={result[featured]} alt={rc.after} />
+                    <img src={featuredSrc} alt={rc.after} />
                   </div>
                   <span className="lbl before">{rc.before}</span>
                   <span className="lbl after">{rc.after}</span>
@@ -677,7 +718,7 @@ export default function StudioPage() {
               </div>
 
               <div className="actions">
-                <button className="btn" onClick={() => downloadTile(result[featured], featured)}>
+                <button className="btn" onClick={() => downloadTile(featuredSrc, featured)}>
                   <span>{rc.download}</span>
                   <span className="arrow">↓</span>
                 </button>
@@ -695,9 +736,13 @@ export default function StudioPage() {
                 {isArabic ? "كل البيوت الثلاثة" : "All three houses"}
               </h2>
               <div className={cn("flex items-center gap-3", isArabic && "flex-row-reverse")}>
+                {/* Save the CURRENT state: featuredSrc is replaced after every
+                    furniture insertion, so pressing this after editing stores
+                    the edited room, not the freshly generated one. */}
+                <SaveDesignButton oldImage={result.original} newImage={featuredSrc} />
                 <RoomReport
                   beforeSrc={result.original}
-                  afterSrc={result[featured]}
+                  afterSrc={featuredSrc}
                   styleLabel={{
                     ar: TILES.find((t) => t.key === featured)?.ar ?? "",
                     en: TILES.find((t) => t.key === featured)?.en ?? "",
@@ -721,8 +766,10 @@ export default function StudioPage() {
             </div>
 
             <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
-              {TILES.map((t) => {
-                const src = result[t.key];
+              {/* Only tiles that were actually generated — a single-culture
+                  request legitimately returns nulls for the other two. */}
+              {TILES.filter((t) => typeof result[t.key] === "string").map((t) => {
+                const src = result[t.key] as string;
                 return (
                   <figure
                     key={t.key}
@@ -821,8 +868,25 @@ export default function StudioPage() {
                           ? `الجولة ثلاثية الأبعاد — ${TILES.find((t) => t.key === featured)?.ar ?? ""} (اسحب للدوران)`
                           : `3D room view — ${TILES.find((t) => t.key === featured)?.en ?? ""} (drag to orbit)`}
                       </p>
-                      <DepthOrbit imageUrl={result[featured]} depthUrl={result.depth_map} />
+                      <DepthOrbit imageUrl={featuredSrc} depthUrl={result.depth_map} />
                     </div>
+                  )}
+
+                  {/* Cultural furniture: recommend, position, confirm, insert.
+                      Needs the cached room analysis (masks live server-side), so
+                      it only renders when /redesign returned a job id and an
+                      analysis — otherwise placement has nothing to validate
+                      against and the panel would offer a broken promise. */}
+                  {result.job_id && result.room_analysis && (
+                    <FurniturePlacement
+                      jobId={result.job_id}
+                      style={featured}
+                      imageSrc={featuredSrc}
+                      analysis={result.room_analysis}
+                      onPlaced={(image) =>
+                        setResult((prev) => (prev ? { ...prev, [featured]: image } : prev))
+                      }
+                    />
                   )}
 
                   <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
@@ -844,7 +908,8 @@ export default function StudioPage() {
             </div>
           </section>
         </>
-      )}
+        );
+      })()}
     </main>
   );
 }

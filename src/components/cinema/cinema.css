@@ -199,7 +199,10 @@ html { scroll-behavior: smooth; }
   color: #fff;
 }
 html[lang="ar"] .cinema .chrome .group { font-family: var(--f-ui-ar); letter-spacing: 0; text-transform: none; font-size: 0.8rem; }
-.cinema .chrome button.toggle {
+.cinema .chrome button.toggle,
+/* Nav items that navigate are links, not buttons. Same pill styling, so the
+   account/history entries sit level with the theme and language toggles. */
+.cinema .chrome a.toggle {
   padding: 8px 14px;
   border: 1px solid rgba(255,255,255,0.25);
   border-radius: 999px;
@@ -209,7 +212,9 @@ html[lang="ar"] .cinema .chrome .group { font-family: var(--f-ui-ar); letter-spa
   letter-spacing: inherit;
   text-transform: inherit;
 }
-.cinema .chrome button.toggle:hover { border-color: #fff; background: rgba(255,255,255,0.06); }
+.cinema .chrome button.toggle:hover,
+.cinema .chrome a.toggle:hover { border-color: #fff; background: rgba(255,255,255,0.06); }
+.cinema .chrome a.toggle { text-decoration: none; display: inline-flex; align-items: center; }
 .cinema .chrome .audio-pulse {
   display: inline-flex;
   align-items: center;
