@@ -97,6 +97,28 @@ ERR_COMPOSITING_FAILED = ApiError(
     "تعذّر إدراج الأثاث في الغرفة.",
 )
 
+# --- colour control (wall / floor recolouring) ---
+ERR_BAD_COLOR = ApiError(
+    "bad_color", 400,
+    "Colour must be a hex value like #C0392B.",
+    "يجب أن يكون اللون بصيغة ست عشرية مثل ‎#C0392B.",
+)
+ERR_COLOR_AREA_NOT_FOUND = ApiError(
+    "color_area_not_found", 404,
+    "The selected area could not be detected in this room.",
+    "تعذّر تحديد المنطقة المختارة في هذه الغرفة.",
+)
+ERR_RECOLOR_FAILED = ApiError(
+    "recolor_failed", 500,
+    "Could not change the colour of this area.",
+    "تعذّر تغيير لون هذه المنطقة.",
+)
+ERR_NOTHING_TO_UNDO = ApiError(
+    "nothing_to_undo", 400,
+    "There is no colour change to undo.",
+    "لا يوجد تغيير لون للتراجع عنه.",
+)
+
 # 5xx — server-side
 ERR_PIPELINE = ApiError(
     "pipeline_failed", 500,

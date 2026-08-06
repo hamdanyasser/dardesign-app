@@ -641,6 +641,83 @@ export function furnitureAssetUrl(item: FurnitureItem): string {
   return `/${item.asset.replace(/^\/+/, "")}`;
 }
 
+/* ------------------------------------------------------------------
+   Colour Control — recolour the wall or floor of a finished render
+   inside its segmentation mask. See backend/recolor_api.py.
+   ------------------------------------------------------------------ */
+
+/** The only two surfaces that can be recoloured. */
+export type ColorTarget = "wall" | "floor";
+
+export interface ColorTargetAvailability {
+  target: ColorTarget;
+  /** Fraction of the frame this surface covers, 0..1. */
+  coverage: number;
+  /** False when the surface isn't visible enough to recolour reliably. */
+  available: boolean;
+}
+
+export interface RecolorResult {
+  job_id: string;
+  style: StyleId;
+  /** The recoloured room as a base64 PNG data URL. */
+  image: string;
+  target: ColorTarget;
+  color: string;
+  strength: number;
+  coverage: number;
+  /** Only on apply/undo/reset: is there a previous version to step back to? */
+  can_undo?: boolean;
+}
+
+interface RecolorBody {
+  job_id: string;
+  style: StyleId;
+  target: ColorTarget;
+  color: string;
+  strength?: number;
+}
+
+async function colorPost(path: string, body: unknown): Promise<RecolorResult> {
+  const res = await safeFetch(`${API_URL}/api/color/${path}`, {
+    method: "POST",
+    headers: { ...COMMON_HEADERS, "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  return (await unwrap(res)) as RecolorResult;
+}
+
+/** Which surfaces this room actually has, so the UI can disable the rest. */
+export async function fetchColorTargets(jobId: string): Promise<ColorTargetAvailability[]> {
+  const res = await safeFetch(
+    `${API_URL}/api/color/targets?job_id=${encodeURIComponent(jobId)}`,
+    { headers: COMMON_HEADERS },
+  );
+  const body = (await unwrap(res)) as { targets?: ColorTargetAvailability[] };
+  return body.targets ?? [];
+}
+
+/** Try a colour. Changes nothing server-side — the job is untouched. */
+export function previewRecolor(body: RecolorBody): Promise<RecolorResult> {
+  return colorPost("preview", body);
+}
+
+/** Commit the colour: it becomes the job's current render, so a later save
+ *  (or another edit) builds on it. */
+export function applyRecolor(body: RecolorBody): Promise<RecolorResult> {
+  return colorPost("apply", body);
+}
+
+/** Step back one confirmed colour change. */
+export function undoRecolor(jobId: string, style: StyleId): Promise<RecolorResult> {
+  return colorPost("undo", { job_id: jobId, style });
+}
+
+/** Drop every colour change on this style. Furniture placed earlier stays. */
+export function resetRecolor(jobId: string, style: StyleId): Promise<RecolorResult> {
+  return colorPost("reset", { job_id: jobId, style });
+}
+
 export interface RestyleResult {
   image: string;
   style: RestyleStyleId;

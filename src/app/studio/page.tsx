@@ -21,6 +21,7 @@ import { MotifTiles } from "@/components/cinema/svg/MotifTiles";
 import { useCinemaCopy } from "@/components/cinema/copy";
 import CulturalElementHighlighter, { DEMO_REGIONS } from "@/components/CulturalElementHighlighter";
 import RoomMap2D, { DEMO_MAP } from "@/components/RoomMap2D";
+import ColorControl from "@/components/ColorControl";
 import CulturalNarration from "@/components/CulturalNarration";
 import DepthOrbit from "@/components/DepthOrbit";
 import FurniturePlacement from "@/components/FurniturePlacement";
@@ -770,6 +771,25 @@ export default function StudioPage() {
                 </button>
               </div>
             </div>
+
+            {/* Colour Control — repaint the wall or floor of the featured
+                render. Needs the cached room analysis for the same reason
+                furniture placement does: the masks live server-side and are
+                only derivable from the generation pass. Confirming replaces
+                the featured image, so Save, the report and the 3D orbit all
+                pick the recoloured room up without knowing about this panel. */}
+            {result.job_id && result.room_analysis && (
+              <div className="mb-6">
+                <ColorControl
+                  jobId={result.job_id}
+                  style={featured}
+                  imageSrc={featuredSrc}
+                  onImageChange={(image) =>
+                    setResult((prev) => (prev ? { ...prev, [featured]: image } : prev))
+                  }
+                />
+              </div>
+            )}
 
             <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
               {/* Only tiles that were actually generated — a single-culture

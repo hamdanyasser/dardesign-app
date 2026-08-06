@@ -131,6 +131,12 @@ class RoomAnalysis:
     existing_categories: list[str]
     candidates: list[CandidateSpot] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
+    # Raw ADE20K ids this analysis was built from. Kept because a consumer may
+    # need a class the placement masks deliberately merge — recolour.py wants the
+    # floor without the rug lying on it, while `floor_mask` counts the rug as
+    # standing-room on purpose. Optional so an analysis built without it still
+    # works. ~0.6 MB at the 384x384 analysis resolution.
+    seg_ids: np.ndarray | None = None
 
     def summary(self) -> dict:
         """JSON-safe view. Masks are excluded — they stay server-side."""
@@ -470,4 +476,5 @@ def analyze_room(
         existing_categories=existing,
         candidates=candidates,
         warnings=warnings,
+        seg_ids=seg,
     )
