@@ -10,6 +10,19 @@
 const API_URL =
   process.env.NEXT_PUBLIC_API_URL?.replace(/\/+$/, "") ?? "http://localhost:8000";
 
+/**
+ * Where accounts, saved designs and ratings live — the data that has to outlive
+ * a GPU session. Defaults to API_URL, so a single-backend setup behaves exactly
+ * as before. Point `NEXT_PUBLIC_DATA_API_URL` at a backend on this machine to
+ * keep the SQLite file and `images/` local while renders still come from a
+ * throwaway GPU host, whose container is wiped between sessions.
+ *
+ * Renders (/redesign, /restyle) and room compute (/api/furniture/*) stay on
+ * API_URL: they need the GPU and hold no durable state.
+ */
+const DATA_API_URL =
+  process.env.NEXT_PUBLIC_DATA_API_URL?.replace(/\/+$/, "") ?? API_URL;
+
 const COMMON_HEADERS = {
   // ngrok injects an HTML interstitial unless this header is set on every call
   "ngrok-skip-browser-warning": "true",
@@ -815,7 +828,7 @@ export async function register(input: {
   email: string;
   password: string;
 }): Promise<AuthUser> {
-  const res = await safeFetch(`${API_URL}/api/auth/register`, {
+  const res = await safeFetch(`${DATA_API_URL}/api/auth/register`, {
     method: "POST",
     headers: { ...COMMON_HEADERS, "Content-Type": "application/json" },
     body: JSON.stringify(input),
@@ -825,7 +838,7 @@ export async function register(input: {
 }
 
 export async function login(email: string, password: string): Promise<AuthUser> {
-  const res = await safeFetch(`${API_URL}/api/auth/login`, {
+  const res = await safeFetch(`${DATA_API_URL}/api/auth/login`, {
     method: "POST",
     headers: { ...COMMON_HEADERS, "Content-Type": "application/json" },
     body: JSON.stringify({ email, password }),
@@ -835,7 +848,7 @@ export async function login(email: string, password: string): Promise<AuthUser> 
 }
 
 export async function logout(): Promise<void> {
-  await safeFetch(`${API_URL}/api/auth/logout`, {
+  await safeFetch(`${DATA_API_URL}/api/auth/logout`, {
     method: "POST",
     headers: COMMON_HEADERS,
     ...WITH_CREDENTIALS,
@@ -846,7 +859,7 @@ export async function logout(): Promise<void> {
  *  that's a normal state the app boots into, not an error. */
 export async function fetchMe(): Promise<AuthUser | null> {
   try {
-    const res = await safeFetch(`${API_URL}/api/auth/me`, {
+    const res = await safeFetch(`${DATA_API_URL}/api/auth/me`, {
       headers: COMMON_HEADERS,
       ...WITH_CREDENTIALS,
     });
@@ -867,7 +880,7 @@ export async function saveToHistory(
   newImage: string,
   meta: { culture?: string | null; intensity?: number | null } = {},
 ): Promise<HistoryEntry> {
-  const res = await safeFetch(`${API_URL}/api/history`, {
+  const res = await safeFetch(`${DATA_API_URL}/api/history`, {
     method: "POST",
     headers: { ...COMMON_HEADERS, "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -889,7 +902,7 @@ export async function submitFeedback(
   historyId: number,
   input: FeedbackInput,
 ): Promise<Feedback> {
-  const res = await safeFetch(`${API_URL}/api/feedback`, {
+  const res = await safeFetch(`${DATA_API_URL}/api/feedback`, {
     method: "POST",
     headers: { ...COMMON_HEADERS, "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -907,7 +920,7 @@ export async function submitFeedback(
 
 /** Your existing rating for a design, or null. 404s for anyone else's design. */
 export async function fetchFeedback(historyId: number): Promise<Feedback | null> {
-  const res = await safeFetch(`${API_URL}/api/feedback/${historyId}`, {
+  const res = await safeFetch(`${DATA_API_URL}/api/feedback/${historyId}`, {
     headers: COMMON_HEADERS,
     ...WITH_CREDENTIALS,
   });
@@ -923,7 +936,7 @@ export async function fetchAdminFeedback(
   if (opts.since != null) qs.set("since", String(opts.since));
   if (opts.until != null) qs.set("until", String(opts.until));
   if (opts.limit != null) qs.set("limit", String(opts.limit));
-  const res = await safeFetch(`${API_URL}/api/admin/feedback?${qs}`, {
+  const res = await safeFetch(`${DATA_API_URL}/api/admin/feedback?${qs}`, {
     headers: COMMON_HEADERS,
     ...WITH_CREDENTIALS,
   });
@@ -931,7 +944,7 @@ export async function fetchAdminFeedback(
 }
 
 export async function fetchHistory(): Promise<HistoryEntry[]> {
-  const res = await safeFetch(`${API_URL}/api/history`, {
+  const res = await safeFetch(`${DATA_API_URL}/api/history`, {
     headers: COMMON_HEADERS,
     ...WITH_CREDENTIALS,
   });
@@ -940,7 +953,7 @@ export async function fetchHistory(): Promise<HistoryEntry[]> {
 
 /** Share one of your designs to the public gallery, or take it back. */
 export async function setSuggested(id: number, isSuggested: boolean): Promise<void> {
-  const res = await safeFetch(`${API_URL}/api/history/${id}/suggest`, {
+  const res = await safeFetch(`${DATA_API_URL}/api/history/${id}/suggest`, {
     method: "PATCH",
     headers: { ...COMMON_HEADERS, "Content-Type": "application/json" },
     body: JSON.stringify({ isSuggested }),
@@ -951,7 +964,7 @@ export async function setSuggested(id: number, isSuggested: boolean): Promise<vo
 
 /** Other users' shared designs — never your own, never anything unshared. */
 export async function fetchSuggested(): Promise<HistoryEntry[]> {
-  const res = await safeFetch(`${API_URL}/api/history/suggested`, {
+  const res = await safeFetch(`${DATA_API_URL}/api/history/suggested`, {
     headers: COMMON_HEADERS,
     ...WITH_CREDENTIALS,
   });
@@ -959,7 +972,7 @@ export async function fetchSuggested(): Promise<HistoryEntry[]> {
 }
 
 export async function deleteHistoryEntry(id: number): Promise<void> {
-  const res = await safeFetch(`${API_URL}/api/history/${id}`, {
+  const res = await safeFetch(`${DATA_API_URL}/api/history/${id}`, {
     method: "DELETE",
     headers: COMMON_HEADERS,
     ...WITH_CREDENTIALS,
@@ -969,5 +982,5 @@ export async function deleteHistoryEntry(id: number): Promise<void> {
 
 /** Saved images are served by the backend, not Next's /public. */
 export function storedImageUrl(path: string): string {
-  return `${API_URL}/${path.replace(/^\/+/, "")}`;
+  return `${DATA_API_URL}/${path.replace(/^\/+/, "")}`;
 }

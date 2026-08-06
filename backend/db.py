@@ -17,6 +17,7 @@ serialised rather than to make reads fast.
 from __future__ import annotations
 
 import logging
+import os
 import sqlite3
 import threading
 import time
@@ -26,7 +27,12 @@ from typing import Any, Iterable
 logger = logging.getLogger(__name__)
 
 ROOT = Path(__file__).resolve().parent.parent
-DB_PATH = Path(__file__).resolve().parent / "dardesign.db"
+# Default: beside this module, inside the checkout. On Colab the checkout is
+# deleted and re-cloned every session, which takes every account and rating with
+# it — set $DARDESIGN_DB there to a path outside the repo so the data outlives
+# the session. Read at import time, so it must be set before backend.main is
+# imported (i.e. before uvicorn starts).
+DB_PATH = Path(os.environ.get("DARDESIGN_DB") or Path(__file__).resolve().parent / "dardesign.db")
 
 ROLE_USER = "User"
 ROLE_ADMIN = "Admin"
