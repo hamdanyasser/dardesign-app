@@ -47,7 +47,7 @@ One of us starts a session: Kaggle → `dardesign-backend` → **GPU T4 x2** →
 URL → paste it into `.env.local` as `NEXT_PUBLIC_API_URL=…` → restart
 `npm run dev`. Any photo you upload at `/studio` now renders live (~4 min).
 
-Code changes deploy themselves: any push to `feat/cinematic-merge` restarts the
+Code changes deploy themselves: any push to `master` restarts the
 live backend within ~60 s (same URL). **Never push while renders are running.**
 
 ## 4 · Your two flagship tasks
@@ -80,8 +80,8 @@ Lebanese + all 23 Persian (`ontology/ontology.json`, flip `verified: false`).
 The loop: `npm run dev` in one terminal, **Claude Code** in another, browser on
 localhost:3000. Describe → review the diff → test → commit small.
 
-- **Branches:** create `feat/<your-feature>` off `feat/cinematic-merge` and
-  push that. ⚠️ Pushing to `feat/cinematic-merge` itself **redeploys the live
+- **Branches:** create `feat/<your-feature>` off `master` and
+  push that. ⚠️ Pushing to `master` itself **redeploys the live
   backend within 60 s** (the auto-deploy watchdog) — merge into it only when
   the work is done and no renders are running.
 - **Design system:** every color is a `--dd-*` CSS variable in

@@ -20,7 +20,11 @@ assert torch.cuda.is_available()
 print("GPU:", torch.cuda.get_device_name(0), flush=True)
 
 REPO = "/kaggle/working/repo"
-subprocess.run(f"rm -rf {REPO}; git clone --depth 1 -b feat/cinematic-merge https://github.com/hamdanyasser/dardesign-app.git {REPO}", shell=True, check=True)
+# The branch this session serves. It is BOTH what we clone and what the
+# auto-deploy watchdog below tracks — keep it in one place so the running code
+# and the redeploy target can never drift apart.
+BRANCH = "master"
+subprocess.run(f"rm -rf {REPO}; git clone --depth 1 -b {BRANCH} https://github.com/hamdanyasser/dardesign-app.git {REPO}", shell=True, check=True)
 os.chdir(REPO)
 sys.path.insert(0, REPO)  # chdir alone doesn't put the repo on script.py's sys.path — uvicorn imports backend.main in-process
 
@@ -93,7 +97,7 @@ except Exception as _e:
 # AUTO-DEPLOY watchdog: a git push to the branch redeploys THIS session in
 # ~60s behind the SAME tunnel URL — no more stop -> Save & Run All -> new-URL
 # cycles for code fixes. (A requirements.txt change still needs a fresh run.)
-BRANCH = "feat/cinematic-merge"
+# BRANCH is defined next to the clone above.
 def _watchdog():
     while True:
         time.sleep(60)
