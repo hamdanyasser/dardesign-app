@@ -483,7 +483,6 @@ export interface PlacementPosition {
   y: number;
   width: number;
   height: number;
-  rotation: number;
 }
 
 export interface PlacementCandidate {
@@ -512,6 +511,15 @@ export interface ValidatePositionResult extends PlacementCandidate {
   adjusted_position: PlacementPosition | null;
 }
 
+/** One confirmed placement, as stored on the job. */
+export interface PlacementRecord {
+  furniture_id: string;
+  style: StyleId;
+  position: PlacementPosition;
+  score: number;
+  created_at: number;
+}
+
 export interface ConfirmPlacementResult {
   job_id: string;
   style: StyleId;
@@ -521,6 +529,8 @@ export interface ConfirmPlacementResult {
   position: PlacementPosition;
   score: number;
   compositing: { brightness_factor: number; warmth_shift: number };
+  /** Every placement confirmed on this job so far, oldest first. */
+  placements: PlacementRecord[];
 }
 
 /** Ranked 3–6 culturally appropriate items for this room. */
@@ -552,12 +562,11 @@ export async function fetchCandidatePositions(
   jobId: string,
   furnitureId: string,
   limit = 3,
-  rotation = 0,
 ): Promise<CandidatePositionsResult> {
   const res = await safeFetch(`${API_URL}/api/furniture/candidate-positions`, {
     method: "POST",
     headers: { ...COMMON_HEADERS, "Content-Type": "application/json" },
-    body: JSON.stringify({ job_id: jobId, furniture_id: furnitureId, limit, rotation }),
+    body: JSON.stringify({ job_id: jobId, furniture_id: furnitureId, limit }),
   });
   return (await unwrap(res)) as CandidatePositionsResult;
 }
@@ -585,7 +594,6 @@ export async function validatePlacement(
       y: pos.y,
       width: pos.width,
       height: pos.height,
-      rotation: pos.rotation ?? 0,
     }),
     signal,
   });
@@ -610,7 +618,6 @@ export async function confirmPlacement(
       y: pos.y,
       width: pos.width,
       height: pos.height,
-      rotation: pos.rotation ?? 0,
     }),
   });
   return (await unwrap(res)) as ConfirmPlacementResult;
@@ -728,9 +735,74 @@ export interface HistoryEntry {
   oldImageUrl: string;
   newImageUrl: string;
   isSuggested: boolean;
+  /** How the design was generated. Null on entries saved before this was recorded. */
+  culture?: StyleId | string | null;
+  intensity?: number | null;
   createdAt: number;
   /** Present only on the shared gallery — first name of whoever made it. */
   authorName?: string | null;
+}
+
+/** How the user judged the furniture in a design. */
+export type FurniturePlacementVerdict = "valid" | "invalid" | "not_applicable";
+
+export const FEEDBACK_RATING_MIN = 1;
+export const FEEDBACK_RATING_MAX = 5;
+export const FEEDBACK_COMMENT_MAX = 500;
+
+/** One user's rating of one generated design. */
+export interface Feedback {
+  id: number;
+  historyId: number;
+  userId: number;
+  /** Read server-side from the design record — never from the form. */
+  culture: string | null;
+  intensity: number | null;
+  culturalAccuracy: number;
+  imageQuality: number;
+  roomPreservation: number;
+  furniturePlacement: FurniturePlacementVerdict;
+  comment: string | null;
+  createdAt: number;
+  updatedAt: number;
+  /** True when this call revised an existing rating rather than creating one. */
+  updated?: boolean;
+  /** Admin listing only — first name of whoever submitted it. */
+  authorName?: string | null;
+}
+
+/** What the form collects. Everything else is derived server-side. */
+export interface FeedbackInput {
+  culturalAccuracy: number;
+  imageQuality: number;
+  roomPreservation: number;
+  furniturePlacement: FurniturePlacementVerdict;
+  comment?: string | null;
+}
+
+export interface FeedbackStats {
+  total: number;
+  averageCulturalAccuracy: number | null;
+  averageImageQuality: number | null;
+  averageRoomPreservation: number | null;
+  placementValid: number;
+  placementInvalid: number;
+  placementNotApplicable: number;
+}
+
+export interface FeedbackByCulture {
+  culture: string | null;
+  total: number;
+  averageCulturalAccuracy: number | null;
+  averageImageQuality: number | null;
+  averageRoomPreservation: number | null;
+}
+
+export interface AdminFeedbackResult {
+  stats: FeedbackStats;
+  byCulture: FeedbackByCulture[];
+  recent: Feedback[];
+  cultures: string[];
 }
 
 /** Session lives in an httpOnly cookie, so every auth-aware call must opt in to
@@ -785,18 +857,77 @@ export async function fetchMe(): Promise<AuthUser | null> {
   }
 }
 
-/** Save the current design. Nothing is persisted until this is called. */
+/** Save the current design. Nothing is persisted until this is called.
+ *
+ *  `culture`/`intensity` describe how it was generated; they are stored on the
+ *  design so that rating it later reads them from the database instead of
+ *  trusting the rating form. */
 export async function saveToHistory(
   oldImage: string,
   newImage: string,
+  meta: { culture?: string | null; intensity?: number | null } = {},
 ): Promise<HistoryEntry> {
   const res = await safeFetch(`${API_URL}/api/history`, {
     method: "POST",
     headers: { ...COMMON_HEADERS, "Content-Type": "application/json" },
-    body: JSON.stringify({ oldImage, newImage }),
+    body: JSON.stringify({
+      oldImage,
+      newImage,
+      culture: meta.culture ?? null,
+      intensity: meta.intensity ?? null,
+    }),
     ...WITH_CREDENTIALS,
   });
   return (await unwrap(res)) as HistoryEntry;
+}
+
+/** Rate one of your own saved designs, or revise your earlier rating.
+ *
+ *  One record per design: calling this twice edits the first. The backend reads
+ *  the author, culture and intensity itself, so only the judgements travel. */
+export async function submitFeedback(
+  historyId: number,
+  input: FeedbackInput,
+): Promise<Feedback> {
+  const res = await safeFetch(`${API_URL}/api/feedback`, {
+    method: "POST",
+    headers: { ...COMMON_HEADERS, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      historyId,
+      culturalAccuracy: input.culturalAccuracy,
+      imageQuality: input.imageQuality,
+      roomPreservation: input.roomPreservation,
+      furniturePlacement: input.furniturePlacement,
+      comment: input.comment?.trim() || null,
+    }),
+    ...WITH_CREDENTIALS,
+  });
+  return (await unwrap(res)) as Feedback;
+}
+
+/** Your existing rating for a design, or null. 404s for anyone else's design. */
+export async function fetchFeedback(historyId: number): Promise<Feedback | null> {
+  const res = await safeFetch(`${API_URL}/api/feedback/${historyId}`, {
+    headers: COMMON_HEADERS,
+    ...WITH_CREDENTIALS,
+  });
+  return (await unwrap(res)) as Feedback | null;
+}
+
+/** Aggregated feedback for the admin panel. Admin role required. */
+export async function fetchAdminFeedback(
+  opts: { culture?: string; since?: number; until?: number; limit?: number } = {},
+): Promise<AdminFeedbackResult> {
+  const qs = new URLSearchParams();
+  if (opts.culture) qs.set("culture", opts.culture);
+  if (opts.since != null) qs.set("since", String(opts.since));
+  if (opts.until != null) qs.set("until", String(opts.until));
+  if (opts.limit != null) qs.set("limit", String(opts.limit));
+  const res = await safeFetch(`${API_URL}/api/admin/feedback?${qs}`, {
+    headers: COMMON_HEADERS,
+    ...WITH_CREDENTIALS,
+  });
+  return (await unwrap(res)) as AdminFeedbackResult;
 }
 
 export async function fetchHistory(): Promise<HistoryEntry[]> {

@@ -27,6 +27,10 @@ class Job:
     # output_path only keeps the last; furniture placement has to edit the
     # specific style the user is looking at.
     style_outputs: dict = field(default_factory=dict)
+    # Confirmed furniture placements, oldest first: {furniture_id, style, position,
+    # score, created_at}. Metadata only — no image bytes and no paths — so it is
+    # safe to hand back over the wire.
+    placements: list = field(default_factory=list)
     style: Optional[str] = None
     progress: float = 0.0          # 0.0–1.0; updated by worker via Jobs.update_progress
     error_code: Optional[str] = None

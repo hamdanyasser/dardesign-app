@@ -29,6 +29,7 @@ from __future__ import annotations
 import gc
 import logging
 import os
+import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -670,34 +671,34 @@ def _synthetic_depth_seg(size: int = _PROJECTION_SIZE) -> tuple[Any, Any]:
     return depth, seg
 
 
-def compute_depth_seg(image_path: str | Path, *, size: int = _PROJECTION_SIZE) -> tuple[Any, Any]:
-    """Return (depth_array, seg_class_ids) for backend.projection.
-
-    depth_array   — (H, W) float32, Depth Anything convention (larger = closer)
-    seg_class_ids — (H, W) int32 raw ADE20K-150 ids; `_prepare_conditioning`
-                    can't be reused here because it returns the *colorized*
-                    control images, not the id map the projection needs.
+def _model_depth_seg(
+    image_path: str | Path, size: int = _PROJECTION_SIZE, *, timings: dict | None = None
+) -> tuple[Any, Any]:
+    """The real thing: Depth Anything V2 + OneFormer ADE20K on the actual photo.
 
     Runs on CPU on purpose: one-shot per request, must not steal VRAM from the
-    SDXL pipeline on the T4.
+    SDXL pipeline on the T4. That is also what makes it usable with no GPU at
+    all — it is slow there (tens of seconds), not impossible, which is what
+    DARDESIGN_REAL_ANALYSIS trades on.
     """
-    if _is_light_mode():
-        return _synthetic_depth_seg(size)
-
     import numpy as np
     from PIL import Image
 
     src = Image.open(image_path).convert("RGB").resize((size, size))
 
     # Same cached Depth Anything V2 annotator the ControlNet conditioning uses.
+    t0 = time.time()
     depth_pil = _depth_control_image(src)
     depth = np.asarray(depth_pil.convert("L").resize((size, size)), dtype=np.float32)
+    if timings is not None:
+        timings["depth_s"] = round(time.time() - t0, 2)
 
     # Same checkpoint the seg ControlNet input uses, so the weights are already
     # in the HF cache by the time /redesign gets here.
     import torch
     from transformers import OneFormerForUniversalSegmentation, OneFormerProcessor
 
+    t0 = time.time()
     if "seg" not in _DEPTH_SEG_CACHE:
         ckpt = "shi-labs/oneformer_ade20k_swin_large"
         _DEPTH_SEG_CACHE["seg"] = (
@@ -713,6 +714,427 @@ def compute_depth_seg(image_path: str | Path, *, size: int = _PROJECTION_SIZE) -
         .cpu()
         .numpy()
         .astype(np.int32)
+    )
+    if timings is not None:
+        timings["seg_s"] = round(time.time() - t0, 2)
+    return depth, seg
+
+
+# ----------------------------------------------------------------------------
+# Opt-in real room analysis on a machine with no GPU
+#
+# The models above already run on CPU — they are skipped in light mode only to
+# avoid a ~1 GB download and tens of seconds per image, not because they need a
+# GPU. DARDESIGN_REAL_ANALYSIS=1 turns them back on while keeping the generated
+# images as placeholders, so the placement engine can be exercised against the
+# room the user actually uploaded rather than the synthetic stand-in.
+#
+# Off by default, and deliberately so: this is a testing/verification mode until
+# its speed and accuracy have been measured on the target machine.
+# ----------------------------------------------------------------------------
+
+REAL_ANALYSIS_ENV = "DARDESIGN_REAL_ANALYSIS"
+ANALYSIS_TIMEOUT_ENV = "DARDESIGN_ANALYSIS_TIMEOUT"          # seconds, per image
+ANALYSIS_LOAD_TIMEOUT_ENV = "DARDESIGN_ANALYSIS_LOAD_TIMEOUT"  # seconds, first load
+ANALYSIS_NO_DOWNLOAD_ENV = "DARDESIGN_ANALYSIS_NO_DOWNLOAD"  # cache-only, never fetch
+
+_DEFAULT_ANALYSIS_TIMEOUT = 180.0
+_DEFAULT_LOAD_TIMEOUT = 1800.0  # generous: the first load may include the download
+
+DEPTH_MODEL = "depth-anything/Depth-Anything-V2-Small-hf"
+SEG_MODEL = "shi-labs/oneformer_ade20k_swin_large"
+
+# Exact fallback reasons — recorded on the analysis meta so a synthetic room is
+# never silently mistaken for a real one.
+FALLBACK_DISABLED = "flag_disabled"
+FALLBACK_MISSING_DEP = "missing_dependency"
+FALLBACK_LOAD_FAILED = "load_failed"
+FALLBACK_TIMEOUT = "timeout"
+FALLBACK_INFERENCE_FAILED = "inference_failed"
+FALLBACK_WORKER_DIED = "worker_died"
+
+
+def _real_analysis_enabled() -> bool:
+    return os.environ.get(REAL_ANALYSIS_ENV, "").lower() in ("1", "true", "yes")
+
+
+def _analysis_no_download() -> bool:
+    return os.environ.get(ANALYSIS_NO_DOWNLOAD_ENV, "").lower() in ("1", "true", "yes")
+
+
+def _env_seconds(name: str, default: float) -> float:
+    try:
+        return max(1.0, float(os.environ.get(name, "") or default))
+    except ValueError:
+        return default
+
+
+def _transformers_available() -> bool:
+    """Checked without importing it — the parent process must stay light."""
+    from importlib.util import find_spec
+
+    try:
+        return find_spec("transformers") is not None
+    except (ImportError, ValueError):
+        return False
+
+
+def _hf_cache_root() -> Path:
+    base = os.environ.get("HF_HOME")
+    return (Path(base) / "hub") if base else (Path.home() / ".cache" / "huggingface" / "hub")
+
+
+def _model_is_cached(repo: str) -> bool:
+    """True when the weights are already on disk, so no download will happen."""
+    return (_hf_cache_root() / f"models--{repo.replace('/', '--')}").is_dir()
+
+
+def analysis_cache_status() -> dict:
+    """Which model weights are already local. Use before a demo to be sure the
+    ~1 GB download has happened and will not be attempted again."""
+    return {
+        "cache_root": str(_hf_cache_root()),
+        "depth_model": DEPTH_MODEL,
+        "depth_cached": _model_is_cached(DEPTH_MODEL),
+        "seg_model": SEG_MODEL,
+        "seg_cached": _model_is_cached(SEG_MODEL),
+    }
+
+
+def _peak_rss_mb() -> float | None:
+    """Peak resident memory of the calling process, or None if unavailable."""
+    try:  # Windows
+        import ctypes
+        import ctypes.wintypes as wt
+
+        class _PMC(ctypes.Structure):
+            _fields_ = [
+                ("cb", wt.DWORD), ("PageFaultCount", wt.DWORD),
+                ("PeakWorkingSetSize", ctypes.c_size_t), ("WorkingSetSize", ctypes.c_size_t),
+                ("QuotaPeakPagedPoolUsage", ctypes.c_size_t),
+                ("QuotaPagedPoolUsage", ctypes.c_size_t),
+                ("QuotaPeakNonPagedPoolUsage", ctypes.c_size_t),
+                ("QuotaNonPagedPoolUsage", ctypes.c_size_t),
+                ("PagefileUsage", ctypes.c_size_t), ("PeakPagefileUsage", ctypes.c_size_t),
+            ]
+
+        counters = _PMC()
+        counters.cb = ctypes.sizeof(_PMC)
+        ok = ctypes.windll.psapi.GetProcessMemoryInfo(  # type: ignore[attr-defined]
+            ctypes.windll.kernel32.GetCurrentProcess(),  # type: ignore[attr-defined]
+            ctypes.byref(counters), counters.cb,
+        )
+        if ok:
+            return round(counters.PeakWorkingSetSize / (1024 * 1024), 1)
+    except Exception:  # noqa: BLE001 — diagnostics only, never fatal
+        pass
+    try:  # POSIX
+        import resource
+
+        return round(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024, 1)
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _load_analysis_models() -> None:
+    """Load both checkpoints into this process's caches. No inference."""
+    from transformers import (  # noqa: PLC0415
+        OneFormerForUniversalSegmentation,
+        OneFormerProcessor,
+        pipeline as hf_pipeline,
+    )
+
+    if "depth" not in _ANNOTATOR_CACHE:
+        # Deliberately not falling back to MiDaS here: on this path a missing
+        # depth model must surface as a load failure with a reason, not quietly
+        # swap in a different model than the one that was measured.
+        _ANNOTATOR_CACHE["depth"] = ("dav2", hf_pipeline("depth-estimation", model=DEPTH_MODEL))
+    if "seg" not in _DEPTH_SEG_CACHE:
+        _DEPTH_SEG_CACHE["seg"] = (
+            OneFormerProcessor.from_pretrained(SEG_MODEL),
+            OneFormerForUniversalSegmentation.from_pretrained(SEG_MODEL),
+        )
+
+
+def _analysis_worker_main(conn: Any, no_download: bool) -> None:
+    """Child process: load the models once, then serve requests until closed.
+
+    Everything heavy lives here. The parent never imports torch or transformers,
+    so a wedged or bloated inference cannot take the API process with it.
+    """
+    if no_download:
+        # Cache-only. A missing checkpoint then fails immediately instead of
+        # starting a 1 GB download in the middle of a demo.
+        os.environ["HF_HUB_OFFLINE"] = "1"
+        os.environ["TRANSFORMERS_OFFLINE"] = "1"
+    try:
+        started = time.time()
+        _load_analysis_models()
+        conn.send((
+            "ready",
+            {"load_s": round(time.time() - started, 2), "worker_peak_rss_mb": _peak_rss_mb()},
+        ))
+    except BaseException as e:  # noqa: BLE001 — must be reported, never raised here
+        try:
+            conn.send(("load_error", f"{type(e).__name__}: {e}"))
+        except Exception:  # noqa: BLE001
+            pass
+        return
+
+    while True:
+        try:
+            msg = conn.recv()
+        except (EOFError, OSError):
+            return
+        if not msg or msg[0] == "stop":
+            return
+        _, image_path, size = msg
+        timings: dict = {}
+        try:
+            started = time.time()
+            depth, seg = _model_depth_seg(image_path, size, timings=timings)
+            timings["analysis_s"] = round(time.time() - started, 2)
+            timings["worker_peak_rss_mb"] = _peak_rss_mb()
+            conn.send(("ok", depth, seg, timings))
+        except BaseException as e:  # noqa: BLE001
+            try:
+                conn.send(("error", f"{type(e).__name__}: {e}"))
+            except Exception:  # noqa: BLE001
+                return
+
+
+class AnalysisFailure(Exception):
+    """Real analysis could not produce a result. Carries the exact reason."""
+
+    def __init__(self, reason: str, detail: str = "") -> None:
+        super().__init__(f"{reason}: {detail}" if detail else reason)
+        self.reason = reason
+        self.detail = detail
+
+
+class _AnalysisWorker:
+    """Owns the single child process that holds the models.
+
+    A process rather than a thread, for one reason: a CPU-bound torch forward
+    pass does not yield to Python, so a thread that overruns its timeout keeps
+    running and keeps its memory — on Windows there is no way to interrupt it.
+    Killing a process actually stops the work. The cost is that a timeout also
+    discards the loaded weights, which is the right trade: an analysis that hung
+    once will most likely hang again.
+
+    One worker, one lock: concurrent requests queue rather than each loading
+    their own ~1 GB copy of the weights.
+    """
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._proc: Any = None
+        self._conn: Any = None
+        self._load_meta: dict = {}
+
+    def _spawn(self, load_timeout: float, no_download: bool) -> None:
+        """Start the child and block until its models are loaded. Lock held."""
+        import multiprocessing as mp
+
+        cached = _model_is_cached(DEPTH_MODEL) and _model_is_cached(SEG_MODEL)
+        if no_download and not cached:
+            raise AnalysisFailure(
+                FALLBACK_LOAD_FAILED,
+                f"{ANALYSIS_NO_DOWNLOAD_ENV} is set but the weights are not in "
+                f"{_hf_cache_root()}",
+            )
+        logger.info(
+            "[analysis] loading models (cache hit: %s)%s",
+            "yes" if cached else "no",
+            "" if cached else " — first run downloads ~1 GB, this will take a while",
+        )
+
+        ctx = mp.get_context("spawn")  # explicit: the only mode Windows has
+        parent_conn, child_conn = ctx.Pipe()
+        proc = ctx.Process(
+            target=_analysis_worker_main,
+            args=(child_conn, no_download),
+            name="dardesign-analysis",
+            daemon=True,
+        )
+        proc.start()
+        child_conn.close()  # the parent keeps only its own end
+
+        try:
+            if not parent_conn.poll(load_timeout):
+                raise AnalysisFailure(
+                    FALLBACK_LOAD_FAILED, f"models did not load within {load_timeout:.0f}s"
+                )
+            msg = parent_conn.recv()
+        except AnalysisFailure:
+            _terminate(proc)
+            parent_conn.close()
+            raise
+        except (EOFError, OSError) as e:
+            _terminate(proc)
+            parent_conn.close()
+            raise AnalysisFailure(FALLBACK_LOAD_FAILED, f"worker died while loading: {e}") from e
+
+        if msg[0] != "ready":
+            _terminate(proc)
+            parent_conn.close()
+            raise AnalysisFailure(FALLBACK_LOAD_FAILED, str(msg[1]))
+
+        self._proc, self._conn = proc, parent_conn
+        self._load_meta = {"cache_hit": cached, **(msg[1] or {})}
+        logger.info(
+            "[analysis] models ready in %ss (cache hit: %s)",
+            self._load_meta.get("load_s"), "yes" if cached else "no",
+        )
+
+    def run(self, image_path: str | Path, size: int) -> tuple[Any, Any, dict]:
+        """Analyse one image. Raises AnalysisFailure with an exact reason."""
+        timeout = _env_seconds(ANALYSIS_TIMEOUT_ENV, _DEFAULT_ANALYSIS_TIMEOUT)
+        load_timeout = _env_seconds(ANALYSIS_LOAD_TIMEOUT_ENV, _DEFAULT_LOAD_TIMEOUT)
+        no_download = _analysis_no_download()
+
+        with self._lock:
+            if self._proc is None or not self._proc.is_alive():
+                self._reset()
+                self._spawn(load_timeout, no_download)
+
+            logger.info("[analysis] analyzing room (timeout %.0fs)…", timeout)
+            try:
+                self._conn.send(("run", str(image_path), size))
+            except (EOFError, OSError) as e:
+                self._reset()
+                raise AnalysisFailure(FALLBACK_WORKER_DIED, str(e)) from e
+
+            if not self._conn.poll(timeout):
+                # The forward pass is wedged or simply too slow for this machine.
+                # Kill it — leaving it running would hold gigabytes and compete
+                # for the same cores as the next request.
+                self._reset()
+                raise AnalysisFailure(
+                    FALLBACK_TIMEOUT, f"no result within {timeout:.0f}s; worker killed"
+                )
+            try:
+                msg = self._conn.recv()
+            except (EOFError, OSError) as e:
+                self._reset()
+                raise AnalysisFailure(FALLBACK_WORKER_DIED, str(e)) from e
+
+            if msg[0] == "ok":
+                _, depth, seg, timings = msg
+                return depth, seg, {**self._load_meta, **timings}
+
+            # An inference error leaves the worker healthy and its weights loaded,
+            # so keep it: the next image may well succeed.
+            raise AnalysisFailure(FALLBACK_INFERENCE_FAILED, str(msg[1]))
+
+    def _reset(self) -> None:
+        """Kill the worker and forget it. Lock held."""
+        if self._proc is not None:
+            _terminate(self._proc)
+        if self._conn is not None:
+            try:
+                self._conn.close()
+            except Exception:  # noqa: BLE001
+                pass
+        self._proc, self._conn, self._load_meta = None, None, {}
+
+    def shutdown(self) -> None:
+        with self._lock:
+            self._reset()
+
+
+def _terminate(proc: Any) -> None:
+    """Stop a worker for good — terminate, then kill if it ignores that."""
+    try:
+        proc.terminate()
+        proc.join(5)
+        if proc.is_alive():
+            proc.kill()
+            proc.join(5)
+    except Exception:  # noqa: BLE001
+        pass
+
+
+_ANALYSIS_WORKER = _AnalysisWorker()
+
+
+def shutdown_analysis_worker() -> None:
+    """Release the worker process and its weights. Safe to call at any time."""
+    _ANALYSIS_WORKER.shutdown()
+
+
+def _synthetic_result(meta: dict, reason: str, size: int, detail: str = "") -> tuple[Any, Any]:
+    meta.update({"source": "synthetic", "fallback_reason": reason})
+    if detail:
+        meta["fallback_detail"] = detail
+    return _synthetic_depth_seg(size)
+
+
+def compute_depth_seg(
+    image_path: str | Path, *, size: int = _PROJECTION_SIZE, meta: dict | None = None
+) -> tuple[Any, Any]:
+    """Return (depth_array, seg_class_ids) for backend.projection.
+
+    depth_array   — (H, W) float32, Depth Anything convention (larger = closer)
+    seg_class_ids — (H, W) int32 raw ADE20K-150 ids; `_prepare_conditioning`
+                    can't be reused here because it returns the *colorized*
+                    control images, not the id map the projection needs.
+
+    Three paths, in order:
+
+      * GPU/normal mode — the real models, in-process. Unchanged.
+      * light mode + DARDESIGN_REAL_ANALYSIS=1 — the same real models, in a
+        killable worker process, so the placement engine can be tested against
+        the actual photo on a machine with no GPU.
+      * light mode otherwise — the synthetic stand-in.
+
+    `meta` (optional, filled in place) records which path ran: `source` is
+    "model" or "synthetic", and on a fallback `fallback_reason` says exactly why,
+    so a synthetic room can never be mistaken for a real one downstream.
+    """
+    m = meta if meta is not None else {}
+    m["source"] = None
+    m["fallback_reason"] = None
+
+    # Production path, untouched: outside light mode the models already run here.
+    if not _is_light_mode():
+        m["source"] = "model"
+        timings: dict = {}
+        try:
+            return _model_depth_seg(image_path, size, timings=timings)
+        finally:
+            m.update(timings)
+
+    if not _real_analysis_enabled():
+        return _synthetic_result(m, FALLBACK_DISABLED, size)
+
+    if not _transformers_available():
+        logger.warning(
+            "[analysis] %s=1 but `transformers` is not installed — using the "
+            "synthetic room. Install it to analyse the real photo.", REAL_ANALYSIS_ENV,
+        )
+        return _synthetic_result(
+            m, FALLBACK_MISSING_DEP, size, "transformers is not installed"
+        )
+
+    try:
+        started = time.time()
+        depth, seg, worker_meta = _ANALYSIS_WORKER.run(image_path, size)
+    except AnalysisFailure as e:
+        logger.warning("[analysis] falling back to the synthetic room — %s", e)
+        return _synthetic_result(m, e.reason, size, e.detail)
+    except Exception as e:  # noqa: BLE001 — the analysis must never break /redesign
+        logger.exception("[analysis] unexpected failure — falling back")
+        return _synthetic_result(m, FALLBACK_INFERENCE_FAILED, size, f"{type(e).__name__}: {e}")
+
+    m["source"] = "model"
+    m.update(worker_meta)
+    m["total_s"] = round(time.time() - started, 2)
+    logger.info(
+        "[analysis] complete — source=model, depth %ss, segmentation %ss, "
+        "worker peak RSS %s MB",
+        worker_meta.get("depth_s"), worker_meta.get("seg_s"),
+        worker_meta.get("worker_peak_rss_mb"),
     )
     return depth, seg
 

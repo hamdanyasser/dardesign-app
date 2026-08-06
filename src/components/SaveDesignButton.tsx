@@ -16,21 +16,35 @@ import { useAuth } from "@/context/AuthContext";
 import { useThemeLanguage } from "@/context/ThemeLanguageContext";
 import { ApiError, saveToHistory } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import FeedbackForm from "@/components/FeedbackForm";
 
 interface Props {
   /** The room as uploaded — stored as OldImageUrl. */
   oldImage: string;
   /** The current edited render — stored as NewImageUrl. */
   newImage: string;
+  /** Which culture produced this render. Stored on the design so that rating it
+   *  later reads the culture from the database rather than from the form. */
+  culture?: string | null;
+  /** LoRA scale, when the intensity slider was used. */
+  intensity?: number | null;
 }
 
-export default function SaveDesignButton({ oldImage, newImage }: Props) {
+export default function SaveDesignButton({
+  oldImage,
+  newImage,
+  culture = null,
+  intensity = null,
+}: Props) {
   const { isArabic } = useThemeLanguage();
   const { user, loading } = useAuth();
 
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Set once saved: feedback attaches to a design row, so there is nothing to
+  // rate until this design exists in history.
+  const [savedId, setSavedId] = useState<number | null>(null);
 
   const t = (en: string, ar: string) => (isArabic ? ar : en);
 
@@ -54,8 +68,9 @@ export default function SaveDesignButton({ oldImage, newImage }: Props) {
     setSaving(true);
     setError(null);
     try {
-      await saveToHistory(oldImage, newImage);
+      const entry = await saveToHistory(oldImage, newImage, { culture, intensity });
       setSaved(true);
+      setSavedId(entry.id);
     } catch (e) {
       setError(
         e instanceof ApiError
@@ -70,6 +85,7 @@ export default function SaveDesignButton({ oldImage, newImage }: Props) {
   };
 
   return (
+    <div className="space-y-2">
     <div className={cn("flex items-center gap-2", isArabic && "flex-row-reverse")}>
       <button
         onClick={save}
@@ -96,6 +112,10 @@ export default function SaveDesignButton({ oldImage, newImage }: Props) {
             : t("Save design", "حفظ التصميم")}
       </button>
       {error && <span className="text-xs text-[var(--error)]">{error}</span>}
+    </div>
+      {/* Offered only once the design exists — a rating needs something to
+          attach to, and asking before saving would have nowhere to put it. */}
+      {savedId !== null && <FeedbackForm historyId={savedId} />}
     </div>
   );
 }
