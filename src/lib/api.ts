@@ -1027,6 +1027,77 @@ export async function fetchAdminFeedback(
   return (await unwrap(res)) as AdminFeedbackResult;
 }
 
+/* ------------------------------------------------------------------
+   Evaluation dashboard. See backend/evaluation.py.
+
+   Every average is `number | null`: null means "not measured", which the UI
+   must render as "—" rather than 0. A zero on this page would be read as a
+   result, and there is a real difference between "users rated this 0" (which
+   the 1-5 scale cannot even express) and "nobody has rated this".
+   ------------------------------------------------------------------ */
+
+export interface EvaluationCultureRow {
+  culture: string | null;
+  total: number;
+  averageCulturalAccuracy: number | null;
+  averageImageQuality: number | null;
+  averageRoomPreservation: number | null;
+}
+
+/** From the render audit log, not the database — there is no generations table. */
+export interface GenerationStats {
+  roomsGenerated: number;
+  imagesGenerated: number;
+  restyles: number;
+  failures: number;
+  successRate: number | null;
+  averageSeconds: number | null;
+  slowestSeconds: number | null;
+  fastestSeconds: number | null;
+  sampleSize: number;
+  /** DARDESIGN_LIGHT placeholder runs, counted but deliberately not averaged in. */
+  placeholderRunsExcluded: number;
+}
+
+/** SSIM / LPIPS / CLIP from eval/run_metrics.py, when it has been run. */
+export interface AutomaticMetrics {
+  available: boolean;
+  reason_en?: string;
+  reason_ar?: string;
+  hint?: string;
+  path?: string;
+  metrics: string[];
+  images?: number;
+  byCulture: Array<{ culture: string; samples: number } & Record<string, number | string | null>>;
+}
+
+export interface EvaluationReport {
+  filters: { culture: string | null; since: number | null; until: number | null };
+  cultures: string[];
+  stats: FeedbackStats;
+  /** Mean of the three rated dimensions — derived, not a stored column. */
+  averageOverall: number | null;
+  byCulture: EvaluationCultureRow[];
+  recent: Feedback[];
+  generation: GenerationStats;
+  automatic: AutomaticMetrics;
+}
+
+export async function fetchEvaluation(
+  opts: { culture?: string; since?: number; until?: number; limit?: number } = {},
+): Promise<EvaluationReport> {
+  const qs = new URLSearchParams();
+  if (opts.culture) qs.set("culture", opts.culture);
+  if (opts.since != null) qs.set("since", String(opts.since));
+  if (opts.until != null) qs.set("until", String(opts.until));
+  if (opts.limit != null) qs.set("limit", String(opts.limit));
+  const res = await safeFetch(`${DATA_API_URL}/api/admin/evaluation?${qs}`, {
+    headers: COMMON_HEADERS,
+    ...WITH_CREDENTIALS,
+  });
+  return (await unwrap(res)) as EvaluationReport;
+}
+
 export async function fetchHistory(): Promise<HistoryEntry[]> {
   const res = await safeFetch(`${DATA_API_URL}/api/history`, {
     headers: COMMON_HEADERS,

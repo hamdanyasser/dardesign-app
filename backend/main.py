@@ -17,6 +17,9 @@ GET  /share-token/{job_id}          mint a token for a finished job
 GET  /jobs                          debug listing (last N jobs)
 GET  /audit                         render audit trail (JSONL-backed; metadata
                                     only — $DARDESIGN_AUDIT_TOKEN gates it)
+GET  /api/admin/evaluation          evaluation dashboard: rating aggregates +
+                                    generation stats + automatic metrics
+                                    (admin-only; see backend/evaluation.py)
 POST /api/color/{preview,apply,undo,reset}
                                     Colour Control — recolour the wall or floor
                                     of a finished render inside its segmentation
@@ -117,6 +120,11 @@ from .projection import (
     to_seg_regions_payload,
 )
 from .recolor_api import clear_undo as clear_color_undo, router as color_router
+from .evaluation import (
+    automatic_metrics as eval_automatic_metrics,
+    generation_stats as eval_generation_stats,
+    overall_rating as eval_overall_rating,
+)
 from .share import decode as share_decode, encode as share_encode
 from .transform import (
     CONFIG,
@@ -1179,6 +1187,47 @@ async def admin_feedback(
         "byCulture": db.feedback_by_culture(since, until),
         "recent": db.list_feedback(culture, since, until, limit),
         "cultures": list(StylePack),
+    })
+
+
+@app.get("/api/admin/evaluation")
+async def admin_evaluation(
+    culture: str | None = None,
+    since: float | None = None,
+    until: float | None = None,
+    limit: int = 25,
+    session: str | None = Cookie(default=None, alias=SESSION_COOKIE),
+) -> JSONResponse:
+    """Everything the evaluation dashboard shows, in one call.
+
+    Deliberately a thin composition of what already exists — db.feedback_stats /
+    feedback_by_culture / list_feedback were written for the admin panel and
+    answer these questions unchanged. The only new computation is generation
+    statistics, which no table holds (see backend/evaluation.py).
+
+    Admin-only for the same reason /api/admin/feedback is: `recent` carries other
+    people's comments. `since`/`until` are unix seconds.
+    """
+    _require_admin(session)
+    if culture is not None and culture not in StylePack:
+        _raise(ERR_BAD_STYLE)
+    limit = max(1, min(200, limit))
+
+    stats = db.feedback_stats(culture, since, until)
+    return JSONResponse({
+        "filters": {"culture": culture, "since": since, "until": until},
+        "cultures": list(CORE_STYLES),
+        "stats": stats,
+        # Derived, not stored — the form has no "overall" field. Named so on the
+        # card, so it can't be read as something a user typed.
+        "averageOverall": eval_overall_rating(stats),
+        "byCulture": db.feedback_by_culture(since, until),
+        "recent": db.list_feedback(culture, since, until, limit),
+        # Not filtered by culture/date: the audit log records renders, which are
+        # not the same population as ratings, and pretending otherwise would let
+        # a culture filter silently change a number it has no bearing on.
+        "generation": eval_generation_stats(),
+        "automatic": eval_automatic_metrics(),
     })
 
 
