@@ -251,14 +251,7 @@ export default function EvaluationPage() {
                 isArabic={isArabic}
                 label={t("Rooms generated", "الغرف المولَّدة")}
                 value={String(gen?.roomsGenerated ?? 0)}
-                sub={t(
-                  `${gen?.imagesGenerated ?? 0} images · ${
-                    gen?.source === "database" ? "recorded in the database" : "from the render audit log"
-                  }`,
-                  `${gen?.imagesGenerated ?? 0} صورة · ${
-                    gen?.source === "database" ? "مسجَّلة في قاعدة البيانات" : "من سجل التدقيق"
-                  }`,
-                )}
+                sub={t("Saved designs in the history table", "التصاميم المحفوظة في سجل التصاميم")}
               />
               <SummaryCard
                 isArabic={isArabic}
@@ -285,18 +278,10 @@ export default function EvaluationPage() {
                 label={t("Average generation time", "متوسط زمن التوليد")}
                 value={fmtDuration(gen?.averageSeconds ?? null)}
                 sub={t(
-                  `over ${gen?.sampleSize ?? 0} render${gen?.sampleSize === 1 ? "" : "s"}${
-                    gen?.placeholderRunsExcluded
-                      ? ` · ${gen.placeholderRunsExcluded} placeholder run${
-                          gen.placeholderRunsExcluded === 1 ? "" : "s"
-                        } excluded`
-                      : ""
+                  `Total ${fmtDuration(gen?.totalSeconds ?? null)} over ${gen?.sampleSize ?? 0} timed design${
+                    gen?.sampleSize === 1 ? "" : "s"
                   }`,
-                  `على ${gen?.sampleSize ?? 0} عملية توليد${
-                    gen?.placeholderRunsExcluded
-                      ? ` · استُبعدت ${gen.placeholderRunsExcluded} تجربة`
-                      : ""
-                  }`,
+                  `الإجمالي ${fmtDuration(gen?.totalSeconds ?? null)} على ${gen?.sampleSize ?? 0} تصميم موقوت`,
                 )}
               />
             </section>

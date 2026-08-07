@@ -12,6 +12,8 @@ import os
 import sys
 from pathlib import Path
 
+import time
+
 import httpx
 import pytest
 
@@ -21,10 +23,10 @@ if str(ROOT) not in sys.path:
 
 os.environ["DARDESIGN_LIGHT"] = "1"
 
-from backend import audit, db  # noqa: E402
+from backend import db  # noqa: E402
 from backend.evaluation import (  # noqa: E402
     automatic_metrics,
-    generation_stats,
+    generation_report,
     overall_rating,
 )
 from backend.main import app  # noqa: E402
@@ -44,13 +46,6 @@ def _fresh_db(tmp_path, monkeypatch):
     db.close()
 
 
-@pytest.fixture
-def audit_log(tmp_path, monkeypatch):
-    """An isolated audit file — these tests must not read the real render log."""
-    monkeypatch.setattr(audit, "AUDIT_PATH", tmp_path / "audit.jsonl")
-    yield
-
-
 def _client() -> httpx.AsyncClient:
     return httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test")
 
@@ -60,6 +55,15 @@ async def _signup(c, email: str) -> dict:
         "fullName": "Eval Tester", "email": email,
         "password": "secret123", "phoneNumber": "0700",
     })
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
+async def _save(c, *, duration=None) -> dict:
+    body = {"oldImage": PNG_DATA_URL, "newImage": PNG_DATA_URL, "culture": "lebanese"}
+    if duration is not None:
+        body["duration"] = duration
+    r = await c.post("/api/history", json=body)
     assert r.status_code == 200, r.text
     return r.json()
 
@@ -80,52 +84,81 @@ async def _rated_design(c, culture: str, *, cultural: int, quality: int, preserv
     assert r.status_code == 200, r.text
 
 
-# ---------- generation stats ----------
+# ---------- generation stats (history table) ----------
 
 
-def test_no_renders_reports_nothing_not_zero(audit_log) -> None:
-    s = generation_stats()
+def test_no_saved_designs_reports_nothing_not_zero() -> None:
+    s = generation_report()
     assert s["roomsGenerated"] == 0
-    # The averages are the dangerous ones: 0.0 would read as "renders take no time".
+    # The average is the dangerous one: 0.0 would read as "generation is instant".
     assert s["averageSeconds"] is None
-    assert s["successRate"] is None
     assert s["sampleSize"] == 0
 
 
-def test_placeholder_runs_are_excluded_from_generation_stats(audit_log) -> None:
-    """DARDESIGN_LIGHT runs are instant stand-ins, not renders. Counting them
-    would inflate the room count and crush the average time."""
-    audit.log_event("redesign", ok=True, styles=["lebanese"], duration_s=90.0, light=False)
-    audit.log_event("redesign", ok=True, styles=["lebanese"], duration_s=0.2, light=True)
-    audit.log_event("redesign", ok=True, styles=["lebanese"], duration_s=110.0, light=False)
-
-    s = generation_stats()
-    assert s["roomsGenerated"] == 2
-    assert s["averageSeconds"] == 100.0
-    assert s["placeholderRunsExcluded"] == 1
+def test_rooms_generated_counts_every_history_row() -> None:
+    async def _go():
+        async with _client() as c:
+            await _signup(c, "rooms@example.com")
+            for _ in range(3):
+                await _save(c, duration=None)
+            assert generation_report()["roomsGenerated"] == 3
+    asyncio.run(_go())
 
 
-def test_rooms_images_failures_and_success_rate(audit_log) -> None:
-    audit.log_event("redesign", ok=True, styles=["lebanese", "khaleeji", "moroccan"], duration_s=300.0)
-    audit.log_event("redesign", ok=True, styles=["lebanese"], duration_s=100.0)
-    audit.log_event("restyle", ok=True, style="persian", duration_s=50.0)
-    audit.log_event("redesign", ok=False, error="boom", duration_s=5.0)
+def test_average_is_the_sum_of_durations_over_the_rows_that_have_one() -> None:
+    """Rows saved before Duration existed are null. Dividing by all rows would
+    report an average far below any real generation, so the denominator is the
+    number of timed rows -- and sampleSize says what that was."""
+    async def _go():
+        async with _client() as c:
+            await _signup(c, "avg@example.com")
+            await _save(c, duration=90.0)
+            await _save(c, duration=150.0)
+            await _save(c, duration=None)     # saved before durations were recorded
 
-    s = generation_stats()
-    assert s["roomsGenerated"] == 2          # two /redesign requests
-    assert s["imagesGenerated"] == 4         # 3 + 1 cultures
-    assert s["restyles"] == 1
-    assert s["failures"] == 1
-    assert s["successRate"] == 0.75
-    assert s["averageSeconds"] == 150.0      # 300, 100, 50 — the failure is excluded
-    assert s["fastestSeconds"] == 50.0 and s["slowestSeconds"] == 300.0
+            s = generation_report()
+            assert s["roomsGenerated"] == 3          # every row counts as a room
+            assert s["totalSeconds"] == 240.0
+            assert s["sampleSize"] == 2
+            assert s["averageSeconds"] == 120.0      # 240 / 2, not 240 / 3
+            assert s["fastestSeconds"] == 90.0
+            assert s["slowestSeconds"] == 150.0
+    asyncio.run(_go())
 
 
-def test_other_audit_events_are_ignored(audit_log) -> None:
-    """history_save and colour edits are logged too; they are not generations."""
-    audit.log_event("history_save", ok=True)
-    audit.log_event("color_edit", ok=True, target="wall")
-    assert generation_stats()["roomsGenerated"] == 0
+def test_duration_is_stored_and_returned_on_the_design() -> None:
+    async def _go():
+        async with _client() as c:
+            await _signup(c, "store@example.com")
+            saved = await _save(c, duration=123.45)
+            assert saved["duration"] == 123.45
+            rows = (await c.get("/api/history")).json()
+            assert rows[0]["duration"] == 123.45
+    asyncio.run(_go())
+
+
+def test_absurd_durations_are_clamped_before_they_reach_an_average() -> None:
+    async def _go():
+        async with _client() as c:
+            await _signup(c, "clamp@example.com")
+            await _save(c, duration=10 ** 9)
+            await _save(c, duration=-5)
+            s = generation_report()
+            assert s["slowestSeconds"] == 86_400.0
+            assert s["fastestSeconds"] == 0.0
+    asyncio.run(_go())
+
+
+def test_generation_stats_respect_the_date_filter() -> None:
+    async def _go():
+        async with _client() as c:
+            await _signup(c, "dates@example.com")
+            await _save(c, duration=100.0)
+            future = time.time() + 3600
+            s = generation_report(since=future)
+            assert s["roomsGenerated"] == 0
+            assert s["averageSeconds"] is None
+    asyncio.run(_go())
 
 
 # ---------- derived overall rating ----------
@@ -197,114 +230,7 @@ def test_automatic_metrics_survive_a_broken_file(tmp_path) -> None:
 # ---------- the endpoint ----------
 
 
-# ---------- recorded generations ----------
-
-
-def test_recorded_generations_take_over_from_the_audit_log(audit_log) -> None:
-    """Once the studio records renders, the durable table is the source — the
-    audit log belongs to whichever box did the rendering and dies with it."""
-    async def _go():
-        async with _client() as c:
-            audit.log_event("redesign", ok=True, styles=["lebanese"], duration_s=999.0, light=False)
-            await _signup(c, "gen@example.com")
-
-            before = (await c.get("/api/admin/evaluation")).json()["generation"]
-            assert before["source"] == "audit_log"
-
-            r = await c.post("/api/generations", json={
-                "jobId": "job-1", "styles": ["lebanese", "khaleeji", "moroccan"],
-                "durationSeconds": 300.0, "ok": True, "light": False,
-            })
-            assert r.status_code == 200
-            assert r.json()["recorded"] == 3   # one row per culture
-
-            gen = (await c.get("/api/admin/evaluation")).json()["generation"]
-            assert gen["source"] == "database"
-            assert gen["roomsGenerated"] == 1        # one job, three cultures
-            assert gen["imagesGenerated"] == 3
-            # 300s of wall clock covering three sequential renders is 100s each;
-            # attributing the full 300 to each would treble the reported time.
-            assert gen["averageSeconds"] == 100.0
-            assert gen["sampleSize"] == 3
-    asyncio.run(_go())
-
-
-def test_recorded_placeholder_runs_are_excluded(audit_log) -> None:
-    async def _go():
-        async with _client() as c:
-            await _signup(c, "gen2@example.com")
-            await c.post("/api/generations", json={
-                "jobId": "real", "styles": ["lebanese"], "durationSeconds": 120.0, "light": False,
-            })
-            await c.post("/api/generations", json={
-                "jobId": "fake", "styles": ["lebanese"], "durationSeconds": 0.2, "light": True,
-            })
-            gen = (await c.get("/api/admin/evaluation")).json()["generation"]
-            assert gen["roomsGenerated"] == 1
-            assert gen["averageSeconds"] == 120.0
-            assert gen["placeholderRunsExcluded"] == 1
-    asyncio.run(_go())
-
-
-def test_recording_needs_no_account_and_rejects_junk(audit_log) -> None:
-    """A room can be generated signed out, so the record must still be kept —
-    but nothing a client sends is trusted onto a dashboard unchecked."""
-    async def _go():
-        async with _client() as c:
-            r = await c.post("/api/generations", json={
-                "jobId": "anon", "styles": ["lebanese"], "durationSeconds": 60.0,
-            })
-            assert r.status_code == 200          # no session required
-
-            # An unknown style is dropped rather than stored as a culture.
-            r = await c.post("/api/generations", json={
-                "jobId": "bad", "styles": ["atlantean"], "durationSeconds": 60.0,
-            })
-            assert r.status_code == 200
-            assert r.json()["recorded"] == 1     # recorded, culture null
-
-            # An absurd duration is clamped, not averaged in as-is.
-            await c.post("/api/generations", json={
-                "jobId": "huge", "styles": ["lebanese"], "durationSeconds": 10 ** 9,
-            })
-            assert db.generation_stats()["slowestSeconds"] == 86_400.0
-    asyncio.run(_go())
-
-
-def test_failed_generations_do_not_skew_the_average(audit_log) -> None:
-    async def _go():
-        async with _client() as c:
-            await _signup(c, "gen3@example.com")
-            await c.post("/api/generations", json={
-                "jobId": "ok", "styles": ["lebanese"], "durationSeconds": 100.0, "ok": True,
-            })
-            await c.post("/api/generations", json={
-                "jobId": "boom", "styles": ["lebanese"], "durationSeconds": 3.0, "ok": False,
-            })
-            gen = (await c.get("/api/admin/evaluation")).json()["generation"]
-            assert gen["roomsGenerated"] == 1
-            assert gen["failures"] == 1
-            assert gen["successRate"] == 0.5
-            assert gen["averageSeconds"] == 100.0
-    asyncio.run(_go())
-
-
-def test_recorded_generations_respect_the_date_filter(audit_log) -> None:
-    async def _go():
-        async with _client() as c:
-            await _signup(c, "gen4@example.com")
-            await c.post("/api/generations", json={
-                "jobId": "now", "styles": ["lebanese"], "durationSeconds": 100.0,
-            })
-            future = __import__("time").time() + 3600
-            gen = (await c.get("/api/admin/evaluation", params={"since": future})).json()["generation"]
-            assert gen["filtered"] is True
-            assert gen["roomsGenerated"] == 0
-            assert gen["averageSeconds"] is None
-    asyncio.run(_go())
-
-
-def test_evaluation_endpoint_requires_admin(audit_log) -> None:
+def test_evaluation_endpoint_requires_admin() -> None:
     async def _go():
         async with _client() as c:
             r = await c.get("/api/admin/evaluation")
@@ -321,7 +247,7 @@ def test_evaluation_endpoint_requires_admin(audit_log) -> None:
     asyncio.run(_go())
 
 
-def test_evaluation_endpoint_aggregates_real_ratings(audit_log) -> None:
+def test_evaluation_endpoint_aggregates_real_ratings() -> None:
     async def _go():
         async with _client() as c:
             await _signup(c, "admin@example.com")
@@ -347,7 +273,7 @@ def test_evaluation_endpoint_aggregates_real_ratings(audit_log) -> None:
     asyncio.run(_go())
 
 
-def test_evaluation_endpoint_filters_by_culture(audit_log) -> None:
+def test_evaluation_endpoint_filters_by_culture() -> None:
     async def _go():
         async with _client() as c:
             await _signup(c, "admin2@example.com")
@@ -365,7 +291,7 @@ def test_evaluation_endpoint_filters_by_culture(audit_log) -> None:
     asyncio.run(_go())
 
 
-def test_evaluation_endpoint_with_no_data_returns_nulls(audit_log) -> None:
+def test_evaluation_endpoint_with_no_data_returns_nulls() -> None:
     """A fresh install must not display zeros that look like measurements."""
     async def _go():
         async with _client() as c:

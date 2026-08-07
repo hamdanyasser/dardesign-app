@@ -964,7 +964,12 @@ export async function fetchMe(): Promise<AuthUser | null> {
 export async function saveToHistory(
   oldImage: string,
   newImage: string,
-  meta: { culture?: string | null; intensity?: number | null } = {},
+  meta: {
+    culture?: string | null;
+    intensity?: number | null;
+    /** Seconds the generation took, from the /redesign response. */
+    duration?: number | null;
+  } = {},
 ): Promise<HistoryEntry> {
   const res = await safeFetch(`${DATA_API_URL}/api/history`, {
     method: "POST",
@@ -974,6 +979,7 @@ export async function saveToHistory(
       newImage,
       culture: meta.culture ?? null,
       intensity: meta.intensity ?? null,
+      duration: meta.duration ?? null,
     }),
     ...WITH_CREDENTIALS,
   });
@@ -1046,22 +1052,17 @@ export interface EvaluationCultureRow {
   averageRoomPreservation: number | null;
 }
 
+/** Rooms generated and their timings, computed over the history table. */
 export interface GenerationStats {
-  /** "database" once renders are being recorded; "audit_log" is the fallback. */
-  source?: "database" | "audit_log";
-  /** False when the source cannot honour the date filter (audit log). */
-  filtered?: boolean;
+  /** Number of history rows — one saved design is one generated room. */
   roomsGenerated: number;
-  imagesGenerated: number;
-  restyles: number | null;
-  failures: number;
-  successRate: number | null;
+  /** Sum of durations divided by the rows that have one. Null when none do. */
   averageSeconds: number | null;
-  slowestSeconds: number | null;
+  totalSeconds: number | null;
   fastestSeconds: number | null;
+  slowestSeconds: number | null;
+  /** How many rows carried a duration and therefore backed the average. */
   sampleSize: number;
-  /** DARDESIGN_LIGHT placeholder runs, counted but deliberately not averaged in. */
-  placeholderRunsExcluded: number;
 }
 
 /** SSIM / LPIPS / CLIP from eval/run_metrics.py, when it has been run. */
@@ -1086,36 +1087,6 @@ export interface EvaluationReport {
   recent: Feedback[];
   generation: GenerationStats;
   automatic: AutomaticMetrics;
-}
-
-/**
- * Record a finished render against the durable database.
- *
- * The client is the only party that talks to both backends: rendering happens on
- * the disposable GPU box, the database lives on the machine that owns the data.
- * Best-effort by design — the caller ignores failures, because losing a
- * statistic must never cost the user the room they just waited two minutes for.
- */
-export async function recordGeneration(input: {
-  jobId?: string | null;
-  styles?: string[];
-  durationSeconds?: number | null;
-  ok?: boolean;
-  light?: boolean;
-}): Promise<void> {
-  const res = await safeFetch(`${DATA_API_URL}/api/generations`, {
-    method: "POST",
-    headers: { ...COMMON_HEADERS, "Content-Type": "application/json" },
-    body: JSON.stringify({
-      jobId: input.jobId ?? null,
-      styles: input.styles ?? [],
-      durationSeconds: input.durationSeconds ?? null,
-      ok: input.ok !== false,
-      light: !!input.light,
-    }),
-    ...WITH_CREDENTIALS,
-  });
-  await unwrap(res);
 }
 
 export async function fetchEvaluation(

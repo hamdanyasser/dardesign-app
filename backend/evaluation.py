@@ -1,17 +1,12 @@
 """Evaluation dashboard — the numbers, with no FastAPI in sight.
 
-Two sources, deliberately kept apart because they answer different questions
-and have very different guarantees:
+Everything comes out of SQLite, which is what makes the dashboard durable: the
+rendering backend is disposable — on Colab it is wiped every session — so any
+figure that lived only there could not be shown a week later.
 
-  * **Human ratings** live in SQLite (`feedback`) and are aggregated by the
-    functions db.py already has. Durable, filterable, and the honest answer to
-    "how did this land with users?".
-
-  * **Generation statistics** come from the append-only render audit
-    (backend/audit.jsonl). There is no generation table: `history` records
-    designs a user chose to *save*, and jobs are in-memory, so counting saved
-    designs would badly undercount rooms actually generated. The audit log is
-    the only real record.
+  * **Human ratings** are aggregated by the functions db.py already has.
+  * **Generation statistics** are the history table: one saved design is one
+    generated room, and its Duration is the time that render took.
 
 Nothing here fabricates a number. Where a figure cannot be computed from stored
 data the result is None and the caller says so, rather than showing a zero that
@@ -26,8 +21,6 @@ import logging
 import os
 from pathlib import Path
 
-from .audit import read_events
-
 logger = logging.getLogger(__name__)
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -36,11 +29,6 @@ ROOT = Path(__file__).resolve().parent.parent
 # Overridable so a marker can point the dashboard at a results file computed
 # elsewhere — e.g. on the Kaggle box that had the GPU.
 EVAL_CSV = Path(os.environ.get("DARDESIGN_EVAL_CSV") or ROOT / "eval" / "results.csv")
-
-# The audit file can grow without bound; this caps how much is read for stats.
-# Far above any realistic FYP demo volume, and it keeps a runaway log from
-# turning the dashboard into a slow endpoint.
-_MAX_EVENTS = 50_000
 
 # Columns run_metrics.py / metrics.py may emit. Anything numeric outside this
 # list is ignored rather than guessed at.
@@ -51,97 +39,21 @@ def _mean(values: list[float]) -> float | None:
     return round(sum(values) / len(values), 2) if values else None
 
 
-def generation_stats(*, include_light: bool = False) -> dict:
-    """Rooms generated and how long they took, from the render audit log.
-
-    `light` events are DARDESIGN_LIGHT placeholder runs — instant, and not
-    renders at all. Counting them would inflate the total and crush the average
-    duration, so they are excluded by default and reported separately, which is
-    also the honest way to show a demo machine's log.
-
-    Every figure is None when there is nothing to compute it from. A dashboard
-    that prints "0.0s average generation time" because no render was ever logged
-    is worse than one that says it doesn't know.
-    """
-    events = read_events(_MAX_EVENTS)
-
-    redesigns: list[dict] = []
-    restyles: list[dict] = []
-    light_runs = 0
-    failures = 0
-
-    for e in events:
-        if e.get("event") not in ("redesign", "restyle"):
-            continue
-        if e.get("light") and not include_light:
-            light_runs += 1
-            continue
-        if e.get("ok") is False:
-            failures += 1
-            continue
-        (redesigns if e.get("event") == "redesign" else restyles).append(e)
-
-    durations = [
-        float(e["duration_s"])
-        for e in (*redesigns, *restyles)
-        if isinstance(e.get("duration_s"), (int, float))
-    ]
-
-    # One /redesign is one room; it may carry 1-3 cultures, so images and rooms
-    # are different numbers and both are worth showing.
-    images = 0
-    for e in redesigns:
-        styles = e.get("styles")
-        images += len(styles) if isinstance(styles, list) and styles else 1
-
-    total = len(redesigns) + len(restyles) + failures
-    return {
-        "roomsGenerated": len(redesigns),
-        "imagesGenerated": images,
-        "restyles": len(restyles),
-        "failures": failures,
-        "successRate": round(1.0 - failures / total, 3) if total else None,
-        "averageSeconds": _mean(durations),
-        "slowestSeconds": round(max(durations), 1) if durations else None,
-        "fastestSeconds": round(min(durations), 1) if durations else None,
-        "sampleSize": len(durations),
-        "placeholderRunsExcluded": light_runs,
-    }
-
-
 def generation_report(since: float | None = None, until: float | None = None) -> dict:
-    """Generation statistics, from the database when it has them.
+    """Generation statistics, over the history table.
 
-    Two sources, in order:
+    History is the durable record of a generated room: the rendering backend is
+    disposable — on Colab it is wiped every session — so its own logs cannot
+    answer "how many rooms, and how long did they take?" a week later.
 
-      * the `generations` table — durable, filterable by date, and unaffected by
-        the rendering box being wiped. This is the real answer once the studio
-        has recorded anything.
-      * the render audit log — the legacy source, and still the honest fallback
-        for an install that has rendered but not yet recorded. It cannot be
-        date-filtered, so `filtered` says so rather than quietly ignoring the
-        dates the user picked.
-
-    `source` travels with the numbers so the dashboard can say where they came
-    from. A statistic whose provenance isn't stated is a statistic nobody can
-    check.
+    Rooms is the row count. The average divides the sum of durations by the rows
+    that *have* one; rows saved before Duration existed are null, and counting
+    them in the denominator would report an average well below any real
+    generation. `sampleSize` states how many rows backed the figure.
     """
     from . import db
 
-    try:
-        has_rows = db.generation_count() > 0
-    except Exception:  # noqa: BLE001 — the dashboard must survive a DB hiccup
-        logger.exception("could not read the generations table; falling back to the audit log")
-        has_rows = False
-
-    if has_rows:
-        stats = db.generation_stats(since, until)
-        stats.update({"source": "database", "restyles": None, "filtered": True})
-        return stats
-
-    stats = generation_stats()
-    stats.update({"source": "audit_log", "filtered": False})
-    return stats
+    return db.history_generation_stats(since, until)
 
 
 def overall_rating(stats: dict) -> float | None:

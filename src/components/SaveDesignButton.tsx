@@ -28,6 +28,10 @@ interface Props {
   culture?: string | null;
   /** LoRA scale, when the intensity slider was used. */
   intensity?: number | null;
+  /** Seconds the generation took, from the /redesign response. Stored on the
+   *  design because history is the durable record — the rendering backend is
+   *  disposable and its own timings die with the session. */
+  duration?: number | null;
 }
 
 export default function SaveDesignButton({
@@ -35,6 +39,7 @@ export default function SaveDesignButton({
   newImage,
   culture = null,
   intensity = null,
+  duration = null,
 }: Props) {
   const { isArabic } = useThemeLanguage();
   const { user, loading } = useAuth();
@@ -68,7 +73,7 @@ export default function SaveDesignButton({
     setSaving(true);
     setError(null);
     try {
-      const entry = await saveToHistory(oldImage, newImage, { culture, intensity });
+      const entry = await saveToHistory(oldImage, newImage, { culture, intensity, duration });
       setSaved(true);
       setSavedId(entry.id);
     } catch (e) {

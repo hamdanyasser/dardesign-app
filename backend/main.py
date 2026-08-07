@@ -852,6 +852,11 @@ class SaveHistoryRequest(BaseModel):
     # believing whatever the rating form claims.
     culture: str | None = None
     intensity: float | None = None
+    # Seconds the generation took, as measured by the rendering backend between
+    # the start and end of the run and returned on the /redesign response. Stored
+    # here because history is the durable record: the rendering box is disposable
+    # and its own logs die with the session.
+    duration: float | None = None
 
 
 def _current_user(session: str | None):
@@ -974,7 +979,14 @@ async def history_save(
     intensity = (
         max(0.0, min(1.0, float(req.intensity))) if req.intensity is not None else None
     )
-    entry_id = db.add_history(user["Id"], old_url, new_url, culture=culture, intensity=intensity)
+    # Clamped: this figure is averaged onto a dashboard, so a negative or absurd
+    # value must not be able to reach it.
+    duration = (
+        max(0.0, min(float(req.duration), 86_400.0)) if req.duration is not None else None
+    )
+    entry_id = db.add_history(
+        user["Id"], old_url, new_url, culture=culture, intensity=intensity, duration=duration
+    )
     log_event("history_save", user_id=user["Id"], entry_id=entry_id, culture=culture, ok=True)
     return JSONResponse({
         "id": entry_id,
@@ -983,6 +995,7 @@ async def history_save(
         "isSuggested": False,
         "culture": culture,
         "intensity": intensity,
+        "duration": duration,
     })
 
 
@@ -1194,63 +1207,6 @@ async def admin_feedback(
         "recent": db.list_feedback(culture, since, until, limit),
         "cultures": list(StylePack),
     })
-
-
-class RecordGenerationRequest(BaseModel):
-    """What the studio reports after a render, for the durable record.
-
-    The client is the only party that talks to both backends: rendering happens
-    on the disposable GPU box, the database lives on the machine that owns the
-    data. `durationSeconds` is the render backend's own measurement, passed
-    through rather than timed here.
-    """
-
-    jobId: str | None = None
-    styles: list[str] = []
-    durationSeconds: float | None = None
-    ok: bool = True
-    light: bool = False
-
-
-@app.post("/api/generations")
-async def record_generation(
-    req: RecordGenerationRequest,
-    session: str | None = Cookie(default=None, alias=SESSION_COOKIE),
-) -> JSONResponse:
-    """Record one render, so generation statistics outlive the rendering session.
-
-    Deliberately not authenticated: a room can be generated signed out, and
-    requiring an account would simply lose those records. The user is attached
-    when there is a session, and left null otherwise.
-
-    Everything is bounded before it is stored — an unknown style is dropped
-    rather than trusted, and the duration is clamped — because this endpoint
-    accepts numbers that end up on a dashboard. One row per style, so per-culture
-    counts are possible; a render with no styles still records one row, so the
-    room is counted.
-    """
-    user = _current_user(session)
-    # A render cannot plausibly take a day; anything outside the range is a
-    # client bug or a forgery, and either way must not skew an average.
-    duration = req.durationSeconds
-    if duration is not None:
-        duration = max(0.0, min(float(duration), 86_400.0))
-    styles = [s for s in req.styles if s in StylePack] or [None]
-
-    ids = [
-        db.add_generation(
-            user_id=user["Id"] if user else None,
-            job_id=req.jobId,
-            culture=style,
-            # One /redesign renders its styles sequentially, so attributing the
-            # whole wall-clock time to each would multiply the total. Split it.
-            duration_seconds=(duration / len(styles)) if duration is not None else None,
-            ok=req.ok,
-            light=req.light,
-        )
-        for style in styles
-    ]
-    return JSONResponse({"recorded": len(ids)})
 
 
 @app.get("/api/admin/evaluation")

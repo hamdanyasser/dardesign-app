@@ -31,7 +31,7 @@ import StyleIntensitySlider from "@/components/StyleIntensitySlider";
 import { useImage, type StyleId } from "@/context/ImageContext";
 import { useThemeLanguage } from "@/context/ThemeLanguageContext";
 import { DarAudio } from "@/lib/audio";
-import { ApiError, recordGeneration, redesignRoom, type RedesignResult } from "@/lib/api";
+import { ApiError, redesignRoom, type RedesignResult } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 type Phase = "idle" | "loading" | "done" | "error";
@@ -201,17 +201,6 @@ export default function StudioPage() {
         styles: generateScope === "all" ? undefined : [generateScope],
       });
       setResult(r);
-      // Record the render against the durable database. Fire-and-forget on
-      // purpose: the rendering box is disposable, but losing a statistic must
-      // never cost the user the room they just waited minutes for, so a failure
-      // here is swallowed rather than surfaced.
-      void recordGeneration({
-        jobId: r.job_id,
-        styles: r.styles ?? [],
-        durationSeconds: r.duration_s ?? null,
-        ok: true,
-        light: !!r.placeholder,
-      }).catch(() => {});
       // The featured tile must be one that actually exists, or every consumer of
       // result[featured] (slider, download, report, 3D orbit, furniture panel)
       // would read undefined.
@@ -757,6 +746,9 @@ export default function StudioPage() {
                   oldImage={result.original}
                   newImage={featuredSrc}
                   culture={featured}
+                  // The renderer's own measurement of this generation, stored on
+                  // the design so the evaluation dashboard can average it.
+                  duration={result.duration_s}
                 />
                 <RoomReport
                   beforeSrc={result.original}

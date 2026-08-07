@@ -5,7 +5,8 @@ The schema is two tables and the queries are a dozen lines each — an ORM would
 be more machinery than the problem needs.
 
     users     Id, FullName, PhoneNumber, Email, Password, Role
-    history   Id, UserId, OldImageUrl, NewImageUrl, IsSuggested
+    history   Id, UserId, OldImageUrl, NewImageUrl, IsSuggested, Culture,
+              Intensity, Duration
 
 `Password` stores a PBKDF2 hash, never the password itself — see auth.py.
 
@@ -56,6 +57,9 @@ CREATE TABLE IF NOT EXISTS history (
     OldImageUrl  TEXT    NOT NULL,
     NewImageUrl  TEXT    NOT NULL,
     IsSuggested  INTEGER NOT NULL DEFAULT 0,
+    -- Seconds the generation took, measured by the rendering backend between
+    -- the start and end of the run. Null on rows saved before it was recorded.
+    Duration     REAL,
     CreatedAt    REAL    NOT NULL,
     FOREIGN KEY (UserId) REFERENCES users(Id) ON DELETE CASCADE
 );
@@ -92,27 +96,6 @@ CREATE TABLE IF NOT EXISTS feedback (
 
 CREATE INDEX IF NOT EXISTS idx_feedback_culture ON feedback(Culture, CreatedAt DESC);
 
-CREATE TABLE IF NOT EXISTS generations (
-    Id              INTEGER PRIMARY KEY AUTOINCREMENT,
-    -- Null when the room was generated signed out. Generation does not require
-    -- an account, so requiring one here would simply lose the record.
-    UserId          INTEGER,
-    -- The render job. Not unique: one /redesign can produce three cultures, and
-    -- each is recorded so per-culture counts are possible.
-    JobId           TEXT,
-    Culture         TEXT,
-    -- Measured by the backend that did the rendering and passed through, so this
-    -- is generation time, not the round trip including the tunnel.
-    DurationSeconds REAL,
-    Ok              INTEGER NOT NULL DEFAULT 1,
-    -- DARDESIGN_LIGHT placeholder runs. Recorded rather than dropped so the flag
-    -- can be audited, but excluded from every statistic by default.
-    Light           INTEGER NOT NULL DEFAULT 0,
-    CreatedAt       REAL    NOT NULL,
-    FOREIGN KEY (UserId) REFERENCES users(Id) ON DELETE SET NULL
-);
-
-CREATE INDEX IF NOT EXISTS idx_generations_created ON generations(CreatedAt DESC);
 """
 
 # UNIQUE(HistoryId) is what makes "one feedback per generated image" a property of
@@ -167,6 +150,7 @@ def _migrate(conn: sqlite3.Connection) -> None:
     for column, ddl in (
         ("Culture", "ALTER TABLE history ADD COLUMN Culture TEXT"),
         ("Intensity", "ALTER TABLE history ADD COLUMN Intensity REAL"),
+        ("Duration", "ALTER TABLE history ADD COLUMN Duration REAL"),
     ):
         if column not in existing:
             conn.execute(ddl)
@@ -253,14 +237,62 @@ def add_history(
     is_suggested: bool = False,
     culture: str | None = None,
     intensity: float | None = None,
+    duration: float | None = None,
 ) -> int:
     """Save one design. `culture`/`intensity` describe how it was generated and
-    become the trusted source for anything that rates this image later."""
+    become the trusted source for anything that rates this image later.
+    `duration` is the generation time in seconds, measured by the renderer."""
     return _write(
         "INSERT INTO history (UserId, OldImageUrl, NewImageUrl, IsSuggested, Culture,"
-        " Intensity, CreatedAt) VALUES (?, ?, ?, ?, ?, ?, ?)",
-        (user_id, old_url, new_url, 1 if is_suggested else 0, culture, intensity, time.time()),
+        " Intensity, Duration, CreatedAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        (user_id, old_url, new_url, 1 if is_suggested else 0, culture, intensity,
+         duration, time.time()),
     )
+
+
+def history_generation_stats(since: float | None = None, until: float | None = None) -> dict:
+    """Rooms generated and how long they took, over the history table.
+
+    `averageSeconds` divides the sum of durations by the number of rows that
+    *have* one, not by the row count: every row saved before Duration existed is
+    null, and dividing by all of them would report an average far below any real
+    generation. `sampleSize` states how many rows backed the figure.
+    """
+    where, args = _generation_filters(since, until)
+    row = _query(
+        "SELECT COUNT(*) AS rooms, SUM(Duration) AS totalSeconds,"
+        " COUNT(Duration) AS timed, MIN(Duration) AS minSeconds, MAX(Duration) AS maxSeconds"
+        f" FROM history{where}",
+        args,
+    )[0]
+    rooms = int(row["rooms"] or 0)
+    timed = int(row["timed"] or 0)
+    total = float(row["totalSeconds"]) if row["totalSeconds"] is not None else None
+
+    def num(key: str) -> float | None:
+        v = row[key]
+        return round(float(v), 1) if v is not None else None
+
+    return {
+        "roomsGenerated": rooms,
+        "averageSeconds": round(total / timed, 1) if timed else None,
+        "totalSeconds": round(total, 1) if total is not None else None,
+        "fastestSeconds": num("minSeconds"),
+        "slowestSeconds": num("maxSeconds"),
+        "sampleSize": timed,
+    }
+
+
+def _generation_filters(since: float | None, until: float | None) -> tuple[str, list[Any]]:
+    clauses: list[str] = []
+    args: list[Any] = []
+    if since is not None:
+        clauses.append("CreatedAt >= ?")
+        args.append(since)
+    if until is not None:
+        clauses.append("CreatedAt <= ?")
+        args.append(until)
+    return (" WHERE " + " AND ".join(clauses) if clauses else ""), args
 
 
 def list_history(user_id: int, limit: int = 100) -> list[dict]:
@@ -350,6 +382,7 @@ def _history_row(r: sqlite3.Row) -> dict:
         # "unknown culture" rather than pretending it was Lebanese.
         "culture": r["Culture"] if "Culture" in keys else None,
         "intensity": r["Intensity"] if "Intensity" in keys else None,
+        "duration": r["Duration"] if "Duration" in keys else None,
         "createdAt": r["CreatedAt"],
     }
 
@@ -500,92 +533,6 @@ def list_feedback(
         d["authorName"] = author.split(" ")[0] if author else None
         out.append(d)
     return out
-
-
-# ------------------------------------------------------------- generations
-#
-# Renders happen on whichever backend has the GPU, and that box is disposable —
-# on Colab the checkout and its audit log are wiped every session. Recording a
-# row here, on the machine that owns the database, is what makes "how many rooms
-# has this system generated, and how long do they take?" answerable next week
-# rather than only until the tunnel drops.
-
-
-def add_generation(
-    *,
-    user_id: int | None,
-    job_id: str | None,
-    culture: str | None,
-    duration_seconds: float | None,
-    ok: bool = True,
-    light: bool = False,
-) -> int:
-    return _write(
-        "INSERT INTO generations (UserId, JobId, Culture, DurationSeconds, Ok, Light, CreatedAt)"
-        " VALUES (?, ?, ?, ?, ?, ?, ?)",
-        (user_id, job_id, culture, duration_seconds, 1 if ok else 0, 1 if light else 0, time.time()),
-    )
-
-
-def _generation_filters(since: float | None, until: float | None) -> tuple[str, list[Any]]:
-    clauses: list[str] = []
-    args: list[Any] = []
-    if since is not None:
-        clauses.append("CreatedAt >= ?")
-        args.append(since)
-    if until is not None:
-        clauses.append("CreatedAt <= ?")
-        args.append(until)
-    return (" WHERE " + " AND ".join(clauses) if clauses else ""), args
-
-
-def generation_stats(since: float | None = None, until: float | None = None) -> dict:
-    """Counts and timings over recorded generations.
-
-    Placeholder (light) runs are excluded from every figure and reported
-    separately: they are instant stand-ins, so counting them would inflate the
-    total and crush the average. Averages are None rather than 0 when nothing
-    qualifies — a 0.0s average would read as a measurement.
-    """
-    where, args = _generation_filters(since, until)
-    row = _query(
-        "SELECT"
-        " SUM(CASE WHEN Light = 0 AND Ok = 1 THEN 1 ELSE 0 END) AS images,"
-        " COUNT(DISTINCT CASE WHEN Light = 0 AND Ok = 1 THEN JobId END) AS rooms,"
-        " SUM(CASE WHEN Light = 0 AND Ok = 0 THEN 1 ELSE 0 END) AS failures,"
-        " SUM(CASE WHEN Light = 1 THEN 1 ELSE 0 END) AS light,"
-        " AVG(CASE WHEN Light = 0 AND Ok = 1 THEN DurationSeconds END) AS avgSeconds,"
-        " MIN(CASE WHEN Light = 0 AND Ok = 1 THEN DurationSeconds END) AS minSeconds,"
-        " MAX(CASE WHEN Light = 0 AND Ok = 1 THEN DurationSeconds END) AS maxSeconds,"
-        " COUNT(CASE WHEN Light = 0 AND Ok = 1 AND DurationSeconds IS NOT NULL THEN 1 END) AS timed"
-        f" FROM generations{where}",
-        args,
-    )[0]
-
-    def num(key: str, digits: int = 1) -> float | None:
-        v = row[key]
-        return round(float(v), digits) if v is not None else None
-
-    ok_count = int(row["images"] or 0)
-    failures = int(row["failures"] or 0)
-    total = ok_count + failures
-    return {
-        "roomsGenerated": int(row["rooms"] or 0),
-        "imagesGenerated": ok_count,
-        "failures": failures,
-        "successRate": round(ok_count / total, 3) if total else None,
-        "averageSeconds": num("avgSeconds"),
-        "fastestSeconds": num("minSeconds"),
-        "slowestSeconds": num("maxSeconds"),
-        "sampleSize": int(row["timed"] or 0),
-        "placeholderRunsExcluded": int(row["light"] or 0),
-    }
-
-
-def generation_count() -> int:
-    """Any rows at all — used to decide whether the database has taken over from
-    the legacy audit-log source."""
-    return int(_query("SELECT COUNT(*) AS n FROM generations")[0]["n"])
 
 
 def feedback_by_culture(
