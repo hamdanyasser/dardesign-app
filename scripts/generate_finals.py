@@ -1,13 +1,28 @@
-"""Generate the 45-image final batch for the demo.
+"""Generate the final batch — also the evaluation corpus.
 
-Input: 15 rooms (anywhere in `--rooms-dir`) x 3 styles = 45 outputs
-Output: outputs/finals/<room_id>_<style>.png
+Input: rooms (anywhere in `--rooms-dir`) x 3 styles
+Output: <out>/<room_id>_<style>.png, or <out>/<style>/<room_id>_<style>.png
+        with --by-culture
 Settings: ControlNet weights from configs/sweep_winners.json (defaults if absent)
+
+Writes RAW pipeline output only — never upscaled or post-processed, which is
+what SSIM and LPIPS require. Existing files are skipped, so an interrupted run
+resumes rather than regenerating.
+
+Nothing here touches the database, the history table or any user data: it calls
+transform_room directly, so evaluation images can never be mistaken for designs
+someone made.
 
 Usage (Kaggle T4):
     python scripts/generate_finals.py \\
         --rooms-dir /kaggle/input/datasets/yasserhamdanfr/dardesign-test-rooms \\
         --out outputs/finals
+
+Evaluation corpus into Drive (see eval/CORPUS.md):
+    python scripts/generate_finals.py --rooms-dir <inputs> \\
+        --out /content/drive/MyDrive/DarDesign/evaluation/finals --by-culture
+    python scripts/generate_finals.py --rooms-dir <inputs> \\
+        --out /content/drive/MyDrive/DarDesign/evaluation/baselines --no-lora
 """
 from __future__ import annotations
 
@@ -51,6 +66,14 @@ def main() -> None:
     p.add_argument("--limit", type=int, default=15)
     p.add_argument("--seed", type=int, default=42)
     p.add_argument("--cultures", nargs="*", default=CULTURES)
+    p.add_argument(
+        "--by-culture", action="store_true",
+        help="write to <out>/<culture>/<room>_<culture>.png instead of one flat dir",
+    )
+    p.add_argument(
+        "--no-lora", action="store_true",
+        help="prompt-only generation — produces the baseline set the ablation compares against",
+    )
     args = p.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s: %(message)s")
 
@@ -69,15 +92,21 @@ def main() -> None:
 
     for room in rooms:
         for culture in args.cultures:
-            out_path = args.out / f"{room.stem}_{culture}.png"
+            # Either layout is fine for eval/run_metrics.py: it reads the culture
+            # from the filename, and from the parent folder when nested.
+            dest_dir = args.out / culture if args.by_culture else args.out
+            dest_dir.mkdir(parents=True, exist_ok=True)
+            out_path = dest_dir / f"{room.stem}_{culture}.png"
             if out_path.exists():
                 logger.info("skip %s", out_path)
                 continue
             cn_w = winners.get(culture, default)
-            logger.info("gen %s -> %s (cn=%s)", room.name, out_path.name, cn_w)
+            logger.info("gen %s -> %s (cn=%s, lora=%s)",
+                        room.name, out_path.name, cn_w, not args.no_lora)
             produced = transform_room(
                 room, culture, seed=args.seed,
                 controlnet_weights=cn_w,
+                use_lora=not args.no_lora,
             )
             if produced.resolve() != out_path.resolve():
                 produced.replace(out_path)
