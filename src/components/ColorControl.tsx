@@ -20,7 +20,7 @@ import { useThemeLanguage } from "@/context/ThemeLanguageContext";
 import {
   ApiError,
   applyRecolor,
-  fetchColorTargets,
+  fetchColorState,
   previewRecolor,
   resetRecolor,
   undoRecolor,
@@ -88,26 +88,38 @@ export default function ColorControl({ jobId, style, imageSrc, onImageChange }: 
   const [preview, setPreview] = useState<string | null>(null);
   const [canUndo, setCanUndo] = useState(false);
 
-  // Which surfaces this room actually has. Asked once when the panel opens, so
-  // "Floor" can be disabled up front instead of failing after a colour is picked.
+  // Read the room's state from the server whenever the panel opens or the
+  // culture changes: which surfaces exist (so "Floor" can be disabled up front
+  // rather than failing after a colour is picked) and whether a step back is
+  // still possible.
+  //
+  // `canUndo` has to come from here, not from what this component remembers
+  // doing. The undo stack lives on the server, keyed by job *and* style — so
+  // recolouring Lebanese, switching to Khaleeji and switching back used to grey
+  // out an Undo the server could still perform, stranding the user on a colour
+  // they wanted to drop.
   useEffect(() => {
-    if (!open || availability) return;
+    if (!open) return;
     let cancelled = false;
-    fetchColorTargets(jobId)
-      .then((a) => !cancelled && setAvailability(a))
-      .catch(() => !cancelled && setAvailability(null)); // not fatal: apply still reports it
+    // A preview belongs to the culture it was rendered from; it must not linger
+    // over another one.
+    setPreview(null);
+    setError(null);
+    fetchColorState(jobId, style)
+      .then((s) => {
+        if (cancelled) return;
+        setAvailability(s.targets);
+        setCanUndo(s.canUndo);
+      })
+      .catch(() => {
+        // Not fatal: apply still reports a missing surface, and the step-back
+        // buttons stay as they were rather than lying in either direction.
+        if (!cancelled) setAvailability(null);
+      });
     return () => {
       cancelled = true;
     };
-  }, [open, jobId, availability]);
-
-  // Switching culture invalidates everything: the undo stack is per style, and a
-  // preview of the Lebanese render must not linger over the Moroccan one.
-  useEffect(() => {
-    setPreview(null);
-    setCanUndo(false);
-    setError(null);
-  }, [style]);
+  }, [open, jobId, style]);
 
   const unavailable = useMemo(
     () => availability?.find((a) => a.target === target && !a.available),

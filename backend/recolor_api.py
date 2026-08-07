@@ -182,12 +182,17 @@ def _build(job, style: str, req: RecolorRequest):
 
 
 @router.get("/targets")
-async def color_targets(job_id: str) -> JSONResponse:
-    """Which surfaces are actually recolourable in this room.
+async def color_targets(job_id: str, style: str | None = None) -> JSONResponse:
+    """Which surfaces are recolourable here, and whether a step back is possible.
 
     Lets the UI grey out "Floor" in a room with no visible floor *before* the
     user picks a colour, instead of failing after. Coverage is echoed so the
     panel can explain why.
+
+    `can_undo` is here because the undo stack lives on the server, per job and
+    style: a panel that tracked it client-side would forget it whenever the user
+    switched culture and came back, greying out an Undo the server can still
+    perform. Requires `style`, since the stacks are per style.
     """
     analysis = _analysis_or_404(job_id)
     from .recolor import MIN_COVERAGE
@@ -196,7 +201,8 @@ async def color_targets(job_id: str) -> JSONResponse:
     for t in TARGETS:
         cov = coverage(target_mask(analysis, t))
         out.append({"target": t, "coverage": round(cov, 4), "available": cov >= MIN_COVERAGE})
-    return JSONResponse({"job_id": job_id, "targets": out})
+    can_undo = bool(_UNDO.get(_key(job_id, _validated_style(style)))) if style else False
+    return JSONResponse({"job_id": job_id, "targets": out, "can_undo": can_undo})
 
 
 @router.post("/preview")

@@ -687,14 +687,21 @@ async function colorPost(path: string, body: unknown): Promise<RecolorResult> {
   return (await unwrap(res)) as RecolorResult;
 }
 
-/** Which surfaces this room actually has, so the UI can disable the rest. */
-export async function fetchColorTargets(jobId: string): Promise<ColorTargetAvailability[]> {
+export interface ColorState {
+  targets: ColorTargetAvailability[];
+  /** Whether the server can still step this style back. Authoritative — the
+   *  undo stack lives there, so the panel must not infer it from its own state. */
+  canUndo: boolean;
+}
+
+/** Which surfaces this room has, and whether an undo is available for `style`. */
+export async function fetchColorState(jobId: string, style: StyleId): Promise<ColorState> {
   const res = await safeFetch(
-    `${API_URL}/api/color/targets?job_id=${encodeURIComponent(jobId)}`,
+    `${API_URL}/api/color/targets?job_id=${encodeURIComponent(jobId)}&style=${encodeURIComponent(style)}`,
     { headers: COMMON_HEADERS },
   );
-  const body = (await unwrap(res)) as { targets?: ColorTargetAvailability[] };
-  return body.targets ?? [];
+  const body = (await unwrap(res)) as { targets?: ColorTargetAvailability[]; can_undo?: boolean };
+  return { targets: body.targets ?? [], canUndo: !!body.can_undo };
 }
 
 /** Try a colour. Changes nothing server-side — the job is untouched. */
