@@ -252,8 +252,12 @@ export default function EvaluationPage() {
                 label={t("Rooms generated", "الغرف المولَّدة")}
                 value={String(gen?.roomsGenerated ?? 0)}
                 sub={t(
-                  `${gen?.imagesGenerated ?? 0} images · from the render audit log`,
-                  `${gen?.imagesGenerated ?? 0} صورة · من سجل التدقيق`,
+                  `${gen?.imagesGenerated ?? 0} images · ${
+                    gen?.source === "database" ? "recorded in the database" : "from the render audit log"
+                  }`,
+                  `${gen?.imagesGenerated ?? 0} صورة · ${
+                    gen?.source === "database" ? "مسجَّلة في قاعدة البيانات" : "من سجل التدقيق"
+                  }`,
                 )}
               />
               <SummaryCard

@@ -337,6 +337,8 @@ export interface RedesignResult {
   room_analysis?: RoomAnalysisSummary | null;
   /** Needed by the furniture endpoints, which look the cached analysis up by job. */
   job_id?: string | null;
+  /** Server-measured generation time. Absent on older backends. */
+  duration_s?: number | null;
   /** True in DARDESIGN_LIGHT: images are tinted stand-ins, not real renders. */
   placeholder?: boolean | null;
 }
@@ -1044,11 +1046,14 @@ export interface EvaluationCultureRow {
   averageRoomPreservation: number | null;
 }
 
-/** From the render audit log, not the database — there is no generations table. */
 export interface GenerationStats {
+  /** "database" once renders are being recorded; "audit_log" is the fallback. */
+  source?: "database" | "audit_log";
+  /** False when the source cannot honour the date filter (audit log). */
+  filtered?: boolean;
   roomsGenerated: number;
   imagesGenerated: number;
-  restyles: number;
+  restyles: number | null;
   failures: number;
   successRate: number | null;
   averageSeconds: number | null;
@@ -1081,6 +1086,36 @@ export interface EvaluationReport {
   recent: Feedback[];
   generation: GenerationStats;
   automatic: AutomaticMetrics;
+}
+
+/**
+ * Record a finished render against the durable database.
+ *
+ * The client is the only party that talks to both backends: rendering happens on
+ * the disposable GPU box, the database lives on the machine that owns the data.
+ * Best-effort by design — the caller ignores failures, because losing a
+ * statistic must never cost the user the room they just waited two minutes for.
+ */
+export async function recordGeneration(input: {
+  jobId?: string | null;
+  styles?: string[];
+  durationSeconds?: number | null;
+  ok?: boolean;
+  light?: boolean;
+}): Promise<void> {
+  const res = await safeFetch(`${DATA_API_URL}/api/generations`, {
+    method: "POST",
+    headers: { ...COMMON_HEADERS, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      jobId: input.jobId ?? null,
+      styles: input.styles ?? [],
+      durationSeconds: input.durationSeconds ?? null,
+      ok: input.ok !== false,
+      light: !!input.light,
+    }),
+    ...WITH_CREDENTIALS,
+  });
+  await unwrap(res);
 }
 
 export async function fetchEvaluation(

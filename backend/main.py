@@ -122,7 +122,7 @@ from .projection import (
 from .recolor_api import clear_undo as clear_color_undo, router as color_router
 from .evaluation import (
     automatic_metrics as eval_automatic_metrics,
-    generation_stats as eval_generation_stats,
+    generation_report as eval_generation_report,
     overall_rating as eval_overall_rating,
 )
 from .share import decode as share_decode, encode as share_encode
@@ -333,6 +333,10 @@ class RedesignResponse(BaseModel):
     room_analysis: dict | None = None
     # Needed by the placement endpoints, which look the cached analysis up by job.
     job_id: str | None = None
+    # Server-measured generation time. Passed back so the client can record it
+    # against the durable database on the machine that owns the data — the
+    # rendering box is disposable and its audit log dies with the session.
+    duration_s: float | None = None
     # True in DARDESIGN_LIGHT: images are tinted stand-ins, not real renders.
     placeholder: bool | None = None
     privacy_notice: str = PRIVACY_NOTICE
@@ -571,9 +575,10 @@ async def redesign(file: UploadFile, styles: str | None = Form(default=None)) ->
 
         jobs.transition(job.id, JobStatus.done, output_path=str(last_out) if last_out else None)
         jobs.update_progress(job.id, 1.0)
+        duration_s = round(time.monotonic() - started, 2)
         log_event(
             "redesign", job_id=job.id, ok=True, styles=list(requested),
-            duration_s=round(time.monotonic() - started, 2), light=_light_mode(),
+            duration_s=duration_s, light=_light_mode(),
             object_map=object_map is not None, seg_regions=seg_regions is not None,
         )
         return RedesignResponse(
@@ -584,6 +589,7 @@ async def redesign(file: UploadFile, styles: str | None = Form(default=None)) ->
             depth_map=depth_map,
             room_analysis=room_analysis,
             job_id=job.id,
+            duration_s=duration_s,
             placeholder=True if _light_mode() else None,
             **images,
         )
@@ -1190,6 +1196,63 @@ async def admin_feedback(
     })
 
 
+class RecordGenerationRequest(BaseModel):
+    """What the studio reports after a render, for the durable record.
+
+    The client is the only party that talks to both backends: rendering happens
+    on the disposable GPU box, the database lives on the machine that owns the
+    data. `durationSeconds` is the render backend's own measurement, passed
+    through rather than timed here.
+    """
+
+    jobId: str | None = None
+    styles: list[str] = []
+    durationSeconds: float | None = None
+    ok: bool = True
+    light: bool = False
+
+
+@app.post("/api/generations")
+async def record_generation(
+    req: RecordGenerationRequest,
+    session: str | None = Cookie(default=None, alias=SESSION_COOKIE),
+) -> JSONResponse:
+    """Record one render, so generation statistics outlive the rendering session.
+
+    Deliberately not authenticated: a room can be generated signed out, and
+    requiring an account would simply lose those records. The user is attached
+    when there is a session, and left null otherwise.
+
+    Everything is bounded before it is stored — an unknown style is dropped
+    rather than trusted, and the duration is clamped — because this endpoint
+    accepts numbers that end up on a dashboard. One row per style, so per-culture
+    counts are possible; a render with no styles still records one row, so the
+    room is counted.
+    """
+    user = _current_user(session)
+    # A render cannot plausibly take a day; anything outside the range is a
+    # client bug or a forgery, and either way must not skew an average.
+    duration = req.durationSeconds
+    if duration is not None:
+        duration = max(0.0, min(float(duration), 86_400.0))
+    styles = [s for s in req.styles if s in StylePack] or [None]
+
+    ids = [
+        db.add_generation(
+            user_id=user["Id"] if user else None,
+            job_id=req.jobId,
+            culture=style,
+            # One /redesign renders its styles sequentially, so attributing the
+            # whole wall-clock time to each would multiply the total. Split it.
+            duration_seconds=(duration / len(styles)) if duration is not None else None,
+            ok=req.ok,
+            light=req.light,
+        )
+        for style in styles
+    ]
+    return JSONResponse({"recorded": len(ids)})
+
+
 @app.get("/api/admin/evaluation")
 async def admin_evaluation(
     culture: str | None = None,
@@ -1223,10 +1286,12 @@ async def admin_evaluation(
         "averageOverall": eval_overall_rating(stats),
         "byCulture": db.feedback_by_culture(since, until),
         "recent": db.list_feedback(culture, since, until, limit),
-        # Not filtered by culture/date: the audit log records renders, which are
-        # not the same population as ratings, and pretending otherwise would let
-        # a culture filter silently change a number it has no bearing on.
-        "generation": eval_generation_stats(),
+        # Date-filtered when it comes from the database; the audit-log fallback
+        # cannot be, and says so via `filtered`. Never culture-filtered: renders
+        # are not the same population as ratings, and one render covers up to
+        # three cultures, so a culture filter would change a number it has no
+        # bearing on.
+        "generation": eval_generation_report(since, until),
         "automatic": eval_automatic_metrics(),
     })
 

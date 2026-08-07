@@ -109,6 +109,41 @@ def generation_stats(*, include_light: bool = False) -> dict:
     }
 
 
+def generation_report(since: float | None = None, until: float | None = None) -> dict:
+    """Generation statistics, from the database when it has them.
+
+    Two sources, in order:
+
+      * the `generations` table — durable, filterable by date, and unaffected by
+        the rendering box being wiped. This is the real answer once the studio
+        has recorded anything.
+      * the render audit log — the legacy source, and still the honest fallback
+        for an install that has rendered but not yet recorded. It cannot be
+        date-filtered, so `filtered` says so rather than quietly ignoring the
+        dates the user picked.
+
+    `source` travels with the numbers so the dashboard can say where they came
+    from. A statistic whose provenance isn't stated is a statistic nobody can
+    check.
+    """
+    from . import db
+
+    try:
+        has_rows = db.generation_count() > 0
+    except Exception:  # noqa: BLE001 — the dashboard must survive a DB hiccup
+        logger.exception("could not read the generations table; falling back to the audit log")
+        has_rows = False
+
+    if has_rows:
+        stats = db.generation_stats(since, until)
+        stats.update({"source": "database", "restyles": None, "filtered": True})
+        return stats
+
+    stats = generation_stats()
+    stats.update({"source": "audit_log", "filtered": False})
+    return stats
+
+
 def overall_rating(stats: dict) -> float | None:
     """A single "overall" score, as the mean of the three rated dimensions.
 

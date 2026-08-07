@@ -197,6 +197,113 @@ def test_automatic_metrics_survive_a_broken_file(tmp_path) -> None:
 # ---------- the endpoint ----------
 
 
+# ---------- recorded generations ----------
+
+
+def test_recorded_generations_take_over_from_the_audit_log(audit_log) -> None:
+    """Once the studio records renders, the durable table is the source — the
+    audit log belongs to whichever box did the rendering and dies with it."""
+    async def _go():
+        async with _client() as c:
+            audit.log_event("redesign", ok=True, styles=["lebanese"], duration_s=999.0, light=False)
+            await _signup(c, "gen@example.com")
+
+            before = (await c.get("/api/admin/evaluation")).json()["generation"]
+            assert before["source"] == "audit_log"
+
+            r = await c.post("/api/generations", json={
+                "jobId": "job-1", "styles": ["lebanese", "khaleeji", "moroccan"],
+                "durationSeconds": 300.0, "ok": True, "light": False,
+            })
+            assert r.status_code == 200
+            assert r.json()["recorded"] == 3   # one row per culture
+
+            gen = (await c.get("/api/admin/evaluation")).json()["generation"]
+            assert gen["source"] == "database"
+            assert gen["roomsGenerated"] == 1        # one job, three cultures
+            assert gen["imagesGenerated"] == 3
+            # 300s of wall clock covering three sequential renders is 100s each;
+            # attributing the full 300 to each would treble the reported time.
+            assert gen["averageSeconds"] == 100.0
+            assert gen["sampleSize"] == 3
+    asyncio.run(_go())
+
+
+def test_recorded_placeholder_runs_are_excluded(audit_log) -> None:
+    async def _go():
+        async with _client() as c:
+            await _signup(c, "gen2@example.com")
+            await c.post("/api/generations", json={
+                "jobId": "real", "styles": ["lebanese"], "durationSeconds": 120.0, "light": False,
+            })
+            await c.post("/api/generations", json={
+                "jobId": "fake", "styles": ["lebanese"], "durationSeconds": 0.2, "light": True,
+            })
+            gen = (await c.get("/api/admin/evaluation")).json()["generation"]
+            assert gen["roomsGenerated"] == 1
+            assert gen["averageSeconds"] == 120.0
+            assert gen["placeholderRunsExcluded"] == 1
+    asyncio.run(_go())
+
+
+def test_recording_needs_no_account_and_rejects_junk(audit_log) -> None:
+    """A room can be generated signed out, so the record must still be kept —
+    but nothing a client sends is trusted onto a dashboard unchecked."""
+    async def _go():
+        async with _client() as c:
+            r = await c.post("/api/generations", json={
+                "jobId": "anon", "styles": ["lebanese"], "durationSeconds": 60.0,
+            })
+            assert r.status_code == 200          # no session required
+
+            # An unknown style is dropped rather than stored as a culture.
+            r = await c.post("/api/generations", json={
+                "jobId": "bad", "styles": ["atlantean"], "durationSeconds": 60.0,
+            })
+            assert r.status_code == 200
+            assert r.json()["recorded"] == 1     # recorded, culture null
+
+            # An absurd duration is clamped, not averaged in as-is.
+            await c.post("/api/generations", json={
+                "jobId": "huge", "styles": ["lebanese"], "durationSeconds": 10 ** 9,
+            })
+            assert db.generation_stats()["slowestSeconds"] == 86_400.0
+    asyncio.run(_go())
+
+
+def test_failed_generations_do_not_skew_the_average(audit_log) -> None:
+    async def _go():
+        async with _client() as c:
+            await _signup(c, "gen3@example.com")
+            await c.post("/api/generations", json={
+                "jobId": "ok", "styles": ["lebanese"], "durationSeconds": 100.0, "ok": True,
+            })
+            await c.post("/api/generations", json={
+                "jobId": "boom", "styles": ["lebanese"], "durationSeconds": 3.0, "ok": False,
+            })
+            gen = (await c.get("/api/admin/evaluation")).json()["generation"]
+            assert gen["roomsGenerated"] == 1
+            assert gen["failures"] == 1
+            assert gen["successRate"] == 0.5
+            assert gen["averageSeconds"] == 100.0
+    asyncio.run(_go())
+
+
+def test_recorded_generations_respect_the_date_filter(audit_log) -> None:
+    async def _go():
+        async with _client() as c:
+            await _signup(c, "gen4@example.com")
+            await c.post("/api/generations", json={
+                "jobId": "now", "styles": ["lebanese"], "durationSeconds": 100.0,
+            })
+            future = __import__("time").time() + 3600
+            gen = (await c.get("/api/admin/evaluation", params={"since": future})).json()["generation"]
+            assert gen["filtered"] is True
+            assert gen["roomsGenerated"] == 0
+            assert gen["averageSeconds"] is None
+    asyncio.run(_go())
+
+
 def test_evaluation_endpoint_requires_admin(audit_log) -> None:
     async def _go():
         async with _client() as c:
