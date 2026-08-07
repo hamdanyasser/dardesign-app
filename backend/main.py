@@ -17,6 +17,10 @@ GET  /share-token/{job_id}          mint a token for a finished job
 GET  /jobs                          debug listing (last N jobs)
 GET  /audit                         render audit trail (JSONL-backed; metadata
                                     only — $DARDESIGN_AUDIT_TOKEN gates it)
+POST /api/color/{preview,apply,undo,reset}
+                                    Colour Control — recolour the wall or floor
+                                    of a finished render inside its segmentation
+                                    mask (see backend/recolor_api.py)
 
 CORS is permissive in dev; tighten via $DARDESIGN_ALLOWED_ORIGINS in prod.
 """
@@ -112,6 +116,7 @@ from .projection import (
     to_room_map_payload,
     to_seg_regions_payload,
 )
+from .recolor_api import clear_undo as clear_color_undo, router as color_router
 from .share import decode as share_decode, encode as share_encode
 from .transform import (
     CONFIG,
@@ -185,6 +190,10 @@ IMAGES_DIR = ROOT / "images"
 (IMAGES_DIR / "old").mkdir(parents=True, exist_ok=True)
 (IMAGES_DIR / "new").mkdir(parents=True, exist_ok=True)
 app.mount("/images", StaticFiles(directory=str(IMAGES_DIR)), name="images")
+
+# Colour Control (wall/floor recolouring). Self-contained in recolor_api.py —
+# this line and that file are the whole feature.
+app.include_router(color_router)
 
 
 # ---------- helpers ----------
@@ -1493,6 +1502,7 @@ async def audit_trail(limit: int = 50, token: str | None = None) -> JSONResponse
 def _reset_for_tests() -> None:
     from . import jobs as jobs_mod
     jobs_mod.jobs._store.clear()  # type: ignore[attr-defined]
+    clear_color_undo()
     for p in UPLOAD_DIR.glob("*"):
         if p.is_file() and p.name != ".gitkeep":
             try:
