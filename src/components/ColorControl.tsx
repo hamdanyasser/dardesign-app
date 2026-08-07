@@ -152,15 +152,26 @@ export default function ColorControl({ jobId, style, imageSrc, onImageChange }: 
           setCanUndo(true);
           onImageChange(r.image);
         } else if (kind === "undo") {
-          const r = await undoRecolor(jobId, style);
-          setPreview(null);
-          setCanUndo(!!r.can_undo);
-          onImageChange(r.image);
+          // An unconfirmed preview is the most recent colour change *on screen*,
+          // so that is what Undo has to take back first. Nothing was committed,
+          // so dropping it is instant and needs no round trip. Only once the
+          // screen shows a confirmed design does Undo step the server back.
+          if (preview) {
+            setPreview(null);
+          } else {
+            const r = await undoRecolor(jobId, style);
+            setCanUndo(!!r.can_undo);
+            onImageChange(r.image);
+          }
         } else {
-          const r = await resetRecolor(jobId, style);
+          // Reset drops the preview and every confirmed colour change, landing
+          // back on the render as generated.
           setPreview(null);
-          setCanUndo(false);
-          onImageChange(r.image);
+          if (canUndo) {
+            const r = await resetRecolor(jobId, style);
+            setCanUndo(false);
+            onImageChange(r.image);
+          }
         }
       } catch (e) {
         fail(e);
@@ -168,11 +179,15 @@ export default function ColorControl({ jobId, style, imageSrc, onImageChange }: 
         setBusy(null);
       }
     },
-    [jobId, style, target, color, onImageChange, fail],
+    [jobId, style, target, color, preview, canUndo, onImageChange, fail],
   );
 
   const presets = PRESETS[target];
   const shown = preview ?? imageSrc;
+  // There is something to go back to if a preview is on screen or the server
+  // holds a confirmed change. Driving the buttons off `canUndo` alone left them
+  // dead after a Preview, which is exactly when a user reaches for Undo.
+  const canStepBack = canUndo || preview !== null;
 
   if (!open) {
     return (
@@ -385,7 +400,7 @@ export default function ColorControl({ jobId, style, imageSrc, onImageChange }: 
 
             <button
               onClick={() => void run("undo")}
-              disabled={busy !== null || !canUndo}
+              disabled={busy !== null || !canStepBack}
               className="flex items-center gap-1.5 rounded-lg border border-[var(--dd-gold-dim)]/40 px-3 py-1.5 text-sm text-[var(--dd-text-soft)] transition hover:border-[var(--dd-gold)] disabled:opacity-40"
             >
               {busy === "undo" ? (
@@ -398,7 +413,7 @@ export default function ColorControl({ jobId, style, imageSrc, onImageChange }: 
 
             <button
               onClick={() => void run("reset")}
-              disabled={busy !== null || !canUndo}
+              disabled={busy !== null || !canStepBack}
               className="flex items-center gap-1.5 rounded-lg border border-[var(--dd-gold-dim)]/40 px-3 py-1.5 text-sm text-[var(--dd-text-soft)] transition hover:border-[var(--dd-gold)] disabled:opacity-40"
             >
               {busy === "reset" ? (
