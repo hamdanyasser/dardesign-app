@@ -339,6 +339,9 @@ export interface RedesignResult {
   job_id?: string | null;
   /** Server-measured generation time. Absent on older backends. */
   duration_s?: number | null;
+  /** Structure preservation per style, 0..1 — did the room survive the restyle?
+   *  Same measure the offline evaluation suite uses. Absent on older backends. */
+  ssim?: Record<string, number> | null;
   /** True in DARDESIGN_LIGHT: images are tinted stand-ins, not real renders. */
   placeholder?: boolean | null;
 }
@@ -969,6 +972,8 @@ export async function saveToHistory(
     intensity?: number | null;
     /** Seconds the generation took, from the /redesign response. */
     duration?: number | null;
+    /** Structure preservation for this design, 0..1. */
+    ssim?: number | null;
   } = {},
 ): Promise<HistoryEntry> {
   const res = await safeFetch(`${DATA_API_URL}/api/history`, {
@@ -980,6 +985,7 @@ export async function saveToHistory(
       culture: meta.culture ?? null,
       intensity: meta.intensity ?? null,
       duration: meta.duration ?? null,
+      ssim: meta.ssim ?? null,
     }),
     ...WITH_CREDENTIALS,
   });
@@ -1063,6 +1069,9 @@ export interface GenerationStats {
   slowestSeconds: number | null;
   /** How many rows carried a duration and therefore backed the average. */
   sampleSize: number;
+  /** Mean structure preservation (SSIM) over the designs that carry one. */
+  averageSsim: number | null;
+  ssimSampleSize: number;
 }
 
 /** SSIM / LPIPS / CLIP from eval/run_metrics.py, when it has been run. */

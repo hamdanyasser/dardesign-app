@@ -59,10 +59,12 @@ async def _signup(c, email: str) -> dict:
     return r.json()
 
 
-async def _save(c, *, duration=None) -> dict:
+async def _save(c, *, duration=None, ssim=None) -> dict:
     body = {"oldImage": PNG_DATA_URL, "newImage": PNG_DATA_URL, "culture": "lebanese"}
     if duration is not None:
         body["duration"] = duration
+    if ssim is not None:
+        body["ssim"] = ssim
     r = await c.post("/api/history", json=body)
     assert r.status_code == 200, r.text
     return r.json()
@@ -158,6 +160,39 @@ def test_generation_stats_respect_the_date_filter() -> None:
             s = generation_report(since=future)
             assert s["roomsGenerated"] == 0
             assert s["averageSeconds"] is None
+    asyncio.run(_go())
+
+
+def test_average_ssim_over_the_designs_that_carry_one() -> None:
+    """Same shape as the duration average: measured rows only, and null rather
+    than 0 when nothing has been measured."""
+    async def _go():
+        async with _client() as c:
+            await _signup(c, "ssim@example.com")
+            assert generation_report()["averageSsim"] is None
+
+            await _save(c, ssim=0.40)
+            await _save(c, ssim=0.60)
+            await _save(c)                      # no measurement
+            s = generation_report()
+            assert s["roomsGenerated"] == 3
+            assert s["averageSsim"] == 0.5      # 1.0 / 2, not 1.0 / 3
+            assert s["ssimSampleSize"] == 2
+    asyncio.run(_go())
+
+
+def test_ssim_is_stored_and_clamped() -> None:
+    async def _go():
+        async with _client() as c:
+            await _signup(c, "ssim2@example.com")
+            saved = await _save(c, ssim=0.4312)
+            assert saved["ssim"] == 0.4312
+            assert (await c.get("/api/history")).json()[0]["ssim"] == 0.4312
+
+            # SSIM is bounded 0..1; anything else is a client bug and must not
+            # reach an average.
+            await _save(c, ssim=7.5)
+            assert generation_report()["averageSsim"] == round((0.4312 + 1.0) / 2, 3)
     asyncio.run(_go())
 
 

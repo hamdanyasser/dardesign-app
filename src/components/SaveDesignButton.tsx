@@ -32,6 +32,8 @@ interface Props {
    *  design because history is the durable record — the rendering backend is
    *  disposable and its own timings die with the session. */
   duration?: number | null;
+  /** Structure preservation for this design (0..1), measured at generation. */
+  ssim?: number | null;
 }
 
 export default function SaveDesignButton({
@@ -40,6 +42,7 @@ export default function SaveDesignButton({
   culture = null,
   intensity = null,
   duration = null,
+  ssim = null,
 }: Props) {
   const { isArabic } = useThemeLanguage();
   const { user, loading } = useAuth();
@@ -73,7 +76,7 @@ export default function SaveDesignButton({
     setSaving(true);
     setError(null);
     try {
-      const entry = await saveToHistory(oldImage, newImage, { culture, intensity, duration });
+      const entry = await saveToHistory(oldImage, newImage, { culture, intensity, duration, ssim });
       setSaved(true);
       setSavedId(entry.id);
     } catch (e) {

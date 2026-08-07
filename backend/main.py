@@ -113,6 +113,7 @@ from .guardrails import (
     validate_upload as guard_validate_upload,
 )
 from .jobs import JobStatus, jobs
+from .quality import ssim_paths
 from .projection import (
     project_top_down,
     seg_bounding_boxes,
@@ -337,6 +338,10 @@ class RedesignResponse(BaseModel):
     # against the durable database on the machine that owns the data — the
     # rendering box is disposable and its audit log dies with the session.
     duration_s: float | None = None
+    # Structure preservation per style (0..1, higher = the room survived the
+    # restyle). Same measure and working size as the offline evaluation suite,
+    # so a live figure is comparable with the corpus. Absent if it fails.
+    ssim: dict[str, float] | None = None
     # True in DARDESIGN_LIGHT: images are tinted stand-ins, not real renders.
     placeholder: bool | None = None
     privacy_notice: str = PRIVACY_NOTICE
@@ -531,6 +536,15 @@ async def redesign(file: UploadFile, styles: str | None = Form(default=None)) ->
 
         original = await asyncio.to_thread(_original_png_data_url, raw)
 
+        # Structure preservation, per style: did the room survive the restyle?
+        # Milliseconds on CPU, computed outside the generation lock, and
+        # ssim_paths never raises — a metric must not cost a finished render.
+        ssim_scores: dict[str, float] = {}
+        for style, path in (job.style_outputs or {}).items():
+            value = await asyncio.to_thread(ssim_paths, str(input_path), path)
+            if value is not None:
+                ssim_scores[style] = value
+
         # WIRING §1 — depth + raw ADE20K seg → top-down object map, on-image
         # highlighter regions, and the DepthOrbit depth PNG. One compute serves
         # all three. Best-effort: a failure here must never cost the user their
@@ -590,6 +604,7 @@ async def redesign(file: UploadFile, styles: str | None = Form(default=None)) ->
             room_analysis=room_analysis,
             job_id=job.id,
             duration_s=duration_s,
+            ssim=ssim_scores or None,
             placeholder=True if _light_mode() else None,
             **images,
         )
@@ -857,6 +872,8 @@ class SaveHistoryRequest(BaseModel):
     # here because history is the durable record: the rendering box is disposable
     # and its own logs die with the session.
     duration: float | None = None
+    # Structure preservation for this design (0..1), from the /redesign response.
+    ssim: float | None = None
 
 
 def _current_user(session: str | None):
@@ -984,8 +1001,10 @@ async def history_save(
     duration = (
         max(0.0, min(float(req.duration), 86_400.0)) if req.duration is not None else None
     )
+    ssim = max(0.0, min(float(req.ssim), 1.0)) if req.ssim is not None else None
     entry_id = db.add_history(
-        user["Id"], old_url, new_url, culture=culture, intensity=intensity, duration=duration
+        user["Id"], old_url, new_url, culture=culture, intensity=intensity,
+        duration=duration, ssim=ssim,
     )
     log_event("history_save", user_id=user["Id"], entry_id=entry_id, culture=culture, ok=True)
     return JSONResponse({
@@ -996,6 +1015,7 @@ async def history_save(
         "culture": culture,
         "intensity": intensity,
         "duration": duration,
+        "ssim": ssim,
     })
 
 

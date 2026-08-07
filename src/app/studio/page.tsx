@@ -749,6 +749,9 @@ export default function StudioPage() {
                   // The renderer's own measurement of this generation, stored on
                   // the design so the evaluation dashboard can average it.
                   duration={result.duration_s}
+                  // The score for the culture actually on screen — that is the
+                  // image being saved.
+                  ssim={result.ssim?.[featured] ?? null}
                 />
                 <RoomReport
                   beforeSrc={result.original}

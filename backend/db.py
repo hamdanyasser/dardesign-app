@@ -6,7 +6,7 @@ be more machinery than the problem needs.
 
     users     Id, FullName, PhoneNumber, Email, Password, Role
     history   Id, UserId, OldImageUrl, NewImageUrl, IsSuggested, Culture,
-              Intensity, Duration
+              Intensity, Duration, Ssim
 
 `Password` stores a PBKDF2 hash, never the password itself — see auth.py.
 
@@ -60,6 +60,9 @@ CREATE TABLE IF NOT EXISTS history (
     -- Seconds the generation took, measured by the rendering backend between
     -- the start and end of the run. Null on rows saved before it was recorded.
     Duration     REAL,
+    -- Structure preservation vs the input room, 0..1 (backend/quality.py).
+    -- Same measure as the offline evaluation suite, so the two are comparable.
+    Ssim         REAL,
     CreatedAt    REAL    NOT NULL,
     FOREIGN KEY (UserId) REFERENCES users(Id) ON DELETE CASCADE
 );
@@ -174,6 +177,7 @@ def _migrate(conn: sqlite3.Connection) -> None:
         ("Culture", "ALTER TABLE history ADD COLUMN Culture TEXT"),
         ("Intensity", "ALTER TABLE history ADD COLUMN Intensity REAL"),
         ("Duration", "ALTER TABLE history ADD COLUMN Duration REAL"),
+        ("Ssim", "ALTER TABLE history ADD COLUMN Ssim REAL"),
     ):
         if column not in existing:
             conn.execute(ddl)
@@ -261,15 +265,16 @@ def add_history(
     culture: str | None = None,
     intensity: float | None = None,
     duration: float | None = None,
+    ssim: float | None = None,
 ) -> int:
     """Save one design. `culture`/`intensity` describe how it was generated and
     become the trusted source for anything that rates this image later.
     `duration` is the generation time in seconds, measured by the renderer."""
     return _write(
         "INSERT INTO history (UserId, OldImageUrl, NewImageUrl, IsSuggested, Culture,"
-        " Intensity, Duration, CreatedAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        " Intensity, Duration, Ssim, CreatedAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (user_id, old_url, new_url, 1 if is_suggested else 0, culture, intensity,
-         duration, time.time()),
+         duration, ssim, time.time()),
     )
 
 
@@ -284,7 +289,8 @@ def history_generation_stats(since: float | None = None, until: float | None = N
     where, args = _generation_filters(since, until)
     row = _query(
         "SELECT COUNT(*) AS rooms, SUM(Duration) AS totalSeconds,"
-        " COUNT(Duration) AS timed, MIN(Duration) AS minSeconds, MAX(Duration) AS maxSeconds"
+        " COUNT(Duration) AS timed, MIN(Duration) AS minSeconds, MAX(Duration) AS maxSeconds,"
+        " AVG(Ssim) AS avgSsim, COUNT(Ssim) AS measured"
         f" FROM history{where}",
         args,
     )[0]
@@ -303,6 +309,9 @@ def history_generation_stats(since: float | None = None, until: float | None = N
         "fastestSeconds": num("minSeconds"),
         "slowestSeconds": num("maxSeconds"),
         "sampleSize": timed,
+        # Structure preservation over the designs that carry a measurement.
+        "averageSsim": round(float(row["avgSsim"]), 3) if row["avgSsim"] is not None else None,
+        "ssimSampleSize": int(row["measured"] or 0),
     }
 
 
@@ -485,6 +494,7 @@ def _history_row(r: sqlite3.Row) -> dict:
         "culture": r["Culture"] if "Culture" in keys else None,
         "intensity": r["Intensity"] if "Intensity" in keys else None,
         "duration": r["Duration"] if "Duration" in keys else None,
+        "ssim": r["Ssim"] if "Ssim" in keys else None,
         "createdAt": r["CreatedAt"],
     }
 

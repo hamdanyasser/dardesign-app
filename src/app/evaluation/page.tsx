@@ -385,6 +385,39 @@ export default function EvaluationPage() {
                   `استناداً إلى ${stats?.total ?? 0} تقييم · وضع الأثاث صحيح ${stats?.placementValid ?? 0} مرة، غير صحيح ${stats?.placementInvalid ?? 0} مرة`,
                 )}
               </p>
+
+              {/* Measured, not rated — so it sits apart from the 1-5 bars above
+                  and on its own 0-1 scale. Computed on every generation, unlike
+                  LPIPS/CLIP which need the offline corpus. */}
+              <div className="mt-5 border-t border-gold/15 pt-4">
+                <h4
+                  className={cn(
+                    "mb-2 text-xs font-medium uppercase tracking-wide text-cream-muted",
+                    isArabic && "font-arabic",
+                  )}
+                >
+                  {t("Measured on every generation", "مقاس في كل عملية توليد")}
+                </h4>
+                <ScoreBars
+                  isArabic={isArabic}
+                  max={1}
+                  bars={[
+                    {
+                      key: "ssim",
+                      label: t("Structure (SSIM)", "الحفاظ على البنية"),
+                      value: gen?.averageSsim ?? null,
+                    },
+                  ]}
+                />
+                <p className={cn("mt-2 text-xs text-cream-muted", isArabic && "font-arabic")}>
+                  {t(
+                    `Higher = the room's layout survived the restyle. Over ${gen?.ssimSampleSize ?? 0} measured design${
+                      gen?.ssimSampleSize === 1 ? "" : "s"
+                    }. LPIPS, CLIP and the confusion matrix need the offline corpus.`,
+                    `الأعلى = بقي مخطط الغرفة بعد إعادة التصميم. على ${gen?.ssimSampleSize ?? 0} تصميم مقاس. أما LPIPS وCLIP ومصفوفة الالتباس فتحتاج مجموعة التقييم المنفصلة.`,
+                  )}
+                </p>
+              </div>
             </Panel>
 
             {/* ---------- automatic metrics (only when computed) ---------- */}
