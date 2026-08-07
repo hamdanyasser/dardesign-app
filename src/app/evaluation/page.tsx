@@ -75,11 +75,29 @@ export default function EvaluationPage() {
       );
     } catch (e) {
       setReport(null);
-      setErr(
+      // Say what actually failed. Every status used to be reported as "admin
+      // only", which sent a signed-in admin hunting for a permissions problem
+      // when the real answer was a backend running code from before this
+      // endpoint existed.
+      const status = e instanceof ApiError ? e.http_status : 0;
+      const detail =
+        status === 401
+          ? t("Sign in with an admin account to view this page.", "سجّل الدخول بحساب مشرف لعرض هذه الصفحة.")
+          : status === 403
+            ? t("This page is admin-only.", "هذه الصفحة للمشرف فقط.")
+            : status === 404
+              ? t(
+                  "The backend does not have this endpoint — restart it so it picks up the latest code.",
+                  "الخادم لا يحتوي على هذه الواجهة — أعد تشغيله ليحمّل أحدث نسخة من الشيفرة.",
+                )
+              : status === 0
+                ? t("Could not reach the backend.", "تعذّر الاتصال بالخادم.")
+                : "";
+      const base =
         e instanceof ApiError
           ? isArabic ? e.message_ar : e.message_en
-          : t("Something went wrong.", "حدث خطأ."),
-      );
+          : t("Something went wrong.", "حدث خطأ.");
+      setErr(detail ? `${base} — ${detail}` : base);
     } finally {
       setBusy(false);
     }
@@ -97,6 +115,16 @@ export default function EvaluationPage() {
     for (const row of report?.byCulture ?? []) if (row.culture) map[row.culture] = row;
     return map;
   }, [report]);
+
+  // Ratings whose design has no culture recorded. They are real ratings and are
+  // counted in the totals, but they cannot honestly be charted against a culture.
+  const unattributed = useMemo(
+    () =>
+      (report?.byCulture ?? [])
+        .filter((r) => !r.culture)
+        .reduce((sum, r) => sum + r.total, 0),
+    [report],
+  );
 
   const pick = (field: keyof EvaluationReport["byCulture"][number]) =>
     Object.fromEntries(
@@ -212,8 +240,6 @@ export default function EvaluationPage() {
             )}
           >
             {err}
-            {" — "}
-            {t("this page is admin-only.", "هذه الصفحة للمشرف فقط.")}
           </p>
         )}
 
@@ -304,20 +330,35 @@ export default function EvaluationPage() {
                 />
               </div>
               <div className={cn("mt-4 flex flex-wrap gap-4", isArabic && "flex-row-reverse")}>
-                {cultures.map((c) => (
-                  <span
-                    key={c}
-                    className={cn("flex items-center gap-2 text-xs text-cream-muted", isArabic && "flex-row-reverse")}
-                  >
-                    <span className="text-cream-soft">
-                      {isArabic ? CULTURE_LABEL[c]?.ar ?? c : CULTURE_LABEL[c]?.en ?? c}
+                {cultures.map((c) => {
+                  const n = byCulture[c]?.total ?? 0;
+                  return (
+                    <span
+                      key={c}
+                      className={cn("flex items-center gap-2 text-xs text-cream-muted", isArabic && "flex-row-reverse")}
+                    >
+                      <span className="text-cream-soft">
+                        {isArabic ? CULTURE_LABEL[c]?.ar ?? c : CULTURE_LABEL[c]?.en ?? c}
+                      </span>
+                      <span dir="ltr">
+                        ({n} {t(n === 1 ? "rating" : "ratings", "تقييم")})
+                      </span>
                     </span>
-                    <span dir="ltr">
-                      ({byCulture[c]?.total ?? 0} {t("ratings", "تقييم")})
-                    </span>
-                  </span>
-                ))}
+                  );
+                })}
               </div>
+              {/* Ratings on designs saved before the culture was recorded group
+                  under no culture, so the per-culture counts can add up to less
+                  than the overview total. Saying so beats leaving an examiner to
+                  notice the arithmetic doesn't close. */}
+              {unattributed > 0 && (
+                <p className={cn("mt-2 text-xs text-cream-muted", isArabic && "font-arabic")}>
+                  {t(
+                    `${unattributed} further rating${unattributed === 1 ? "" : "s"} could not be attributed to a culture (saved before the culture was recorded), so ${unattributed === 1 ? "it is" : "they are"} counted in the overview below but not in this comparison.`,
+                    `${unattributed} تقييم إضافي بلا ثقافة مُسجَّلة (حُفظ قبل تسجيل الثقافة)، لذلك يُحتسب في النظرة العامة أدناه وليس في هذه المقارنة.`,
+                  )}
+                </p>
+              )}
             </Panel>
 
             {/* ---------- 3. evaluation overview ---------- */}
