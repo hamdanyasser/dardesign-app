@@ -100,11 +100,16 @@ export default function RatingBadge({
         </span>
       )}
 
+      {/* Inline rather than on its own line: the caption sits in a
+          non-wrapping flex row inside an overflow-hidden card, so a full-width
+          element there is squeezed to nothing and clipped. Long comments are
+          truncated with the whole text on the title attribute. */}
       {rating.comment && (
         <span
+          title={rating.comment}
           className={cn(
-            "w-full text-xs italic text-[var(--dd-text-soft)]",
-            isArabic ? "text-right font-arabic" : "text-left",
+            "max-w-[18rem] truncate text-xs italic text-[var(--dd-text-soft)]",
+            isArabic && "font-arabic",
           )}
         >
           “{rating.comment}”
