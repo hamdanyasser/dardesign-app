@@ -565,13 +565,20 @@ def set_suggested(entry_id: int, user_id: int, value: bool) -> bool:
 def list_suggested(exclude_user_id: int | None = None, limit: int = 100) -> list[dict]:
     """Designs other people chose to share, newest first.
 
+    Carries the design's rating, including the author's written comment: sharing
+    is opt-in per design, and the note is shown as part of what was shared.
+
     `exclude_user_id` leaves the viewer's own work out — this gallery is for
     seeing what others made. Only IsSuggested rows are ever returned, so nothing
     a user kept private can appear here.
     """
     if exclude_user_id is None:
         rows = _query(
-            f"SELECT h.*, u.FullName AS AuthorName, f.CulturalAccuracy AS RatingCultural, f.ImageQuality AS RatingQuality, f.RoomPreservation AS RatingPreservation"
+            "SELECT h.*, u.FullName AS AuthorName,"
+            " f.CulturalAccuracy AS RatingCultural,"
+            " f.ImageQuality AS RatingQuality,"
+            " f.RoomPreservation AS RatingPreservation,"
+            " f.Comment AS RatingComment"
             " FROM history h LEFT JOIN users u ON u.Id = h.UserId"
             " LEFT JOIN feedback f ON f.HistoryId = h.Id"
             " WHERE h.IsSuggested = 1 ORDER BY h.CreatedAt DESC LIMIT ?",
@@ -579,7 +586,11 @@ def list_suggested(exclude_user_id: int | None = None, limit: int = 100) -> list
         )
     else:
         rows = _query(
-            f"SELECT h.*, u.FullName AS AuthorName, f.CulturalAccuracy AS RatingCultural, f.ImageQuality AS RatingQuality, f.RoomPreservation AS RatingPreservation"
+            "SELECT h.*, u.FullName AS AuthorName,"
+            " f.CulturalAccuracy AS RatingCultural,"
+            " f.ImageQuality AS RatingQuality,"
+            " f.RoomPreservation AS RatingPreservation,"
+            " f.Comment AS RatingComment"
             " FROM history h LEFT JOIN users u ON u.Id = h.UserId"
             " LEFT JOIN feedback f ON f.HistoryId = h.Id"
             " WHERE h.IsSuggested = 1 AND h.UserId != ? ORDER BY h.CreatedAt DESC LIMIT ?",
@@ -615,13 +626,15 @@ def _rating_from_row(r: sqlite3.Row) -> dict | None:
         "roomPreservation": preservation,
         "overall": round((cultural + quality + preservation) / 3, 2),
     }
-    # The rest of the record is selected only by the owner's own listing. The
-    # shared gallery joins the scores alone, so a written comment cannot reach
-    # it by accident: sharing a design shares the design, not the note its
-    # author wrote about their own room.
+    # Each caller decides how much of the record it selects, so what a listing
+    # exposes is visible in its SQL rather than hidden in a UI condition.
+    # The gallery selects the comment (published deliberately: a shared design
+    # carries its author's note) but not the placement verdict or timestamps,
+    # which stay on the owner's own History.
+    if "RatingComment" in keys:
+        out["comment"] = r["RatingComment"]
     if "RatingPlacement" in keys:
         out["furniturePlacement"] = r["RatingPlacement"]
-        out["comment"] = r["RatingComment"]
         out["updatedAt"] = r["RatingUpdatedAt"]
     return out
 

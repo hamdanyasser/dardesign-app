@@ -138,22 +138,25 @@ def test_shared_but_unrated_design_shows_no_rating() -> None:
     asyncio.run(_go())
 
 
-def test_the_written_comment_is_not_exposed_to_the_gallery() -> None:
-    """Sharing a design shares the design, not what its author wrote about it."""
+def test_the_gallery_shows_the_comment_but_not_the_rest_of_the_record() -> None:
+    """A shared design carries its author's note.
+
+    Publishing the comment is deliberate — sharing is opt-in per design. The
+    placement verdict and timestamps stay on the owner's own History, so the
+    gallery's payload remains exactly what its SQL selects.
+    """
     async def _go():
         async with _client() as owner, _client() as viewer:
             await _signup(owner, "o3@example.com")
             eid = await _save(owner)
-            await _rate(owner, eid, comment="a private note about my own room")
+            await _rate(owner, eid, comment="Love how the arches turned out")
             await owner.patch(f"/api/history/{eid}/suggest", json={"isSuggested": True})
 
             await _signup(viewer, "v3@example.com")
             shared = (await viewer.get("/api/history/suggested")).json()
-            assert "private note" not in str(shared)
-            # Scores only: the comment column is never even selected for the
-            # gallery, so it cannot leak through a display change later.
+            assert shared[0]["rating"]["comment"] == "Love how the arches turned out"
             assert set(shared[0]["rating"]) == {
-                "culturalAccuracy", "imageQuality", "roomPreservation", "overall",
+                "culturalAccuracy", "imageQuality", "roomPreservation", "overall", "comment",
             }
     asyncio.run(_go())
 
