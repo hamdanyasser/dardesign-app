@@ -81,12 +81,14 @@ def test_history_carries_an_existing_rating() -> None:
             await _rate(c, eid, cultural=5, quality=4, preservation=3)
 
             entry = (await c.get("/api/history")).json()[0]
-            assert entry["rating"] == {
-                "culturalAccuracy": 5,
-                "imageQuality": 4,
-                "roomPreservation": 3,
-                "overall": 4.0,          # mean of the three
-            }
+            r = entry["rating"]
+            assert r["culturalAccuracy"] == 5
+            assert r["imageQuality"] == 4
+            assert r["roomPreservation"] == 3
+            assert r["overall"] == 4.0                 # mean of the three
+            # The owner sees their whole record, comment included.
+            assert r["furniturePlacement"] == "valid"
+            assert "comment" in r
     asyncio.run(_go())
 
 
@@ -148,9 +150,23 @@ def test_the_written_comment_is_not_exposed_to_the_gallery() -> None:
             await _signup(viewer, "v3@example.com")
             shared = (await viewer.get("/api/history/suggested")).json()
             assert "private note" not in str(shared)
+            # Scores only: the comment column is never even selected for the
+            # gallery, so it cannot leak through a display change later.
             assert set(shared[0]["rating"]) == {
                 "culturalAccuracy", "imageQuality", "roomPreservation", "overall",
             }
+    asyncio.run(_go())
+
+
+def test_history_carries_the_written_comment_for_its_owner() -> None:
+    async def _go():
+        async with _client() as c:
+            await _signup(c, "h5@example.com")
+            eid = await _save(c)
+            await _rate(c, eid, comment="The arches feel authentic.")
+            r = (await c.get("/api/history")).json()[0]["rating"]
+            assert r["comment"] == "The arches feel authentic."
+            assert r["updatedAt"] > 0
     asyncio.run(_go())
 
 

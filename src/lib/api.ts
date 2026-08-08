@@ -839,6 +839,11 @@ export interface DesignRating {
   roomPreservation: number;
   /** Mean of the three — derived, because the form has no overall field. */
   overall: number;
+  /** The rest of the record, served only on the owner's own History. The shared
+   *  gallery gets the scores alone, so these are simply absent there. */
+  furniturePlacement?: FurniturePlacementVerdict;
+  comment?: string | null;
+  updatedAt?: number;
 }
 
 export interface HistoryEntry {

@@ -1,17 +1,27 @@
 "use client";
 
 /* ============================================================
-   The rating a design already has, as a caption chip.
+   The feedback a design already has.
 
    Display only. It shows what the existing rating form saved —
    it never writes, and there is no second rating record. Used by
    History and Others' Work so both read the same way.
+
+   The gallery is served the three scores alone; only the owner's
+   own History carries the written comment, so `rating.comment`
+   being absent is what keeps it out rather than a flag here.
    ============================================================ */
 
 import { Star } from "lucide-react";
 import { useThemeLanguage } from "@/context/ThemeLanguageContext";
 import type { DesignRating } from "@/lib/api";
 import { cn } from "@/lib/utils";
+
+const PLACEMENT_LABEL: Record<string, { en: string; ar: string }> = {
+  valid: { en: "Furniture placement: correct", ar: "وضع الأثاث: صحيح" },
+  invalid: { en: "Furniture placement: wrong", ar: "وضع الأثاث: غير صحيح" },
+  not_applicable: { en: "Furniture placement: n/a", ar: "وضع الأثاث: لا ينطبق" },
+};
 
 export default function RatingBadge({
   rating,
@@ -39,24 +49,67 @@ export default function RatingBadge({
     );
   }
 
-  const detail = [
-    `${t("Cultural accuracy", "الدقة الثقافية")}: ${rating.culturalAccuracy}/5`,
-    `${t("Design quality", "جودة التصميم")}: ${rating.imageQuality}/5`,
-    `${t("Room preservation", "الحفاظ على الغرفة")}: ${rating.roomPreservation}/5`,
-  ].join(" · ");
+  const scores: Array<[string, number]> = [
+    [t("Cultural", "ثقافي"), rating.culturalAccuracy],
+    [t("Quality", "الجودة"), rating.imageQuality],
+    [t("Preservation", "الحفاظ"), rating.roomPreservation],
+  ];
+  const placement = rating.furniturePlacement
+    ? PLACEMENT_LABEL[rating.furniturePlacement]
+    : undefined;
 
   return (
     <span
-      title={detail}
-      aria-label={detail}
-      className={cn(
-        "flex items-center gap-1 rounded-full border border-[var(--dd-gold)]/50 px-2 py-0.5 text-xs text-[var(--dd-gold)]",
-        isArabic && "flex-row-reverse font-arabic",
-        className,
-      )}
+      className={cn("flex flex-wrap items-center gap-2", isArabic && "flex-row-reverse", className)}
     >
-      <Star className="h-3 w-3 fill-current" aria-hidden />
-      <span dir="ltr">{rating.overall.toFixed(1)}/5</span>
+      <span
+        className={cn(
+          "flex items-center gap-1 rounded-full border border-[var(--dd-gold)]/50 px-2 py-0.5 text-xs text-[var(--dd-gold)]",
+          isArabic && "flex-row-reverse font-arabic",
+        )}
+      >
+        <Star className="h-3 w-3 fill-current" aria-hidden />
+        <span dir="ltr">{rating.overall.toFixed(1)}/5</span>
+      </span>
+
+      {/* The three scores the form actually asked for. The average above is
+          derived from them, so showing both makes the derivation checkable. */}
+      {scores.map(([label, value]) => (
+        <span
+          key={label}
+          className={cn(
+            "flex items-center gap-1 text-xs text-[var(--dd-text-secondary)]",
+            isArabic && "flex-row-reverse font-arabic",
+          )}
+        >
+          {label}
+          <span className="font-mono text-[var(--dd-text-soft)]" dir="ltr">
+            {value}/5
+          </span>
+        </span>
+      ))}
+
+      {placement && (
+        <span
+          className={cn(
+            "rounded-full border border-[var(--dd-gold-dim)]/30 px-2 py-0.5 text-xs text-[var(--dd-text-secondary)]",
+            isArabic && "font-arabic",
+          )}
+        >
+          {isArabic ? placement.ar : placement.en}
+        </span>
+      )}
+
+      {rating.comment && (
+        <span
+          className={cn(
+            "w-full text-xs italic text-[var(--dd-text-soft)]",
+            isArabic ? "text-right font-arabic" : "text-left",
+          )}
+        >
+          “{rating.comment}”
+        </span>
+      )}
     </span>
   );
 }

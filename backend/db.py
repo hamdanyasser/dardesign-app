@@ -512,7 +512,16 @@ def list_history(user_id: int, limit: int = 100) -> list[dict]:
     rows = _query(
         # LEFT JOIN so an unrated design still comes back — the caller shows a
         # "not rated" state rather than dropping the row.
-        "SELECT h.*, f.CulturalAccuracy AS RatingCultural, f.ImageQuality AS RatingQuality, f.RoomPreservation AS RatingPreservation"
+        "SELECT h.*,"
+        " f.CulturalAccuracy AS RatingCultural,"
+        " f.ImageQuality AS RatingQuality,"
+        " f.RoomPreservation AS RatingPreservation,"
+        # The owner's own listing carries the whole record. The shared gallery
+        # selects the three scores alone, which is what keeps a written comment
+        # out of it — an omission in the SQL, not a filter in the UI.
+        " f.FurniturePlacement AS RatingPlacement,"
+        " f.Comment AS RatingComment,"
+        " f.UpdatedAt AS RatingUpdatedAt"
         " FROM history h LEFT JOIN feedback f ON f.HistoryId = h.Id"
         " WHERE h.UserId = ? ORDER BY h.CreatedAt DESC LIMIT ?",
         (user_id, limit),
@@ -600,12 +609,21 @@ def _rating_from_row(r: sqlite3.Row) -> dict | None:
     cultural = int(r["RatingCultural"])
     quality = int(r["RatingQuality"])
     preservation = int(r["RatingPreservation"])
-    return {
+    out = {
         "culturalAccuracy": cultural,
         "imageQuality": quality,
         "roomPreservation": preservation,
         "overall": round((cultural + quality + preservation) / 3, 2),
     }
+    # The rest of the record is selected only by the owner's own listing. The
+    # shared gallery joins the scores alone, so a written comment cannot reach
+    # it by accident: sharing a design shares the design, not the note its
+    # author wrote about their own room.
+    if "RatingPlacement" in keys:
+        out["furniturePlacement"] = r["RatingPlacement"]
+        out["comment"] = r["RatingComment"]
+        out["updatedAt"] = r["RatingUpdatedAt"]
+    return out
 
 
 def _history_row(r: sqlite3.Row) -> dict:
