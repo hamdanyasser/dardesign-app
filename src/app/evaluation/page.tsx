@@ -508,54 +508,12 @@ export default function EvaluationPage() {
               </div>
             </Panel>
 
-            {/* ---------- automatic metrics (only when computed) ---------- */}
-            <Panel
-              isArabic={isArabic}
-              title={t("Automatic metrics", "المقاييس الآلية")}
-              note={t(
-                "SSIM / LPIPS / CLIP from eval/run_metrics.py — computed offline against the generated corpus, not by this page.",
-                "مقاييس SSIM / LPIPS / CLIP من eval/run_metrics.py — تُحسب خارج التطبيق.",
-              )}
-            >
-              {report.automatic.available ? (
-                <div className="space-y-5">
-                  {report.automatic.metrics.map((m) => (
-                    <MetricComparison
-                      key={m}
-                      isArabic={isArabic}
-                      noDataLabel={noData}
-                      title={m.toUpperCase()}
-                      cultures={report.automatic.byCulture.map((r) => r.culture)}
-                      // SSIM/LPIPS/CLIP are all 0-1 scales, unlike the 1-5 ratings.
-                      max={1}
-                      values={Object.fromEntries(
-                        report.automatic.byCulture.map((r) => [
-                          r.culture,
-                          (r[m] as number | null) ?? null,
-                        ]),
-                      )}
-                    />
-                  ))}
-                  <p className={cn("text-xs text-cream-muted", isArabic && "font-arabic")}>
-                    {t(
-                      `${report.automatic.images ?? 0} images measured`,
-                      `${report.automatic.images ?? 0} صورة تم قياسها`,
-                    )}
-                  </p>
-                </div>
-              ) : (
-                <div className="rounded-lg border border-gold/20 bg-[var(--dd-surface-strong)] px-3 py-3">
-                  <p className={cn("text-sm text-cream-soft", isArabic && "font-arabic")}>
-                    {isArabic ? report.automatic.reason_ar : report.automatic.reason_en}
-                  </p>
-                  {report.automatic.hint && (
-                    <p className="mt-1 font-mono text-xs text-cream-muted" dir="ltr">
-                      {report.automatic.hint}
-                    </p>
-                  )}
-                </div>
-              )}
-            </Panel>
+            {/* The offline-corpus panel used to sit here. Removed because every
+                saved design is now measured for SSIM, LPIPS and CLIP live, and
+                a permanently empty "not computed yet" box reads as unfinished.
+                The backend still serves `automatic` from eval/results.csv, so
+                putting the panel back is a paste job if the corpus is ever run
+                for the LoRA-vs-baseline comparison. */}
 
             {/* ---------- 4. recent feedback ---------- */}
             <Panel
