@@ -41,7 +41,16 @@ import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import Cookie, FastAPI, Form, HTTPException, Request, Response, UploadFile
+from fastapi import (
+    BackgroundTasks,
+    Cookie,
+    FastAPI,
+    Form,
+    HTTPException,
+    Request,
+    Response,
+    UploadFile,
+)
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -113,7 +122,7 @@ from .guardrails import (
     validate_upload as guard_validate_upload,
 )
 from .jobs import JobStatus, jobs
-from .quality import ssim_paths
+from .quality import clip_cultures, lpips_paths, metrics_available, ssim_paths
 from .projection import (
     project_top_down,
     seg_bounding_boxes,
@@ -874,6 +883,10 @@ class SaveHistoryRequest(BaseModel):
     duration: float | None = None
     # Structure preservation for this design (0..1), from the /redesign response.
     ssim: float | None = None
+    # True when colour control or furniture placement changed the render before
+    # saving. Still a real design; just no longer the pipeline's own output, so
+    # it is left out of the evaluation metrics.
+    edited: bool = False
 
 
 def _current_user(session: str | None):
@@ -981,12 +994,59 @@ async def auth_me(session: str | None = Cookie(default=None, alias=SESSION_COOKI
     return JSONResponse(db.public_user(user) if user is not None else None)
 
 
+def _evaluate_saved_design(entry_id: int, old_url: str, new_url: str) -> None:
+    """Measure LPIPS and CLIP for one saved design, in the background.
+
+    Runs after the response so saving stays instant: the two models take a few
+    seconds on CPU, and the first call also downloads their weights. Every
+    failure is swallowed — the value stays null and the backfill script can pick
+    it up later, which is strictly better than a save that fails because a metric
+    could not be computed.
+
+    SSIM is not recomputed here: it is measured at generation time against the
+    render before any edit, which is the more faithful number.
+    """
+    if not metrics_available():
+        logger.info(
+            "[eval] lpips/open_clip not installed — design %s left unmeasured; "
+            "run scripts/backfill_evaluation.py after installing them", entry_id,
+        )
+        return
+    try:
+        row = db.get_history_entry(entry_id)
+        if row is None:      # deleted between saving and measuring
+            return
+        original, generated = str(ROOT / old_url), str(ROOT / new_url)
+
+        scores = clip_cultures(generated)
+        predicted = scores[1] if scores else None
+        # The CLIP score is similarity to *this design's own* culture prompt —
+        # "does it look Lebanese?" — not to whichever culture scored highest.
+        culture = row["Culture"]
+        clip_score = scores[0].get(culture) if (scores and culture) else None
+
+        db.set_history_evaluation(
+            entry_id,
+            lpips=lpips_paths(original, generated),
+            clip_score=clip_score,
+            predicted_culture=predicted,
+        )
+        logger.info("[eval] design %s measured (predicted=%s)", entry_id, predicted)
+    except Exception:  # noqa: BLE001
+        logger.exception("[eval] measuring design %s failed", entry_id)
+
+
 @app.post("/api/history")
 async def history_save(
     req: SaveHistoryRequest,
+    background: BackgroundTasks,
     session: str | None = Cookie(default=None, alias=SESSION_COOKIE),
 ) -> JSONResponse:
-    """Save the current design. Nothing is stored until this is called."""
+    """Save the current design. Nothing is stored until this is called.
+
+    An unedited design is queued for evaluation on the way out, so every saved
+    generation joins the metrics without a separate corpus or any copying.
+    """
     user = _require_user(session)
     old_url = _save_data_url(req.oldImage, "old")
     new_url = _save_data_url(req.newImage, "new")
@@ -1004,8 +1064,12 @@ async def history_save(
     ssim = max(0.0, min(float(req.ssim), 1.0)) if req.ssim is not None else None
     entry_id = db.add_history(
         user["Id"], old_url, new_url, culture=culture, intensity=intensity,
-        duration=duration, ssim=ssim,
+        duration=duration, ssim=ssim, is_edited=bool(req.edited),
     )
+    # Only the pipeline's own output is evaluated: a recoloured or furnished
+    # render would score the edit, not the generation.
+    if not req.edited:
+        background.add_task(_evaluate_saved_design, entry_id, old_url, new_url)
     log_event("history_save", user_id=user["Id"], entry_id=entry_id, culture=culture, ok=True)
     return JSONResponse({
         "id": entry_id,
@@ -1016,6 +1080,7 @@ async def history_save(
         "intensity": intensity,
         "duration": duration,
         "ssim": ssim,
+        "isEdited": bool(req.edited),
     })
 
 
@@ -1268,6 +1333,9 @@ async def admin_evaluation(
         # three cultures, so a culture filter would change a number it has no
         # bearing on.
         "generation": eval_generation_report(since, until),
+        # Intended culture vs CLIP's prediction, read live from history so a
+        # deleted design disappears from it immediately.
+        "confusion": db.culture_confusion(since, until),
         "automatic": eval_automatic_metrics(),
     })
 

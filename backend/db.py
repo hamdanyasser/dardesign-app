@@ -63,6 +63,17 @@ CREATE TABLE IF NOT EXISTS history (
     -- Structure preservation vs the input room, 0..1 (backend/quality.py).
     -- Same measure as the offline evaluation suite, so the two are comparable.
     Ssim         REAL,
+    -- Perceptual distance to the input, lower = closer. Null until measured:
+    -- LPIPS needs model weights that may not be installed.
+    Lpips        REAL,
+    -- CLIP similarity to this culture's prompt, and CLIP's own 3-way guess at
+    -- the culture. Culture vs PredictedCulture is the confusion matrix.
+    ClipScore    REAL,
+    PredictedCulture TEXT,
+    -- 1 when colour control or furniture placement changed the render before it
+    -- was saved. Such a design is a real design, but it is no longer the
+    -- pipeline's own output, so it is excluded from the evaluation metrics.
+    IsEdited     INTEGER NOT NULL DEFAULT 0,
     CreatedAt    REAL    NOT NULL,
     FOREIGN KEY (UserId) REFERENCES users(Id) ON DELETE CASCADE
 );
@@ -178,6 +189,10 @@ def _migrate(conn: sqlite3.Connection) -> None:
         ("Intensity", "ALTER TABLE history ADD COLUMN Intensity REAL"),
         ("Duration", "ALTER TABLE history ADD COLUMN Duration REAL"),
         ("Ssim", "ALTER TABLE history ADD COLUMN Ssim REAL"),
+        ("Lpips", "ALTER TABLE history ADD COLUMN Lpips REAL"),
+        ("ClipScore", "ALTER TABLE history ADD COLUMN ClipScore REAL"),
+        ("PredictedCulture", "ALTER TABLE history ADD COLUMN PredictedCulture TEXT"),
+        ("IsEdited", "ALTER TABLE history ADD COLUMN IsEdited INTEGER NOT NULL DEFAULT 0"),
     ):
         if column not in existing:
             conn.execute(ddl)
@@ -266,15 +281,17 @@ def add_history(
     intensity: float | None = None,
     duration: float | None = None,
     ssim: float | None = None,
+    is_edited: bool = False,
 ) -> int:
     """Save one design. `culture`/`intensity` describe how it was generated and
     become the trusted source for anything that rates this image later.
     `duration` is the generation time in seconds, measured by the renderer."""
     return _write(
         "INSERT INTO history (UserId, OldImageUrl, NewImageUrl, IsSuggested, Culture,"
-        " Intensity, Duration, Ssim, CreatedAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        " Intensity, Duration, Ssim, IsEdited, CreatedAt)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (user_id, old_url, new_url, 1 if is_suggested else 0, culture, intensity,
-         duration, ssim, time.time()),
+         duration, ssim, 1 if is_edited else 0, time.time()),
     )
 
 
@@ -290,7 +307,9 @@ def history_generation_stats(since: float | None = None, until: float | None = N
     row = _query(
         "SELECT COUNT(*) AS rooms, SUM(Duration) AS totalSeconds,"
         " COUNT(Duration) AS timed, MIN(Duration) AS minSeconds, MAX(Duration) AS maxSeconds,"
-        " AVG(Ssim) AS avgSsim, COUNT(Ssim) AS measured"
+        " AVG(Ssim) AS avgSsim, COUNT(Ssim) AS measured,"
+        " AVG(Lpips) AS avgLpips, COUNT(Lpips) AS lpipsMeasured,"
+        " AVG(ClipScore) AS avgClip, COUNT(ClipScore) AS clipMeasured"
         f" FROM history{where}",
         args,
     )[0]
@@ -312,6 +331,87 @@ def history_generation_stats(since: float | None = None, until: float | None = N
         # Structure preservation over the designs that carry a measurement.
         "averageSsim": round(float(row["avgSsim"]), 3) if row["avgSsim"] is not None else None,
         "ssimSampleSize": int(row["measured"] or 0),
+        "averageLpips": round(float(row["avgLpips"]), 3) if row["avgLpips"] is not None else None,
+        "lpipsSampleSize": int(row["lpipsMeasured"] or 0),
+        "averageClipScore": round(float(row["avgClip"]), 3) if row["avgClip"] is not None else None,
+        "clipSampleSize": int(row["clipMeasured"] or 0),
+    }
+
+
+def set_history_evaluation(
+    entry_id: int,
+    *,
+    lpips: float | None,
+    clip_score: float | None,
+    predicted_culture: str | None,
+    ssim: float | None = None,
+) -> None:
+    """Attach measured metrics to a saved design.
+
+    Stored on the row itself rather than in a side table, which is what makes
+    deletion automatic: remove the design and every metric, and its contribution
+    to the confusion matrix, goes with it. `ssim` is only written when supplied,
+    so a backfill cannot erase a value recorded at generation time.
+    """
+    sets = ["Lpips = ?", "ClipScore = ?", "PredictedCulture = ?"]
+    args: list[Any] = [lpips, clip_score, predicted_culture]
+    if ssim is not None:
+        sets.append("Ssim = ?")
+        args.append(ssim)
+    args.append(entry_id)
+    _write(f"UPDATE history SET {', '.join(sets)} WHERE Id = ?", args)
+
+
+def history_needing_evaluation(limit: int = 500) -> list[dict]:
+    """Saved designs with no perceptual metrics yet.
+
+    Edited designs are skipped: colour control and furniture placement change
+    the image after generation, so measuring one would score the edit rather
+    than the pipeline.
+    """
+    rows = _query(
+        "SELECT Id, OldImageUrl, NewImageUrl, Culture, Ssim FROM history"
+        " WHERE IsEdited = 0 AND (Lpips IS NULL OR ClipScore IS NULL)"
+        " ORDER BY Id DESC LIMIT ?",
+        (limit,),
+    )
+    return [
+        {"id": r["Id"], "oldImageUrl": r["OldImageUrl"],
+         "newImageUrl": r["NewImageUrl"], "culture": r["Culture"], "ssim": r["Ssim"]}
+        for r in rows
+    ]
+
+
+def culture_confusion(since: float | None = None, until: float | None = None) -> dict:
+    """Intended culture vs CLIP's prediction, over saved designs.
+
+    Reads live from `history`, so a deleted design leaves the matrix in the same
+    instant it leaves the gallery — there is no second copy to keep in step.
+    """
+    where, args = _generation_filters(since, until)
+    clause = " AND " if where else " WHERE "
+    rows = _query(
+        "SELECT Culture AS intended, PredictedCulture AS predicted, COUNT(*) AS n"
+        f" FROM history{where}{clause}"
+        " Culture IS NOT NULL AND PredictedCulture IS NOT NULL"
+        " GROUP BY Culture, PredictedCulture",
+        args,
+    )
+    matrix: dict[str, dict[str, int]] = {}
+    total = correct = 0
+    for r in rows:
+        n = int(r["n"])
+        matrix.setdefault(r["intended"], {})[r["predicted"]] = n
+        total += n
+        if r["intended"] == r["predicted"]:
+            correct += n
+    return {
+        "matrix": matrix,
+        "total": total,
+        "correct": correct,
+        # None rather than 0 when nothing is classified: an accuracy of zero is a
+        # result, and "not measured" is not.
+        "accuracy": round(correct / total, 3) if total else None,
     }
 
 
@@ -495,6 +595,10 @@ def _history_row(r: sqlite3.Row) -> dict:
         "intensity": r["Intensity"] if "Intensity" in keys else None,
         "duration": r["Duration"] if "Duration" in keys else None,
         "ssim": r["Ssim"] if "Ssim" in keys else None,
+        "lpips": r["Lpips"] if "Lpips" in keys else None,
+        "clipScore": r["ClipScore"] if "ClipScore" in keys else None,
+        "predictedCulture": r["PredictedCulture"] if "PredictedCulture" in keys else None,
+        "isEdited": bool(r["IsEdited"]) if "IsEdited" in keys else False,
         "createdAt": r["CreatedAt"],
     }
 

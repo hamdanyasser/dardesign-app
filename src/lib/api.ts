@@ -974,6 +974,9 @@ export async function saveToHistory(
     duration?: number | null;
     /** Structure preservation for this design, 0..1. */
     ssim?: number | null;
+    /** True when colour control or furniture placement changed the render.
+     *  Such a design is still saved, but left out of the evaluation metrics. */
+    edited?: boolean;
   } = {},
 ): Promise<HistoryEntry> {
   const res = await safeFetch(`${DATA_API_URL}/api/history`, {
@@ -986,6 +989,7 @@ export async function saveToHistory(
       intensity: meta.intensity ?? null,
       duration: meta.duration ?? null,
       ssim: meta.ssim ?? null,
+      edited: !!meta.edited,
     }),
     ...WITH_CREDENTIALS,
   });
@@ -1072,6 +1076,22 @@ export interface GenerationStats {
   /** Mean structure preservation (SSIM) over the designs that carry one. */
   averageSsim: number | null;
   ssimSampleSize: number;
+  /** Perceptual distance to the input — lower is closer. */
+  averageLpips: number | null;
+  lpipsSampleSize: number;
+  /** CLIP similarity to the design's own culture prompt. */
+  averageClipScore: number | null;
+  clipSampleSize: number;
+}
+
+/** Intended culture vs CLIP's prediction, over saved designs. */
+export interface CultureConfusion {
+  /** matrix[intended][predicted] = count */
+  matrix: Record<string, Record<string, number>>;
+  total: number;
+  correct: number;
+  /** Null when nothing has been classified — never 0, which is a real result. */
+  accuracy: number | null;
 }
 
 /** SSIM / LPIPS / CLIP from eval/run_metrics.py, when it has been run. */
@@ -1095,6 +1115,7 @@ export interface EvaluationReport {
   byCulture: EvaluationCultureRow[];
   recent: Feedback[];
   generation: GenerationStats;
+  confusion: CultureConfusion;
   automatic: AutomaticMetrics;
 }
 

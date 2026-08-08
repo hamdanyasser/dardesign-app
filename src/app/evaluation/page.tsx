@@ -133,6 +133,7 @@ export default function EvaluationPage() {
 
   const stats = report?.stats;
   const gen = report?.generation;
+  const confusion = report?.confusion;
   const noData = t("Not measured yet", "لم يُقَس بعد");
 
   return (
@@ -141,8 +142,8 @@ export default function EvaluationPage() {
     <GalleryShell
       title={t("Evaluation dashboard", "لوحة التقييم")}
       subtitle={t(
-        "System performance from stored data only — user ratings from the database, generation statistics from the render audit log. Nothing on this page is sampled or estimated.",
-        "أداء النظام من البيانات المخزَّنة فقط — تقييمات المستخدمين من قاعدة البيانات، وإحصاءات التوليد من سجل التدقيق. لا شيء هنا مُقدَّر أو تجريبي.",
+        "System performance from stored data only — every saved design across all users, with its ratings and its measured metrics. Nothing on this page is sampled or estimated.",
+        "أداء النظام من البيانات المخزَّنة فقط — كل تصميم محفوظ لكل المستخدمين، مع تقييماته ومقاييسه المحسوبة. لا شيء هنا مُقدَّر أو تجريبي.",
       )}
     >
       <div>
@@ -406,17 +407,104 @@ export default function EvaluationPage() {
                       key: "ssim",
                       label: t("Structure (SSIM)", "الحفاظ على البنية"),
                       value: gen?.averageSsim ?? null,
+                      note: t(`↑ n=${gen?.ssimSampleSize ?? 0}`, `↑ ن=${gen?.ssimSampleSize ?? 0}`),
+                    },
+                    {
+                      key: "lpips",
+                      label: t("Perceptual (LPIPS)", "المسافة الإدراكية"),
+                      value: gen?.averageLpips ?? null,
+                      note: t(`↓ n=${gen?.lpipsSampleSize ?? 0}`, `↓ ن=${gen?.lpipsSampleSize ?? 0}`),
+                    },
+                    {
+                      key: "clip",
+                      label: t("Style match (CLIP)", "مطابقة الطراز"),
+                      value: gen?.averageClipScore ?? null,
+                      note: t(`↑ n=${gen?.clipSampleSize ?? 0}`, `↑ ن=${gen?.clipSampleSize ?? 0}`),
                     },
                   ]}
                 />
                 <p className={cn("mt-2 text-xs text-cream-muted", isArabic && "font-arabic")}>
                   {t(
-                    `Higher = the room's layout survived the restyle. Over ${gen?.ssimSampleSize ?? 0} measured design${
-                      gen?.ssimSampleSize === 1 ? "" : "s"
-                    }. LPIPS, CLIP and the confusion matrix need the offline corpus.`,
-                    `الأعلى = بقي مخطط الغرفة بعد إعادة التصميم. على ${gen?.ssimSampleSize ?? 0} تصميم مقاس. أما LPIPS وCLIP ومصفوفة الالتباس فتحتاج مجموعة التقييم المنفصلة.`,
+                    "SSIM ↑ the room's layout survived · LPIPS ↓ perceptually close to the input · CLIP ↑ looks like the culture it was asked for. Measured once per saved design; edited designs (colour or furniture) are excluded.",
+                    "SSIM ↑ بقي مخطط الغرفة · LPIPS ↓ قريب إدراكياً من الأصل · CLIP ↑ يشبه الثقافة المطلوبة. تُقاس مرة واحدة لكل تصميم محفوظ، وتُستثنى التصاميم المعدّلة.",
                   )}
                 </p>
+              </div>
+
+              {/* ---------- cultural confusion matrix ---------- */}
+              <div className="mt-5 border-t border-gold/15 pt-4">
+                <h4
+                  className={cn(
+                    "mb-1 text-xs font-medium uppercase tracking-wide text-cream-muted",
+                    isArabic && "font-arabic",
+                  )}
+                >
+                  {t("Cultural confusion matrix", "مصفوفة الالتباس الثقافي")}
+                </h4>
+                <p className={cn("mb-3 text-xs text-cream-muted", isArabic && "font-arabic")}>
+                  {t(
+                    "Rows: the culture the design was generated as. Columns: the culture CLIP recognises it as. A strong diagonal means the three read as distinct.",
+                    "الصفوف: الثقافة المطلوبة. الأعمدة: ما تعرّف عليه CLIP. القطر القوي يعني أن الثقافات الثلاث مميّزة.",
+                  )}
+                </p>
+                {confusion && confusion.total > 0 ? (
+                  <>
+                    <div className="overflow-x-auto rounded-xl border border-gold/20">
+                      <table className="w-full border-collapse text-sm">
+                        <thead>
+                          <tr className="bg-[var(--dd-surface-strong)] text-xs uppercase tracking-wide text-cream-muted">
+                            <th className="px-3 py-2 text-start">
+                              {t("Intended ↓ / CLIP →", "المطلوب ↓ / CLIP ←")}
+                            </th>
+                            {cultures.map((c) => (
+                              <th key={c} className="px-3 py-2 text-center">
+                                {isArabic ? CULTURE_LABEL[c]?.ar ?? c : CULTURE_LABEL[c]?.en ?? c}
+                              </th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {cultures.map((row) => (
+                            <tr key={row} className="border-t border-gold/10 text-cream-soft">
+                              <td className={cn("px-3 py-2", isArabic && "font-arabic")}>
+                                {isArabic ? CULTURE_LABEL[row]?.ar ?? row : CULTURE_LABEL[row]?.en ?? row}
+                              </td>
+                              {cultures.map((col) => {
+                                const n = confusion.matrix?.[row]?.[col] ?? 0;
+                                return (
+                                  <td
+                                    key={col}
+                                    className={cn(
+                                      "px-3 py-2 text-center font-mono text-xs",
+                                      // The diagonal is the answer; make it readable at a glance.
+                                      row === col && n > 0 && "bg-gold/15 font-bold text-gold",
+                                      n === 0 && "text-cream-muted",
+                                    )}
+                                  >
+                                    {n}
+                                  </td>
+                                );
+                              })}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                    <p className={cn("mt-2 text-xs text-cream-muted", isArabic && "font-arabic")}>
+                      {t(
+                        `3-way accuracy: ${((confusion.accuracy ?? 0) * 100).toFixed(0)}% — CLIP identified the intended culture in ${confusion.correct} of ${confusion.total} saved designs.`,
+                        `دقة التصنيف الثلاثي: ${((confusion.accuracy ?? 0) * 100).toFixed(0)}% — تعرّف CLIP على الثقافة المطلوبة في ${confusion.correct} من ${confusion.total} تصميم.`,
+                      )}
+                    </p>
+                  </>
+                ) : (
+                  <p className={cn("text-xs text-cream-muted", isArabic && "font-arabic")}>
+                    {t(
+                      "No design has been classified yet. Save a generation — or run scripts/backfill_evaluation.py for existing ones.",
+                      "لم يُصنَّف أي تصميم بعد. احفظ تصميماً جديداً أو شغّل scripts/backfill_evaluation.py للتصاميم السابقة.",
+                    )}
+                  </p>
+                )}
               </div>
             </Panel>
 
