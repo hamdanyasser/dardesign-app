@@ -11,6 +11,7 @@
    styling is untouched).
    ============================================================ */
 
+import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Download, RotateCcw } from "lucide-react";
 import CinemaChrome from "@/components/cinema/CinemaChrome";
@@ -28,10 +29,18 @@ import FurniturePlacement from "@/components/FurniturePlacement";
 import RoomReport from "@/components/RoomReport";
 import SaveDesignButton from "@/components/SaveDesignButton";
 import StyleIntensitySlider from "@/components/StyleIntensitySlider";
+import { useAuth } from "@/context/AuthContext";
 import { useImage, type StyleId } from "@/context/ImageContext";
 import { useThemeLanguage } from "@/context/ThemeLanguageContext";
 import { DarAudio } from "@/lib/audio";
-import { ApiError, redesignRoom, type RedesignResult } from "@/lib/api";
+import {
+  ApiError,
+  consumeGeneration,
+  fetchSubscription,
+  redesignRoom,
+  type RedesignResult,
+  type SubscriptionState,
+} from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 type Phase = "idle" | "loading" | "done" | "error";
@@ -92,6 +101,7 @@ export default function StudioPage() {
   const { isArabic } = useThemeLanguage();
   const copy = useCinemaCopy();
   const { imageFile, imagePreviewUrl, setImage, clearImage } = useImage();
+  const { user, loading: authLoading } = useAuth();
 
   const [phase, setPhase] = useState<Phase>("idle");
   const [result, setResult] = useState<RedesignResult | null>(null);
@@ -113,6 +123,13 @@ export default function StudioPage() {
   // so Save can say whether what it is storing is still the pipeline's own
   // output — an edited image is a fine design but a misleading measurement.
   const [pristine, setPristine] = useState<Record<string, string>>({});
+  // The account's plan and what is left of the weekly allowance. Displayed here
+  // and enforced by the backend — this copy is only ever what the server last
+  // said, never the thing that decides.
+  const [plan, setPlan] = useState<SubscriptionState | null>(null);
+  // True when the last attempt was refused for having no designs left, which
+  // turns the error scene into an upgrade prompt rather than a "try again".
+  const [quotaBlocked, setQuotaBlocked] = useState(false);
 
   // Defense Mode: read ?demo=1 via window.location (client-only page; avoids
   // the useSearchParams Suspense requirement) and load the static manifest.
@@ -183,6 +200,46 @@ export default function StudioPage() {
     [isArabic, setImage]
   );
 
+  // What the account may still do. Refreshed after every generation, because the
+  // count it shows has just changed.
+  const loadPlan = useCallback(() => {
+    if (!user) {
+      setPlan(null);
+      return;
+    }
+    fetchSubscription()
+      .then(setPlan)
+      // A missing or unreachable accounts backend leaves the hint unrendered;
+      // it must not put an error in front of someone trying to design a room.
+      .catch(() => setPlan(null));
+  }, [user]);
+
+  useEffect(() => {
+    if (!authLoading) loadPlan();
+  }, [authLoading, loadPlan]);
+
+  /**
+   * Count this generation against the account before it starts.
+   *
+   * Returns the refusal to show, or null to go ahead. Only two answers stop a
+   * generation: "your free designs for this week are gone" and "nobody is
+   * signed in". Anything else — the accounts backend being a different host in
+   * a split deployment, or simply down — lets the design through: an
+   * infrastructure failure is not the user's overspend.
+   */
+  const spendGeneration = useCallback(async (): Promise<ApiError | null> => {
+    try {
+      const usage = await consumeGeneration();
+      setPlan((prev) => (prev ? { ...prev, ...usage } : prev));
+      return null;
+    } catch (e) {
+      if (e instanceof ApiError && (e.code === "quota_exceeded" || e.code === "not_authenticated")) {
+        return e;
+      }
+      return null;
+    }
+  }, []);
+
   const runRedesign = useCallback(async () => {
     if (!imageFile) return;
     abortRef.current?.abort();
@@ -190,10 +247,22 @@ export default function StudioPage() {
     abortRef.current = ctrl;
 
     setErr(null);
+    setQuotaBlocked(false);
     setResult(null);
     setShowElements(false);
     setComparePos(50);
     setProgress(0);
+
+    // Before the loading scene, so a refusal is immediate rather than a
+    // dissolve that turns out to have been for nothing.
+    const refused = await spendGeneration();
+    if (refused) {
+      setQuotaBlocked(refused.code === "quota_exceeded");
+      setErr({ en: refused.message_en, ar: refused.message_ar });
+      setPhase("error");
+      return;
+    }
+
     setPhase("loading");
 
     try {
@@ -231,7 +300,7 @@ export default function StudioPage() {
       }
       setPhase("error");
     }
-  }, [imageFile, generateScope, featured]);
+  }, [imageFile, generateScope, featured, spendGeneration]);
 
   // Defense Mode: hydrate `result` from the static pack — no network beyond
   // same-origin fetches, so the full reveal (grid, highlighter, map, orbit)
@@ -316,6 +385,31 @@ export default function StudioPage() {
   // "After" always shows right of the handle — .lbl.before/.lbl.after in
   // cinema.css are pinned left/right in both languages, so the images must match.
   const clipAfter = `inset(0 0 0 ${comparePos}%)`;
+
+  // The weekly allowance, as a line under the CTA. Only a plan the backend
+  // actually reported produces one; when the accounts backend is unreachable
+  // the hint is simply absent rather than guessed at.
+  const outOfDesigns = !!plan && !plan.isSubscribed && plan.remaining === 0;
+  const allowance: { text: string; link?: { href: string; label: string } } | null = authLoading
+    ? null
+    : !user
+      ? {
+          text: isArabic ? "سجّل الدخول لبدء التصميم." : "Sign in to start designing.",
+          link: { href: "/login", label: isArabic ? "تسجيل الدخول" : "Sign in" },
+        }
+      : !plan
+        ? null
+        : plan.isSubscribed
+          ? { text: isArabic ? "الخطة الاحترافية — تصاميم غير محدودة." : "Pro plan — unlimited designs." }
+          : {
+              text: isArabic
+                ? `تبقّى ${plan.remaining} من ${plan.limit} تصاميم مجانية هذا الأسبوع.`
+                : `${plan.remaining} of ${plan.limit} free designs left this week.`,
+              link: {
+                href: "/subscription",
+                label: isArabic ? "الترقية إلى الاحترافية" : "Upgrade to Pro",
+              },
+            };
 
   return (
     <main className="relative min-h-screen" style={{ background: "var(--ink)" }}>
@@ -531,12 +625,28 @@ export default function StudioPage() {
                     <button
                       className={"btn " + (imageFile ? "" : "ghost")}
                       onClick={runRedesign}
-                      disabled={!imageFile}
-                      style={!imageFile ? { opacity: 0.55, cursor: "not-allowed" } : {}}
+                      disabled={!imageFile || outOfDesigns}
+                      style={
+                        !imageFile || outOfDesigns
+                          ? { opacity: 0.55, cursor: "not-allowed" }
+                          : {}
+                      }
                     >
                       <span>{imageFile ? tc.ctaReady : tc.ctaWaitingImage}</span>
                       <span className="arrow">→</span>
                     </button>
+                    {/* What this account has left. Rendered from the plan the
+                        backend last reported, never computed here. */}
+                    {allowance && (
+                      <p style={{ marginTop: "var(--s-3)", fontSize: "0.8rem", opacity: 0.75 }}>
+                        {allowance.text}{" "}
+                        {allowance.link && (
+                          <Link href={allowance.link.href} style={{ color: "var(--dd-gold)" }}>
+                            {allowance.link.label}
+                          </Link>
+                        )}
+                      </p>
+                    )}
                   </div>
                 </div>
               </div>
@@ -599,10 +709,24 @@ export default function StudioPage() {
               </h1>
               <p>{isArabic ? err.ar : err.en}</p>
               <div style={{ display: "flex", gap: "var(--s-4)", justifyContent: "center", flexWrap: "wrap" }}>
-                <button className="btn" onClick={runRedesign}>
-                  <span>{copy.error.cta}</span>
-                  <span className="arrow">↻</span>
-                </button>
+                {/* Retrying cannot help when the weekly allowance is spent, so
+                    the limit offers the plan instead of the same refusal. */}
+                {quotaBlocked ? (
+                  <Link className="btn" href="/subscription">
+                    <span>{isArabic ? "عرض الخطط" : "See plans"}</span>
+                    <span className="arrow">→</span>
+                  </Link>
+                ) : !user ? (
+                  <Link className="btn" href="/login">
+                    <span>{isArabic ? "تسجيل الدخول" : "Sign in"}</span>
+                    <span className="arrow">→</span>
+                  </Link>
+                ) : (
+                  <button className="btn" onClick={runRedesign}>
+                    <span>{copy.error.cta}</span>
+                    <span className="arrow">↻</span>
+                  </button>
+                )}
                 <button className="btn ghost" onClick={startOver}>
                   <span>{copy.error.home}</span>
                 </button>

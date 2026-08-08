@@ -168,3 +168,32 @@ ERR_BAD_IMAGE_DATA = ApiError(
     "The image could not be read.",
     "تعذّرت قراءة الصورة.",
 )
+
+# --- plans and the weekly generation allowance ---
+# 429 rather than 403: the request is permitted, it is the rate that isn't, and
+# the allowance refills on its own.
+ERR_QUOTA_EXCEEDED = ApiError(
+    "quota_exceeded", 429,
+    "You have used all 3 free designs for this week. Upgrade to Pro for unlimited designs.",
+    "لقد استخدمت التصاميم الثلاثة المجانية لهذا الأسبوع. اشترك في الخطة الاحترافية للحصول على تصاميم غير محدودة.",
+)
+ERR_SUBSCRIPTION_PENDING = ApiError(
+    "subscription_pending", 409,
+    "Your request is already waiting for the admin's approval.",
+    "طلبك قيد المراجعة من قِبل المشرف.",
+)
+ERR_ALREADY_SUBSCRIBED = ApiError(
+    "already_subscribed", 409,
+    "You are already on the Pro plan.",
+    "أنت مشترك في الخطة الاحترافية بالفعل.",
+)
+ERR_NOT_SUBSCRIBED = ApiError(
+    "not_subscribed", 400,
+    "You are on the Basic plan, so there is nothing to cancel.",
+    "أنت على الخطة الأساسية، لا يوجد اشتراك لإلغائه.",
+)
+ERR_REQUEST_NOT_PENDING = ApiError(
+    "request_not_pending", 409,
+    "This request no longer exists or has already been decided.",
+    "هذا الطلب لم يعد موجوداً أو تمّت معالجته مسبقاً.",
+)

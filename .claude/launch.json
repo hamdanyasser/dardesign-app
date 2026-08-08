@@ -1,0 +1,21 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "dardesign-backend",
+      "runtimeExecutable": "powershell",
+      "runtimeArgs": [
+        "-NoProfile",
+        "-Command",
+        "$env:DARDESIGN_LIGHT='1'; $env:DARDESIGN_DB='C:/Users/UserPc/AppData/Local/Temp/claude/C--Users-UserPc-source-repos-dardesign-app/0b6e5b7a-204f-4a7d-bd01-f10900b66b9a/scratchpad/dardesign-test.db'; python -m uvicorn backend.main:app --port 8000"
+      ],
+      "port": 8000
+    },
+    {
+      "name": "dardesign-web",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev"],
+      "port": 3000
+    }
+  ]
+}

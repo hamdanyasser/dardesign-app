@@ -20,6 +20,15 @@ GET  /audit                         render audit trail (JSONL-backed; metadata
 GET  /api/admin/evaluation          evaluation dashboard: rating aggregates +
                                     generation stats + automatic metrics
                                     (admin-only; see backend/evaluation.py)
+GET  /api/subscription              the caller's plan + weekly allowance
+POST /api/subscription/request      ask an admin for Pro (grants nothing itself)
+POST /api/subscription/cancel       back to Basic, immediately
+POST /api/usage/consume             spend one generation, or 429 when the free
+                                    weekly allowance is gone
+GET  /api/admin/subscriptions       the upgrade queue (admin-only)
+POST /api/admin/subscriptions/{id}/decision
+                                    approve (30 days of Pro) or decline
+GET  /api/admin/users               every account and its plan (admin-only)
 POST /api/color/{preview,apply,undo,reset}
                                     Colour Control — recolour the wall or floor
                                     of a finished render inside its segmentation
@@ -69,6 +78,7 @@ from .auth import (
 )
 from .compositing import CompositingError, composite_item
 from .errors import (
+    ERR_ALREADY_SUBSCRIBED,
     ERR_BAD_CREDENTIALS,
     ERR_BAD_FURNITURE_ID,
     ERR_BAD_IMAGE_DATA,
@@ -84,6 +94,10 @@ from .errors import (
     ERR_INVALID_PLACEMENT,
     ERR_MISSING_NAME,
     ERR_NOT_AUTHENTICATED,
+    ERR_NOT_SUBSCRIBED,
+    ERR_QUOTA_EXCEEDED,
+    ERR_REQUEST_NOT_PENDING,
+    ERR_SUBSCRIPTION_PENDING,
     ERR_WEAK_PASSWORD,
     ERR_FILE_TOO_LARGE,
     ERR_JOB_BAD_STATE,
@@ -135,6 +149,7 @@ from .evaluation import (
     generation_report as eval_generation_report,
     overall_rating as eval_overall_rating,
 )
+from . import subscriptions
 from .share import decode as share_decode, encode as share_encode
 from .transform import (
     CONFIG,
@@ -174,10 +189,14 @@ async def lifespan(_: FastAPI):
     db.connect()
     stop_sweeper = start_background_sweeper([UPLOAD_DIR], ttl_hours=24, interval_min=60)
     logger.info("24h TTL sweeper running on %s — %s", UPLOAD_DIR, PRIVACY_NOTICE)
+    # Daily: any Pro plan past its 30 days goes back to Basic. Sweeps once now,
+    # so a backend that was down over an expiry date catches up on boot.
+    stop_expiry = subscriptions.start_expiry_service()
     try:
         yield
     finally:
         stop_sweeper()
+        stop_expiry()
 
 
 app = FastAPI(title="DarDesign API", version="0.3.0", lifespan=lifespan)
@@ -1261,11 +1280,158 @@ async def feedback_get(
     return JSONResponse(db.public_feedback(row) if row is not None else None)
 
 
+# ---------- plans, the weekly allowance, and upgrade requests ----------
+#
+# Policy (price, 30 days, 3 free designs a week) lives in backend/subscriptions.py.
+# Note what no endpoint below does: set IsSubscribed on behalf of the person
+# asking. Subscribing goes through an admin; only cancelling is the user's own.
+
+
+@app.get("/api/subscription")
+async def subscription_state(
+    session: str | None = Cookie(default=None, alias=SESSION_COOKIE),
+) -> JSONResponse:
+    """The signed-in user's plan, remaining allowance, and pending request."""
+    user = _require_user(session)
+    return JSONResponse(subscriptions.state(user["Id"]))
+
+
+@app.post("/api/subscription/request")
+async def subscription_request(
+    session: str | None = Cookie(default=None, alias=SESSION_COOKIE),
+) -> JSONResponse:
+    """Ask an admin to put this account on Pro.
+
+    Deliberately does not grant anything: it queues a request, and the plan only
+    changes when an admin approves it on /admin/subscriptions.
+    """
+    user = _require_user(session)
+    if user["IsSubscribed"]:
+        _raise(ERR_ALREADY_SUBSCRIBED)
+    try:
+        request_id = db.create_subscription_request(user["Id"])
+    except db.PendingRequestExists:
+        # Lost the race against the user's own second click. The outcome they
+        # wanted is already true, so this is a 409, not a failure to record.
+        _raise(ERR_SUBSCRIPTION_PENDING)
+    log_event("subscription_request", user_id=user["Id"], request_id=request_id, ok=True)
+    # The whole state back, not just an ok: the page needs the pending request it
+    # must now show, and one response beats a request followed by a refetch.
+    return JSONResponse(subscriptions.state(user["Id"]))
+
+
+@app.post("/api/subscription/cancel")
+async def subscription_cancel(
+    session: str | None = Cookie(default=None, alias=SESSION_COOKIE),
+) -> JSONResponse:
+    """Leave Pro and go back to Basic, immediately.
+
+    No approval needed — an admin gates who *gains* a paid plan, not who gives
+    one up. From here the weekly limit of 3 applies again on the next generation.
+    """
+    user = _require_user(session)
+    if not db.end_subscription(user["Id"]):
+        _raise(ERR_NOT_SUBSCRIBED)
+    log_event("subscription_cancel", user_id=user["Id"], ok=True)
+    return JSONResponse(subscriptions.state(user["Id"]))
+
+
+@app.post("/api/usage/consume")
+async def usage_consume(
+    session: str | None = Cookie(default=None, alias=SESSION_COOKIE),
+) -> JSONResponse:
+    """Count one generation against the account, or refuse it.
+
+    Called by the studio immediately before /redesign. It lives here rather than
+    inside /redesign because accounts and renders can be two different backends
+    (NEXT_PUBLIC_DATA_API_URL): the GPU host has no users table and is handed no
+    session cookie, so a check there would either be unenforceable or would lock
+    out every split deployment.
+
+    The counter is the server's: this endpoint decides, increments and answers in
+    one transaction, so the client can only ask, never assert.
+    """
+    user = _require_user(session)
+    result = subscriptions.consume(user["Id"])
+    if result is None:
+        _raise(ERR_NOT_AUTHENTICATED)
+    if not result["allowed"]:
+        _raise(ERR_QUOTA_EXCEEDED)
+    return JSONResponse(result)
+
+
 def _require_admin(session: str | None):
     user = _require_user(session)
     if user["Role"] != db.ROLE_ADMIN:
         _raise(ERR_FORBIDDEN)
     return user
+
+
+class SubscriptionDecisionRequest(BaseModel):
+    """The admin's verdict. Nothing else is taken from the body — the user and
+    the 30-day duration are read from the request row and from policy, so an
+    approval cannot be talked into a longer plan or a different account."""
+
+    approve: bool
+
+
+@app.get("/api/admin/subscriptions")
+async def admin_subscriptions(
+    status: str | None = None,
+    limit: int = 100,
+    session: str | None = Cookie(default=None, alias=SESSION_COOKIE),
+) -> JSONResponse:
+    """The upgrade queue — pending first, then whatever was already decided."""
+    _require_admin(session)
+    if status is not None and status not in db.REQUEST_STATUSES:
+        status = None
+    limit = max(1, min(200, limit))
+    requests = db.list_subscription_requests(status, limit)
+    return JSONResponse({
+        "requests": requests,
+        "pendingCount": sum(1 for r in requests if r["status"] == db.REQUEST_PENDING),
+        "terms": subscriptions.terms(),
+    })
+
+
+@app.post("/api/admin/subscriptions/{request_id}/decision")
+async def admin_subscription_decision(
+    request_id: int,
+    req: SubscriptionDecisionRequest,
+    session: str | None = Cookie(default=None, alias=SESSION_COOKIE),
+) -> JSONResponse:
+    """Approve or decline one pending request.
+
+    Approving starts Pro now and sets the expiry 30 days out. A request that was
+    already decided returns 409 rather than granting a second plan, so a
+    double-click cannot hand out 60 days.
+    """
+    admin = _require_admin(session)
+    decided = subscriptions.decide(request_id, admin["Id"], req.approve)
+    if decided is None:
+        _raise(ERR_REQUEST_NOT_PENDING)
+    log_event(
+        "subscription_decision", admin_id=admin["Id"], request_id=request_id,
+        approved=req.approve, ok=True,
+    )
+    return JSONResponse(decided)
+
+
+@app.get("/api/admin/users")
+async def admin_users(
+    limit: int = 500,
+    session: str | None = Cookie(default=None, alias=SESSION_COOKIE),
+) -> JSONResponse:
+    """Every account with its plan and when that plan starts and ends.
+
+    Admin-only, and never carries the password hash — db.list_users names its
+    columns rather than selecting *, so the hash cannot leak by accident.
+    """
+    _require_admin(session)
+    return JSONResponse({
+        "users": db.list_users(max(1, min(1000, limit))),
+        "terms": subscriptions.terms(),
+    })
 
 
 @app.get("/api/admin/feedback")

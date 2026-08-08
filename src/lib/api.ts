@@ -823,12 +823,21 @@ export async function restyleRoom(
 
 export type UserRole = "User" | "Admin";
 
+/** Basic is the free plan (3 designs a week); Pro is unlimited while it lasts. */
+export type PlanId = "basic" | "pro";
+
 export interface AuthUser {
   id: number;
   fullName: string;
   phoneNumber: string | null;
   email: string;
   role: UserRole;
+  /** Plan, so the chrome can reflect it without a second call. The allowance
+   *  itself always comes from fetchSubscription() — this is a label. */
+  plan: PlanId;
+  isSubscribed: boolean;
+  numberOfUses: number;
+  planExpiryDate: number | null;
 }
 
 /** The rating a design already has, from the existing feedback record.
@@ -1191,4 +1200,162 @@ export async function deleteHistoryEntry(id: number): Promise<void> {
 /** Saved images are served by the backend, not Next's /public. */
 export function storedImageUrl(path: string): string {
   return `${DATA_API_URL}/${path.replace(/^\/+/, "")}`;
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Plans, the weekly allowance, and upgrade requests                          */
+/* -------------------------------------------------------------------------- */
+
+/** Price, duration and free allowance — served by the backend rather than
+ *  written into the page, so what is displayed cannot drift from what is
+ *  enforced. See backend/subscriptions.py. */
+export interface PlanTerms {
+  priceUsd: number;
+  durationDays: number;
+  basicWeeklyLimit: number;
+}
+
+export type SubscriptionRequestStatus = "pending" | "approved" | "declined";
+
+export interface SubscriptionRequest {
+  id: number;
+  userId: number;
+  status: SubscriptionRequestStatus;
+  createdAt: number;
+  decidedAt: number | null;
+  /** Admin listing only — the account the request belongs to. */
+  fullName?: string;
+  email?: string;
+  phoneNumber?: string | null;
+  plan?: PlanId;
+  planExpiryDate?: number | null;
+}
+
+export interface SubscriptionState {
+  plan: PlanId;
+  isSubscribed: boolean;
+  planStartedAt: number | null;
+  planExpiryDate: number | null;
+  numberOfUses: number;
+  /** Null on Pro — unlimited. Render that as "unlimited", never as a number. */
+  limit: number | null;
+  remaining: number | null;
+  windowStart: number;
+  /** When the free weekly allowance refills. Null on Pro. */
+  windowEnds: number | null;
+  /** The request waiting for an admin, when there is one. */
+  pendingRequest: SubscriptionRequest | null;
+  terms: PlanTerms;
+}
+
+/** What /api/usage/consume answers with when the generation is allowed. */
+export interface UsageResult extends Omit<SubscriptionState, "pendingRequest" | "terms"> {
+  allowed: boolean;
+}
+
+export async function fetchSubscription(): Promise<SubscriptionState> {
+  const res = await safeFetch(`${DATA_API_URL}/api/subscription`, {
+    headers: COMMON_HEADERS,
+    ...WITH_CREDENTIALS,
+  });
+  return (await unwrap(res)) as SubscriptionState;
+}
+
+/** Ask an admin for Pro. Grants nothing on its own — the plan changes only when
+ *  the admin approves it on /admin/subscriptions. */
+export async function requestSubscription(): Promise<SubscriptionState> {
+  const res = await safeFetch(`${DATA_API_URL}/api/subscription/request`, {
+    method: "POST",
+    headers: COMMON_HEADERS,
+    ...WITH_CREDENTIALS,
+  });
+  return (await unwrap(res)) as SubscriptionState;
+}
+
+/** Leave Pro and go back to Basic, immediately. */
+export async function cancelSubscription(): Promise<SubscriptionState> {
+  const res = await safeFetch(`${DATA_API_URL}/api/subscription/cancel`, {
+    method: "POST",
+    headers: COMMON_HEADERS,
+    ...WITH_CREDENTIALS,
+  });
+  return (await unwrap(res)) as SubscriptionState;
+}
+
+/**
+ * Count one generation against the account before starting it.
+ *
+ * Throws ApiError `quota_exceeded` (429) when the free weekly allowance is
+ * gone, and `not_authenticated` (401) when nobody is signed in. The counter is
+ * the server's: this call is the only thing that moves it.
+ */
+export async function consumeGeneration(): Promise<UsageResult> {
+  const res = await safeFetch(`${DATA_API_URL}/api/usage/consume`, {
+    method: "POST",
+    headers: COMMON_HEADERS,
+    ...WITH_CREDENTIALS,
+  });
+  return (await unwrap(res)) as UsageResult;
+}
+
+export interface AdminSubscriptionQueue {
+  requests: SubscriptionRequest[];
+  pendingCount: number;
+  terms: PlanTerms;
+}
+
+/** The upgrade queue — pending first. Admin role required. */
+export async function fetchSubscriptionRequests(
+  status?: SubscriptionRequestStatus,
+): Promise<AdminSubscriptionQueue> {
+  const qs = status ? `?status=${status}` : "";
+  const res = await safeFetch(`${DATA_API_URL}/api/admin/subscriptions${qs}`, {
+    headers: COMMON_HEADERS,
+    ...WITH_CREDENTIALS,
+  });
+  return (await unwrap(res)) as AdminSubscriptionQueue;
+}
+
+/** Approve (starts 30 days of Pro) or decline one pending request. */
+export async function decideSubscriptionRequest(
+  requestId: number,
+  approve: boolean,
+): Promise<SubscriptionRequest> {
+  const res = await safeFetch(
+    `${DATA_API_URL}/api/admin/subscriptions/${requestId}/decision`,
+    {
+      method: "POST",
+      headers: { ...COMMON_HEADERS, "Content-Type": "application/json" },
+      body: JSON.stringify({ approve }),
+      ...WITH_CREDENTIALS,
+    },
+  );
+  return (await unwrap(res)) as SubscriptionRequest;
+}
+
+export interface AdminUserRow {
+  id: number;
+  fullName: string;
+  phoneNumber: string | null;
+  email: string;
+  role: UserRole;
+  plan: PlanId;
+  isSubscribed: boolean;
+  /** Null on Basic — there is no start or end date for a plan nobody bought. */
+  planStartedAt: number | null;
+  planExpiryDate: number | null;
+  numberOfUses: number;
+  /** When the current weekly window opened. Null before the first generation. */
+  usageWindowStart: number | null;
+  designsSaved: number;
+  createdAt: number;
+}
+
+/** Every account with its plan. Admin role required. */
+export async function fetchAdminUsers(): Promise<{ users: AdminUserRow[]; terms: PlanTerms }> {
+  const res = await safeFetch(`${DATA_API_URL}/api/admin/users`, {
+    headers: COMMON_HEADERS,
+    ...WITH_CREDENTIALS,
+  });
+  return (await unwrap(res)) as { users: AdminUserRow[]; terms: PlanTerms };
 }

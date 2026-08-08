@@ -36,6 +36,10 @@ interface AuthContextValue {
     password: string;
   }) => Promise<void>;
   signOut: () => Promise<void>;
+  /** Re-read the account from the backend. Used after something changes the
+   *  user server-side — a cancelled plan, an admin's approval — so the chrome
+   *  doesn't keep showing the plan the session started with. */
+  refresh: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -77,9 +81,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  const refresh = useCallback(async () => {
+    setUser(await fetchMe());
+  }, []);
+
   const value = useMemo(
-    () => ({ user, loading, signIn, signUp, signOut }),
-    [user, loading, signIn, signUp, signOut],
+    () => ({ user, loading, signIn, signUp, signOut, refresh }),
+    [user, loading, signIn, signUp, signOut, refresh],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

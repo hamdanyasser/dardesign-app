@@ -4,9 +4,12 @@ Deliberately small: one file, stdlib `sqlite3`, no ORM and no migration tool.
 The schema is two tables and the queries are a dozen lines each — an ORM would
 be more machinery than the problem needs.
 
-    users     Id, FullName, PhoneNumber, Email, Password, Role
+    users     Id, FullName, PhoneNumber, Email, Password, Role,
+              IsSubscribed, NumberOfUses, PlanStartedAt, PlanExpiryDate
     history   Id, UserId, OldImageUrl, NewImageUrl, IsSuggested, Culture,
               Intensity, Duration, Ssim
+    subscription_requests
+              Id, UserId, Status, CreatedAt, DecidedAt, DecidedBy
 
 `Password` stores a PBKDF2 hash, never the password itself — see auth.py.
 
@@ -39,6 +42,17 @@ ROLE_USER = "User"
 ROLE_ADMIN = "Admin"
 ROLES = (ROLE_USER, ROLE_ADMIN)
 
+# Plan vocabulary. Only the names live here — how much Pro costs, how long it
+# lasts and how many free generations Basic gets are policy, and belong to
+# backend/subscriptions.py, which passes them in.
+PLAN_BASIC = "basic"
+PLAN_PRO = "pro"
+
+REQUEST_PENDING = "pending"
+REQUEST_APPROVED = "approved"
+REQUEST_DECLINED = "declined"
+REQUEST_STATUSES = (REQUEST_PENDING, REQUEST_APPROVED, REQUEST_DECLINED)
+
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS users (
     Id           INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -48,6 +62,18 @@ CREATE TABLE IF NOT EXISTS users (
     Email        TEXT    NOT NULL UNIQUE COLLATE NOCASE,
     Password     TEXT    NOT NULL,
     Role         TEXT    NOT NULL DEFAULT 'User',
+    -- Plan. Basic is the default and is simply IsSubscribed = 0; Pro is 1 and
+    -- runs until PlanExpiryDate, after which the daily service in
+    -- backend/subscriptions.py puts the account back on Basic. Both dates are
+    -- unix seconds, like every other timestamp in this file.
+    IsSubscribed    INTEGER NOT NULL DEFAULT 0,
+    PlanStartedAt   REAL,
+    PlanExpiryDate  REAL,
+    -- Generations spent inside the current weekly window, and when that window
+    -- opened. The counter resets lazily on the first generation after the window
+    -- closes, so "3 per week" holds even if the daily service never runs.
+    NumberOfUses     INTEGER NOT NULL DEFAULT 0,
+    UsageWindowStart REAL,
     CreatedAt    REAL    NOT NULL
 );
 
@@ -79,6 +105,28 @@ CREATE TABLE IF NOT EXISTS history (
 );
 
 CREATE INDEX IF NOT EXISTS idx_history_user ON history(UserId, CreatedAt DESC);
+
+-- Upgrade requests awaiting an admin. Subscribing is never something the user
+-- does to themselves: clicking "Subscribe" writes a row here, and only an
+-- admin's approval touches users.IsSubscribed.
+CREATE TABLE IF NOT EXISTS subscription_requests (
+    Id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    UserId     INTEGER NOT NULL,
+    Status     TEXT    NOT NULL DEFAULT 'pending',
+    CreatedAt  REAL    NOT NULL,
+    DecidedAt  REAL,
+    DecidedBy  INTEGER,                -- the admin who approved or declined
+    FOREIGN KEY (UserId) REFERENCES users(Id) ON DELETE CASCADE,
+    CHECK (Status IN ('pending', 'approved', 'declined'))
+);
+
+-- One open request per user, enforced by the data rather than by whoever
+-- remembers to check first: two rapid clicks would otherwise queue the same
+-- person twice and the admin would decide the same request repeatedly.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_subreq_one_pending
+    ON subscription_requests(UserId) WHERE Status = 'pending';
+
+CREATE INDEX IF NOT EXISTS idx_subreq_status ON subscription_requests(Status, CreatedAt DESC);
 
 CREATE TABLE IF NOT EXISTS feedback (
     Id                 INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -198,6 +246,20 @@ def _migrate(conn: sqlite3.Connection) -> None:
             conn.execute(ddl)
             logger.info("migrated: history.%s added", column)
 
+    # Plan columns on accounts that predate subscriptions. The defaults put every
+    # existing user on Basic with a fresh allowance, which is what they had.
+    existing = {row["name"] for row in conn.execute("PRAGMA table_info(users)")}
+    for column, ddl in (
+        ("IsSubscribed", "ALTER TABLE users ADD COLUMN IsSubscribed INTEGER NOT NULL DEFAULT 0"),
+        ("PlanStartedAt", "ALTER TABLE users ADD COLUMN PlanStartedAt REAL"),
+        ("PlanExpiryDate", "ALTER TABLE users ADD COLUMN PlanExpiryDate REAL"),
+        ("NumberOfUses", "ALTER TABLE users ADD COLUMN NumberOfUses INTEGER NOT NULL DEFAULT 0"),
+        ("UsageWindowStart", "ALTER TABLE users ADD COLUMN UsageWindowStart REAL"),
+    ):
+        if column not in existing:
+            conn.execute(ddl)
+            logger.info("migrated: users.%s added", column)
+
 
 def close() -> None:
     global _conn
@@ -258,6 +320,11 @@ def user_count() -> int:
     return int(_query("SELECT COUNT(*) AS n FROM users")[0]["n"])
 
 
+def plan_name(row: sqlite3.Row) -> str:
+    """Which plan a user row is on. IsSubscribed is the whole distinction."""
+    return PLAN_PRO if row["IsSubscribed"] else PLAN_BASIC
+
+
 def public_user(row: sqlite3.Row) -> dict:
     """User fields safe to send to the client — never the password hash."""
     return {
@@ -266,7 +333,285 @@ def public_user(row: sqlite3.Row) -> dict:
         "phoneNumber": row["PhoneNumber"],
         "email": row["Email"],
         "role": row["Role"],
+        # Plan, so the navbar and the studio can reflect it without a second
+        # call. The authoritative allowance still comes from /api/subscription.
+        "plan": plan_name(row),
+        "isSubscribed": bool(row["IsSubscribed"]),
+        "numberOfUses": int(row["NumberOfUses"] or 0),
+        "planExpiryDate": row["PlanExpiryDate"],
     }
+
+
+# --------------------------------------------------------- plans and usage
+
+
+def _usage_window(row: sqlite3.Row, window_seconds: float, now: float) -> tuple[int, float]:
+    """The user's spent generations and window start, after any rollover.
+
+    Pure and lazy: a window older than `window_seconds` is simply replaced by a
+    new one starting now, with the counter back at zero. Doing it on read means
+    the weekly allowance is correct even on a backend that has been down for a
+    month, instead of depending on a scheduled job having fired.
+    """
+    start = row["UsageWindowStart"]
+    if start is None or now - float(start) >= window_seconds:
+        return 0, now
+    return int(row["NumberOfUses"] or 0), float(start)
+
+
+def _usage_payload(
+    row: sqlite3.Row, uses: int, window_start: float, *, limit: int, window_seconds: float
+) -> dict:
+    """The plan and allowance as the client sees it.
+
+    Pro reports `limit`/`remaining` as null rather than a large number: the plan
+    is unlimited, and a number would invite the UI to render a countdown for
+    something that never counts down.
+    """
+    subscribed = bool(row["IsSubscribed"])
+    return {
+        "plan": plan_name(row),
+        "isSubscribed": subscribed,
+        "planStartedAt": row["PlanStartedAt"],
+        "planExpiryDate": row["PlanExpiryDate"],
+        "numberOfUses": uses,
+        "limit": None if subscribed else limit,
+        "remaining": None if subscribed else max(0, limit - uses),
+        "windowStart": window_start,
+        # When the free allowance refills. Meaningless for Pro, hence null.
+        "windowEnds": None if subscribed else window_start + window_seconds,
+    }
+
+
+def usage_state(
+    user_id: int, *, limit: int, window_seconds: float, now: float | None = None
+) -> dict | None:
+    """Read-only view of a user's plan and remaining allowance.
+
+    Never writes, so merely looking at the subscription page cannot roll the
+    window forward — the reset is persisted by the next actual generation.
+    """
+    now = time.time() if now is None else now
+    row = get_user(user_id)
+    if row is None:
+        return None
+    uses, window_start = _usage_window(row, window_seconds, now)
+    return _usage_payload(row, uses, window_start, limit=limit, window_seconds=window_seconds)
+
+
+def consume_generation(
+    user_id: int, *, limit: int, window_seconds: float, now: float | None = None
+) -> dict | None:
+    """Spend one generation against the weekly allowance.
+
+    The returned payload carries `allowed`: False means the free allowance is
+    gone and nothing was counted. Read, decide and increment happen inside one
+    lock and one transaction, so two tabs cannot both spend the third use of the
+    week — the check and the write cannot be separated.
+
+    A use is spent when a generation *starts*, not when it succeeds. Refunding a
+    failed render would mean an endpoint that decrements the counter, and any
+    client could call it after every generation.
+    """
+    now = time.time() if now is None else now
+    conn = connect()
+    with _lock:
+        row = conn.execute("SELECT * FROM users WHERE Id = ?", (user_id,)).fetchone()
+        if row is None:
+            return None
+        uses, window_start = _usage_window(row, window_seconds, now)
+        allowed = bool(row["IsSubscribed"]) or uses < limit
+        if allowed:
+            uses += 1
+            conn.execute(
+                "UPDATE users SET NumberOfUses = ?, UsageWindowStart = ? WHERE Id = ?",
+                (uses, window_start, user_id),
+            )
+            conn.commit()
+        payload = _usage_payload(
+            row, uses, window_start, limit=limit, window_seconds=window_seconds
+        )
+    payload["allowed"] = allowed
+    return payload
+
+
+# Going back to Basic also clears the usage window. Generations made on Pro are
+# counted (NumberOfUses increments on every plan), so without this a user leaving
+# Pro would land on Basic with the week's three already spent by usage the limit
+# never applied to.
+_BACK_TO_BASIC = (
+    "UPDATE users SET IsSubscribed = 0, PlanStartedAt = NULL, PlanExpiryDate = NULL,"
+    " NumberOfUses = 0, UsageWindowStart = NULL"
+)
+
+
+def end_subscription(user_id: int) -> bool:
+    """Return one account to Basic. False when it was already Basic."""
+    conn = connect()
+    with _lock:
+        cur = conn.execute(f"{_BACK_TO_BASIC} WHERE Id = ? AND IsSubscribed = 1", (user_id,))
+        conn.commit()
+        return cur.rowcount > 0
+
+
+def expire_subscriptions(now: float | None = None) -> int:
+    """Return every Pro account whose plan has run out to Basic. Returns how many.
+
+    One UPDATE over the whole table rather than a row-by-row scan: whether this
+    runs every day or once a fortnight, the result is the same.
+    """
+    now = time.time() if now is None else now
+    conn = connect()
+    with _lock:
+        cur = conn.execute(
+            f"{_BACK_TO_BASIC}"
+            " WHERE IsSubscribed = 1 AND PlanExpiryDate IS NOT NULL AND PlanExpiryDate <= ?",
+            (now,),
+        )
+        conn.commit()
+        return cur.rowcount
+
+
+# ------------------------------------------------------ subscription requests
+
+
+class PendingRequestExists(Exception):
+    """Raised instead of surfacing the partial-unique-index violation."""
+
+
+def create_subscription_request(user_id: int) -> int:
+    try:
+        return _write(
+            "INSERT INTO subscription_requests (UserId, Status, CreatedAt) VALUES (?, ?, ?)",
+            (user_id, REQUEST_PENDING, time.time()),
+        )
+    except sqlite3.IntegrityError as e:
+        if "UNIQUE" in str(e).upper():
+            raise PendingRequestExists(user_id) from e
+        raise
+
+
+def pending_subscription_request(user_id: int) -> sqlite3.Row | None:
+    rows = _query(
+        "SELECT * FROM subscription_requests WHERE UserId = ? AND Status = ?",
+        (user_id, REQUEST_PENDING),
+    )
+    return rows[0] if rows else None
+
+
+def public_subscription_request(r: sqlite3.Row) -> dict:
+    keys = r.keys()
+    out = {
+        "id": r["Id"],
+        "userId": r["UserId"],
+        "status": r["Status"],
+        "createdAt": r["CreatedAt"],
+        "decidedAt": r["DecidedAt"],
+    }
+    # Present only on the admin listing, which joins the account in — the user's
+    # own view of their request has no need for their name back.
+    if "FullName" in keys:
+        out.update({
+            "fullName": r["FullName"],
+            "email": r["Email"],
+            "phoneNumber": r["PhoneNumber"],
+            "plan": plan_name(r),
+            "planExpiryDate": r["PlanExpiryDate"],
+        })
+    return out
+
+
+def list_subscription_requests(status: str | None = None, limit: int = 100) -> list[dict]:
+    """Requests for the admin queue — pending first, then newest.
+
+    Decided requests stay in the list so the admin can see what was already
+    actioned rather than having a row vanish on approval.
+    """
+    where, args = ("", [])
+    if status:
+        where, args = (" WHERE r.Status = ?", [status])
+    rows = _query(
+        "SELECT r.*, u.FullName, u.Email, u.PhoneNumber, u.IsSubscribed, u.PlanExpiryDate"
+        " FROM subscription_requests r JOIN users u ON u.Id = r.UserId"
+        f"{where}"
+        " ORDER BY (r.Status = 'pending') DESC, r.CreatedAt DESC LIMIT ?",
+        [*args, limit],
+    )
+    return [public_subscription_request(r) for r in rows]
+
+
+def decide_subscription_request(
+    request_id: int, admin_id: int, approve: bool, *, duration_days: int
+) -> dict | None:
+    """Approve or decline one pending request.
+
+    Returns None when the request does not exist or was already decided, which is
+    what stops a double-click from granting two consecutive 30-day plans. The
+    decision and the plan change are one transaction: an approval that recorded
+    the verdict but not the subscription would leave a user who was told yes on
+    the Basic plan.
+    """
+    now = time.time()
+    conn = connect()
+    with _lock:
+        cur = conn.execute(
+            "UPDATE subscription_requests SET Status = ?, DecidedAt = ?, DecidedBy = ?"
+            " WHERE Id = ? AND Status = ?",
+            (REQUEST_APPROVED if approve else REQUEST_DECLINED, now, admin_id,
+             request_id, REQUEST_PENDING),
+        )
+        if cur.rowcount == 0:
+            conn.rollback()
+            return None
+        row = conn.execute(
+            "SELECT * FROM subscription_requests WHERE Id = ?", (request_id,)
+        ).fetchone()
+        if approve:
+            # Pro starts now and runs for exactly `duration_days`. Stored rather
+            # than derived, so the admin's Users view reads the dates back
+            # instead of recomputing them from a policy that may have changed.
+            conn.execute(
+                "UPDATE users SET IsSubscribed = 1, PlanStartedAt = ?, PlanExpiryDate = ?"
+                " WHERE Id = ?",
+                (now, now + duration_days * 86400, row["UserId"]),
+            )
+        conn.commit()
+    return public_subscription_request(row)
+
+
+def list_users(limit: int = 500) -> list[dict]:
+    """Every account with its plan, for the admin Users view.
+
+    No password hash, by omission in the SELECT rather than by filtering after
+    the fact. `numberOfUses` is the raw stored counter: a window that has since
+    rolled over reads as spent until the user's next generation resets it, so
+    the caller is given `usageWindowStart` to say so.
+    """
+    rows = _query(
+        "SELECT u.Id, u.FullName, u.PhoneNumber, u.Email, u.Role, u.IsSubscribed,"
+        " u.PlanStartedAt, u.PlanExpiryDate, u.NumberOfUses, u.UsageWindowStart, u.CreatedAt,"
+        " (SELECT COUNT(*) FROM history h WHERE h.UserId = u.Id) AS Designs"
+        " FROM users u ORDER BY u.IsSubscribed DESC, u.Id LIMIT ?",
+        (limit,),
+    )
+    return [
+        {
+            "id": r["Id"],
+            "fullName": r["FullName"],
+            "phoneNumber": r["PhoneNumber"],
+            "email": r["Email"],
+            "role": r["Role"],
+            "plan": plan_name(r),
+            "isSubscribed": bool(r["IsSubscribed"]),
+            "planStartedAt": r["PlanStartedAt"],
+            "planExpiryDate": r["PlanExpiryDate"],
+            "numberOfUses": int(r["NumberOfUses"] or 0),
+            "usageWindowStart": r["UsageWindowStart"],
+            "designsSaved": int(r["Designs"] or 0),
+            "createdAt": r["CreatedAt"],
+        }
+        for r in rows
+    ]
 
 
 # ---------------------------------------------------------------- history
