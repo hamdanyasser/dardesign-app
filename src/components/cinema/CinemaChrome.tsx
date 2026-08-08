@@ -89,7 +89,7 @@ export default function CinemaChrome({ onNavHome }: CinemaChromeProps) {
                   the URL as an ordinary user still gets a 403. */}
               {user.role === "Admin" && (
                 <Link className="toggle" href="/evaluation">
-                  {isArabic ? "لوحة التقييم" : "Evaluation"}
+                  {isArabic ? "لوحة التحكم" : "Dashboard"}
                 </Link>
               )}
               <button
