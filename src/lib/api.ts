@@ -831,6 +831,21 @@ export interface AuthUser {
   role: UserRole;
 }
 
+/** The rating a design already has, from the existing feedback record.
+ *  Read-only: the rating form remains the only thing that writes one. */
+export interface DesignRating {
+  culturalAccuracy: number;
+  imageQuality: number;
+  roomPreservation: number;
+  /** Mean of the three — derived, because the form has no overall field. */
+  overall: number;
+  /** The rest of the record, served only on the owner's own History. The shared
+   *  gallery gets the scores alone, so these are simply absent there. */
+  furniturePlacement?: FurniturePlacementVerdict;
+  comment?: string | null;
+  updatedAt?: number;
+}
+
 export interface HistoryEntry {
   id: number;
   userId: number;
@@ -843,6 +858,8 @@ export interface HistoryEntry {
   createdAt: number;
   /** Present only on the shared gallery — first name of whoever made it. */
   authorName?: string | null;
+  /** The design's existing rating, or null when nobody has rated it. */
+  rating?: DesignRating | null;
 }
 
 /** How the user judged the furniture in a design. */

@@ -510,7 +510,20 @@ def list_history(user_id: int, limit: int = 100) -> list[dict]:
     """A user's saved designs, newest first. Scoped by UserId at the query —
     history is per-account and must never leak across users."""
     rows = _query(
-        "SELECT * FROM history WHERE UserId = ? ORDER BY CreatedAt DESC LIMIT ?",
+        # LEFT JOIN so an unrated design still comes back — the caller shows a
+        # "not rated" state rather than dropping the row.
+        "SELECT h.*,"
+        " f.CulturalAccuracy AS RatingCultural,"
+        " f.ImageQuality AS RatingQuality,"
+        " f.RoomPreservation AS RatingPreservation,"
+        # The owner's own listing carries the whole record. The shared gallery
+        # selects the three scores alone, which is what keeps a written comment
+        # out of it — an omission in the SQL, not a filter in the UI.
+        " f.FurniturePlacement AS RatingPlacement,"
+        " f.Comment AS RatingComment,"
+        " f.UpdatedAt AS RatingUpdatedAt"
+        " FROM history h LEFT JOIN feedback f ON f.HistoryId = h.Id"
+        " WHERE h.UserId = ? ORDER BY h.CreatedAt DESC LIMIT ?",
         (user_id, limit),
     )
     return [_history_row(r) for r in rows]
@@ -552,21 +565,34 @@ def set_suggested(entry_id: int, user_id: int, value: bool) -> bool:
 def list_suggested(exclude_user_id: int | None = None, limit: int = 100) -> list[dict]:
     """Designs other people chose to share, newest first.
 
+    Carries the design's rating, including the author's written comment: sharing
+    is opt-in per design, and the note is shown as part of what was shared.
+
     `exclude_user_id` leaves the viewer's own work out — this gallery is for
     seeing what others made. Only IsSuggested rows are ever returned, so nothing
     a user kept private can appear here.
     """
     if exclude_user_id is None:
         rows = _query(
-            "SELECT h.*, u.FullName AS AuthorName FROM history h"
-            " LEFT JOIN users u ON u.Id = h.UserId"
+            "SELECT h.*, u.FullName AS AuthorName,"
+            " f.CulturalAccuracy AS RatingCultural,"
+            " f.ImageQuality AS RatingQuality,"
+            " f.RoomPreservation AS RatingPreservation,"
+            " f.Comment AS RatingComment"
+            " FROM history h LEFT JOIN users u ON u.Id = h.UserId"
+            " LEFT JOIN feedback f ON f.HistoryId = h.Id"
             " WHERE h.IsSuggested = 1 ORDER BY h.CreatedAt DESC LIMIT ?",
             (limit,),
         )
     else:
         rows = _query(
-            "SELECT h.*, u.FullName AS AuthorName FROM history h"
-            " LEFT JOIN users u ON u.Id = h.UserId"
+            "SELECT h.*, u.FullName AS AuthorName,"
+            " f.CulturalAccuracy AS RatingCultural,"
+            " f.ImageQuality AS RatingQuality,"
+            " f.RoomPreservation AS RatingPreservation,"
+            " f.Comment AS RatingComment"
+            " FROM history h LEFT JOIN users u ON u.Id = h.UserId"
+            " LEFT JOIN feedback f ON f.HistoryId = h.Id"
             " WHERE h.IsSuggested = 1 AND h.UserId != ? ORDER BY h.CreatedAt DESC LIMIT ?",
             (exclude_user_id, limit),
         )
@@ -578,6 +604,38 @@ def list_suggested(exclude_user_id: int | None = None, limit: int = 100) -> list
         author = (r["AuthorName"] or "").strip()
         d["authorName"] = author.split(" ")[0] if author else None
         out.append(d)
+    return out
+
+
+def _rating_from_row(r: sqlite3.Row) -> dict | None:
+    """The design's existing rating, from a joined feedback row.
+
+    Reads the same three columns the rating form already writes — no second
+    record, no separate scoring. `overall` is their mean, the same derivation the
+    evaluation dashboard uses, because the form never asked for an overall score.
+    """
+    keys = r.keys()
+    if "RatingCultural" not in keys or r["RatingCultural"] is None:
+        return None
+    cultural = int(r["RatingCultural"])
+    quality = int(r["RatingQuality"])
+    preservation = int(r["RatingPreservation"])
+    out = {
+        "culturalAccuracy": cultural,
+        "imageQuality": quality,
+        "roomPreservation": preservation,
+        "overall": round((cultural + quality + preservation) / 3, 2),
+    }
+    # Each caller decides how much of the record it selects, so what a listing
+    # exposes is visible in its SQL rather than hidden in a UI condition.
+    # The gallery selects the comment (published deliberately: a shared design
+    # carries its author's note) but not the placement verdict or timestamps,
+    # which stay on the owner's own History.
+    if "RatingComment" in keys:
+        out["comment"] = r["RatingComment"]
+    if "RatingPlacement" in keys:
+        out["furniturePlacement"] = r["RatingPlacement"]
+        out["updatedAt"] = r["RatingUpdatedAt"]
     return out
 
 
@@ -599,6 +657,9 @@ def _history_row(r: sqlite3.Row) -> dict:
         "clipScore": r["ClipScore"] if "ClipScore" in keys else None,
         "predictedCulture": r["PredictedCulture"] if "PredictedCulture" in keys else None,
         "isEdited": bool(r["IsEdited"]) if "IsEdited" in keys else False,
+        # The rating this design already has, when the caller joined it in.
+        # Null means nobody has rated it — displayed as "not rated", never as 0.
+        "rating": _rating_from_row(r),
         "createdAt": r["CreatedAt"],
     }
 
