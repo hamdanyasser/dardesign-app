@@ -12,6 +12,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { Eye, EyeOff, Loader2, Trash2 } from "lucide-react";
 import FeedbackForm from "@/components/FeedbackForm";
+import RatingBadge from "@/components/RatingBadge";
 import GalleryShell, { DesignCard } from "@/components/GalleryShell";
 import { useAuth } from "@/context/AuthContext";
 import { useThemeLanguage } from "@/context/ThemeLanguageContext";
@@ -140,6 +141,9 @@ export default function HistoryPage() {
                       {t("Shared", "مشارَك")}
                     </span>
                   )}
+                  {/* The rating already stored for this design. The form below
+                      is still where it is given or changed. */}
+                  <RatingBadge rating={e.rating} />
                 </span>
               }
               actions={

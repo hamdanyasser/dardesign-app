@@ -12,6 +12,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { Loader2 } from "lucide-react";
 import GalleryShell, { DesignCard } from "@/components/GalleryShell";
+import RatingBadge from "@/components/RatingBadge";
 import { useAuth } from "@/context/AuthContext";
 import { useThemeLanguage } from "@/context/ThemeLanguageContext";
 import { ApiError, fetchSuggested, storedImageUrl, type HistoryEntry } from "@/lib/api";
@@ -106,11 +107,16 @@ export default function OthersWorkPage() {
               afterUrl={storedImageUrl(e.newImageUrl)}
               createdAt={e.createdAt}
               caption={
-                e.authorName ? (
-                  <span className="text-xs text-[var(--dd-text-secondary)]">
-                    {t("by", "بواسطة")} {e.authorName}
-                  </span>
-                ) : null
+                <span className="flex flex-wrap items-center gap-2">
+                  {e.authorName && (
+                    <span className="text-xs text-[var(--dd-text-secondary)]">
+                      {t("by", "بواسطة")} {e.authorName}
+                    </span>
+                  )}
+                  {/* The same stored rating History shows — scores only, never
+                      the author's written comment. */}
+                  <RatingBadge rating={e.rating} />
+                </span>
               }
             />
           ))}
