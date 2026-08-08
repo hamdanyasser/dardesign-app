@@ -17,6 +17,9 @@ GET  /share-token/{job_id}          mint a token for a finished job
 GET  /jobs                          debug listing (last N jobs)
 GET  /audit                         render audit trail (JSONL-backed; metadata
                                     only — $DARDESIGN_AUDIT_TOKEN gates it)
+GET  /api/admin/evaluation          evaluation dashboard: rating aggregates +
+                                    generation stats + automatic metrics
+                                    (admin-only; see backend/evaluation.py)
 POST /api/color/{preview,apply,undo,reset}
                                     Colour Control — recolour the wall or floor
                                     of a finished render inside its segmentation
@@ -38,7 +41,16 @@ import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import Cookie, FastAPI, Form, HTTPException, Request, Response, UploadFile
+from fastapi import (
+    BackgroundTasks,
+    Cookie,
+    FastAPI,
+    Form,
+    HTTPException,
+    Request,
+    Response,
+    UploadFile,
+)
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -110,6 +122,7 @@ from .guardrails import (
     validate_upload as guard_validate_upload,
 )
 from .jobs import JobStatus, jobs
+from .quality import clip_cultures, lpips_paths, metrics_available, ssim_paths
 from .projection import (
     project_top_down,
     seg_bounding_boxes,
@@ -117,6 +130,11 @@ from .projection import (
     to_seg_regions_payload,
 )
 from .recolor_api import clear_undo as clear_color_undo, router as color_router
+from .evaluation import (
+    automatic_metrics as eval_automatic_metrics,
+    generation_report as eval_generation_report,
+    overall_rating as eval_overall_rating,
+)
 from .share import decode as share_decode, encode as share_encode
 from .transform import (
     CONFIG,
@@ -325,6 +343,14 @@ class RedesignResponse(BaseModel):
     room_analysis: dict | None = None
     # Needed by the placement endpoints, which look the cached analysis up by job.
     job_id: str | None = None
+    # Server-measured generation time. Passed back so the client can record it
+    # against the durable database on the machine that owns the data — the
+    # rendering box is disposable and its audit log dies with the session.
+    duration_s: float | None = None
+    # Structure preservation per style (0..1, higher = the room survived the
+    # restyle). Same measure and working size as the offline evaluation suite,
+    # so a live figure is comparable with the corpus. Absent if it fails.
+    ssim: dict[str, float] | None = None
     # True in DARDESIGN_LIGHT: images are tinted stand-ins, not real renders.
     placeholder: bool | None = None
     privacy_notice: str = PRIVACY_NOTICE
@@ -519,6 +545,15 @@ async def redesign(file: UploadFile, styles: str | None = Form(default=None)) ->
 
         original = await asyncio.to_thread(_original_png_data_url, raw)
 
+        # Structure preservation, per style: did the room survive the restyle?
+        # Milliseconds on CPU, computed outside the generation lock, and
+        # ssim_paths never raises — a metric must not cost a finished render.
+        ssim_scores: dict[str, float] = {}
+        for style, path in (job.style_outputs or {}).items():
+            value = await asyncio.to_thread(ssim_paths, str(input_path), path)
+            if value is not None:
+                ssim_scores[style] = value
+
         # WIRING §1 — depth + raw ADE20K seg → top-down object map, on-image
         # highlighter regions, and the DepthOrbit depth PNG. One compute serves
         # all three. Best-effort: a failure here must never cost the user their
@@ -563,9 +598,10 @@ async def redesign(file: UploadFile, styles: str | None = Form(default=None)) ->
 
         jobs.transition(job.id, JobStatus.done, output_path=str(last_out) if last_out else None)
         jobs.update_progress(job.id, 1.0)
+        duration_s = round(time.monotonic() - started, 2)
         log_event(
             "redesign", job_id=job.id, ok=True, styles=list(requested),
-            duration_s=round(time.monotonic() - started, 2), light=_light_mode(),
+            duration_s=duration_s, light=_light_mode(),
             object_map=object_map is not None, seg_regions=seg_regions is not None,
         )
         return RedesignResponse(
@@ -576,6 +612,8 @@ async def redesign(file: UploadFile, styles: str | None = Form(default=None)) ->
             depth_map=depth_map,
             room_analysis=room_analysis,
             job_id=job.id,
+            duration_s=duration_s,
+            ssim=ssim_scores or None,
             placeholder=True if _light_mode() else None,
             **images,
         )
@@ -838,6 +876,17 @@ class SaveHistoryRequest(BaseModel):
     # believing whatever the rating form claims.
     culture: str | None = None
     intensity: float | None = None
+    # Seconds the generation took, as measured by the rendering backend between
+    # the start and end of the run and returned on the /redesign response. Stored
+    # here because history is the durable record: the rendering box is disposable
+    # and its own logs die with the session.
+    duration: float | None = None
+    # Structure preservation for this design (0..1), from the /redesign response.
+    ssim: float | None = None
+    # True when colour control or furniture placement changed the render before
+    # saving. Still a real design; just no longer the pipeline's own output, so
+    # it is left out of the evaluation metrics.
+    edited: bool = False
 
 
 def _current_user(session: str | None):
@@ -945,12 +994,59 @@ async def auth_me(session: str | None = Cookie(default=None, alias=SESSION_COOKI
     return JSONResponse(db.public_user(user) if user is not None else None)
 
 
+def _evaluate_saved_design(entry_id: int, old_url: str, new_url: str) -> None:
+    """Measure LPIPS and CLIP for one saved design, in the background.
+
+    Runs after the response so saving stays instant: the two models take a few
+    seconds on CPU, and the first call also downloads their weights. Every
+    failure is swallowed — the value stays null and the backfill script can pick
+    it up later, which is strictly better than a save that fails because a metric
+    could not be computed.
+
+    SSIM is not recomputed here: it is measured at generation time against the
+    render before any edit, which is the more faithful number.
+    """
+    if not metrics_available():
+        logger.info(
+            "[eval] lpips/open_clip not installed — design %s left unmeasured; "
+            "run scripts/backfill_evaluation.py after installing them", entry_id,
+        )
+        return
+    try:
+        row = db.get_history_entry(entry_id)
+        if row is None:      # deleted between saving and measuring
+            return
+        original, generated = str(ROOT / old_url), str(ROOT / new_url)
+
+        scores = clip_cultures(generated)
+        predicted = scores[1] if scores else None
+        # The CLIP score is similarity to *this design's own* culture prompt —
+        # "does it look Lebanese?" — not to whichever culture scored highest.
+        culture = row["Culture"]
+        clip_score = scores[0].get(culture) if (scores and culture) else None
+
+        db.set_history_evaluation(
+            entry_id,
+            lpips=lpips_paths(original, generated),
+            clip_score=clip_score,
+            predicted_culture=predicted,
+        )
+        logger.info("[eval] design %s measured (predicted=%s)", entry_id, predicted)
+    except Exception:  # noqa: BLE001
+        logger.exception("[eval] measuring design %s failed", entry_id)
+
+
 @app.post("/api/history")
 async def history_save(
     req: SaveHistoryRequest,
+    background: BackgroundTasks,
     session: str | None = Cookie(default=None, alias=SESSION_COOKIE),
 ) -> JSONResponse:
-    """Save the current design. Nothing is stored until this is called."""
+    """Save the current design. Nothing is stored until this is called.
+
+    An unedited design is queued for evaluation on the way out, so every saved
+    generation joins the metrics without a separate corpus or any copying.
+    """
     user = _require_user(session)
     old_url = _save_data_url(req.oldImage, "old")
     new_url = _save_data_url(req.newImage, "new")
@@ -960,7 +1056,20 @@ async def history_save(
     intensity = (
         max(0.0, min(1.0, float(req.intensity))) if req.intensity is not None else None
     )
-    entry_id = db.add_history(user["Id"], old_url, new_url, culture=culture, intensity=intensity)
+    # Clamped: this figure is averaged onto a dashboard, so a negative or absurd
+    # value must not be able to reach it.
+    duration = (
+        max(0.0, min(float(req.duration), 86_400.0)) if req.duration is not None else None
+    )
+    ssim = max(0.0, min(float(req.ssim), 1.0)) if req.ssim is not None else None
+    entry_id = db.add_history(
+        user["Id"], old_url, new_url, culture=culture, intensity=intensity,
+        duration=duration, ssim=ssim, is_edited=bool(req.edited),
+    )
+    # Only the pipeline's own output is evaluated: a recoloured or furnished
+    # render would score the edit, not the generation.
+    if not req.edited:
+        background.add_task(_evaluate_saved_design, entry_id, old_url, new_url)
     log_event("history_save", user_id=user["Id"], entry_id=entry_id, culture=culture, ok=True)
     return JSONResponse({
         "id": entry_id,
@@ -969,6 +1078,9 @@ async def history_save(
         "isSuggested": False,
         "culture": culture,
         "intensity": intensity,
+        "duration": duration,
+        "ssim": ssim,
+        "isEdited": bool(req.edited),
     })
 
 
@@ -1179,6 +1291,52 @@ async def admin_feedback(
         "byCulture": db.feedback_by_culture(since, until),
         "recent": db.list_feedback(culture, since, until, limit),
         "cultures": list(StylePack),
+    })
+
+
+@app.get("/api/admin/evaluation")
+async def admin_evaluation(
+    culture: str | None = None,
+    since: float | None = None,
+    until: float | None = None,
+    limit: int = 25,
+    session: str | None = Cookie(default=None, alias=SESSION_COOKIE),
+) -> JSONResponse:
+    """Everything the evaluation dashboard shows, in one call.
+
+    Deliberately a thin composition of what already exists — db.feedback_stats /
+    feedback_by_culture / list_feedback were written for the admin panel and
+    answer these questions unchanged. The only new computation is generation
+    statistics, which no table holds (see backend/evaluation.py).
+
+    Admin-only for the same reason /api/admin/feedback is: `recent` carries other
+    people's comments. `since`/`until` are unix seconds.
+    """
+    _require_admin(session)
+    if culture is not None and culture not in StylePack:
+        _raise(ERR_BAD_STYLE)
+    limit = max(1, min(200, limit))
+
+    stats = db.feedback_stats(culture, since, until)
+    return JSONResponse({
+        "filters": {"culture": culture, "since": since, "until": until},
+        "cultures": list(CORE_STYLES),
+        "stats": stats,
+        # Derived, not stored — the form has no "overall" field. Named so on the
+        # card, so it can't be read as something a user typed.
+        "averageOverall": eval_overall_rating(stats),
+        "byCulture": db.feedback_by_culture(since, until),
+        "recent": db.list_feedback(culture, since, until, limit),
+        # Date-filtered when it comes from the database; the audit-log fallback
+        # cannot be, and says so via `filtered`. Never culture-filtered: renders
+        # are not the same population as ratings, and one render covers up to
+        # three cultures, so a culture filter would change a number it has no
+        # bearing on.
+        "generation": eval_generation_report(since, until),
+        # Intended culture vs CLIP's prediction, read live from history so a
+        # deleted design disappears from it immediately.
+        "confusion": db.culture_confusion(since, until),
+        "automatic": eval_automatic_metrics(),
     })
 
 

@@ -122,10 +122,16 @@ def load_clip():
 # ------------------------------------------------------------------ pipeline
 def evaluate_dir(tag: str, gen_dir: Path, inputs_dir: Path, lpips_fn, clip_fn):
     rows = []
-    files = sorted(p for p in gen_dir.iterdir()
-                   if p.suffix.lower() in {".png", ".jpg", ".jpeg", ".webp"})
+    # rglob so both layouts work: one flat directory, or the per-culture
+    # subfolders generate_finals.py --by-culture writes into.
+    files = sorted(p for p in gen_dir.rglob("*")
+                   if p.is_file() and p.suffix.lower() in {".png", ".jpg", ".jpeg", ".webp"})
     for p in files:
         parsed = parse_name(p)
+        if parsed is None and p.parent.name in STYLES:
+            # Nested layout: the folder names the culture, so a file that does
+            # not carry the suffix is still unambiguous.
+            parsed = (p.stem, p.parent.name)
         if parsed is None:
             print(f"  ! skip (name not room_style): {p.name}")
             continue
@@ -145,6 +151,9 @@ def evaluate_dir(tag: str, gen_dir: Path, inputs_dir: Path, lpips_fn, clip_fn):
             "clip_score": round(clip_scores[style], 4),
             "predicted": predicted,
             "correct": int(predicted == style),
+            # Absolute paths so a row can be traced back to the exact image and
+            # input it was computed from, months later.
+            "image_path": str(p), "input_path": str(src),
             **{f"clip_{k}": round(v, 4) for k, v in clip_scores.items()},
         })
         print(f"  {tag} {p.name}: SSIM={s:.3f} LPIPS={lp:.3f} "
@@ -237,13 +246,73 @@ def write_outputs(rows_main, rows_base, out_dir: Path):
     print(f"\n→ {out_dir}/results.csv, summary.md, confusion_matrix.png, metrics_bars.png")
 
 
+def save_to_db(rows, db_path: str) -> int:
+    """Upsert evaluated rows into the `evaluation_results` table.
+
+    Its own table, unrelated to users or history: these images were produced by
+    the evaluation harness, so letting them near the history table would inflate
+    every user-facing statistic on the dashboard.
+
+    Imported lazily so the metrics run needs no database unless --db is given.
+    """
+    import os
+    import sys as _sys
+
+    _sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+    os.environ.setdefault("DARDESIGN_DB", db_path)
+    from backend import db
+
+    db.close()
+    db.DB_PATH = Path(db_path)
+    db.connect(Path(db_path))
+    for r in rows:
+        db.upsert_evaluation_result(
+            room_id=r["room"], culture=r["style"],
+            set_name="lora" if r["set"] == "lora" else "baseline",
+            input_path=r.get("input_path"), image_path=r.get("image_path"),
+            ssim=r["ssim"], lpips=r["lpips"], clip_score=r["clip_score"],
+            predicted=r["predicted"], correct=bool(r["correct"]),
+        )
+    db.close()
+    return len(rows)
+
+
+def rows_from_csv(path: Path) -> list[dict]:
+    """Re-read a results.csv, so metrics computed on the GPU box can be loaded
+    into the database on the machine that actually owns it."""
+    with open(path, newline="", encoding="utf-8") as f:
+        out = []
+        for r in csv.DictReader(f):
+            for k in ("ssim", "lpips", "clip_score"):
+                r[k] = float(r[k]) if r.get(k) else None
+            r["correct"] = int(r.get("correct") or 0)
+            out.append(r)
+        return out
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--inputs", required=True, help="dir of original eval rooms")
-    ap.add_argument("--outputs", required=True, help="dir of generated images (LoRA)")
+    ap.add_argument("--inputs", help="dir of original eval rooms")
+    ap.add_argument("--outputs", help="dir of generated images (LoRA)")
     ap.add_argument("--baselines", default=None, help="dir of prompt-only baselines")
     ap.add_argument("--out", default="eval", help="output dir")
+    ap.add_argument("--db", default=None,
+                    help="also upsert results into this SQLite file's evaluation_results table")
+    ap.add_argument("--import-csv", default=None,
+                    help="skip computation: load an existing results.csv into --db")
     args = ap.parse_args()
+
+    # Import-only mode: the metrics run on the GPU box, the database lives on the
+    # machine that keeps the data. Copy results.csv over and load it here.
+    if args.import_csv:
+        if not args.db:
+            raise SystemExit("--import-csv requires --db")
+        n = save_to_db(rows_from_csv(Path(args.import_csv)), args.db)
+        print(f"-> imported {n} rows into {args.db}")
+        return
+
+    if not args.inputs or not args.outputs:
+        raise SystemExit("--inputs and --outputs are required (or use --import-csv)")
 
     lpips_fn, clip_fn = load_lpips(), load_clip()
     print("== evaluating LoRA outputs ==")
@@ -256,6 +325,9 @@ def main():
     if not rows_main and not rows_base:
         raise SystemExit("No images evaluated — check dirs and naming {room}_{style}.png")
     write_outputs(rows_main, rows_base, Path(args.out))
+    if args.db:
+        n = save_to_db(rows_main + rows_base, args.db)
+        print(f"-> {n} rows upserted into evaluation_results in {args.db}")
 
 
 if __name__ == "__main__":

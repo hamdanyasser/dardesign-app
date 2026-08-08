@@ -5,7 +5,8 @@ The schema is two tables and the queries are a dozen lines each — an ORM would
 be more machinery than the problem needs.
 
     users     Id, FullName, PhoneNumber, Email, Password, Role
-    history   Id, UserId, OldImageUrl, NewImageUrl, IsSuggested
+    history   Id, UserId, OldImageUrl, NewImageUrl, IsSuggested, Culture,
+              Intensity, Duration, Ssim
 
 `Password` stores a PBKDF2 hash, never the password itself — see auth.py.
 
@@ -56,6 +57,23 @@ CREATE TABLE IF NOT EXISTS history (
     OldImageUrl  TEXT    NOT NULL,
     NewImageUrl  TEXT    NOT NULL,
     IsSuggested  INTEGER NOT NULL DEFAULT 0,
+    -- Seconds the generation took, measured by the rendering backend between
+    -- the start and end of the run. Null on rows saved before it was recorded.
+    Duration     REAL,
+    -- Structure preservation vs the input room, 0..1 (backend/quality.py).
+    -- Same measure as the offline evaluation suite, so the two are comparable.
+    Ssim         REAL,
+    -- Perceptual distance to the input, lower = closer. Null until measured:
+    -- LPIPS needs model weights that may not be installed.
+    Lpips        REAL,
+    -- CLIP similarity to this culture's prompt, and CLIP's own 3-way guess at
+    -- the culture. Culture vs PredictedCulture is the confusion matrix.
+    ClipScore    REAL,
+    PredictedCulture TEXT,
+    -- 1 when colour control or furniture placement changed the render before it
+    -- was saved. Such a design is a real design, but it is no longer the
+    -- pipeline's own output, so it is excluded from the evaluation metrics.
+    IsEdited     INTEGER NOT NULL DEFAULT 0,
     CreatedAt    REAL    NOT NULL,
     FOREIGN KEY (UserId) REFERENCES users(Id) ON DELETE CASCADE
 );
@@ -91,6 +109,30 @@ CREATE TABLE IF NOT EXISTS feedback (
 );
 
 CREATE INDEX IF NOT EXISTS idx_feedback_culture ON feedback(Culture, CreatedAt DESC);
+
+-- Offline evaluation runs. Deliberately its own table, with no link to users or
+-- history: an evaluation image is not a design anyone made, and letting these
+-- rows anywhere near `history` would silently inflate every user-facing
+-- statistic on the dashboard. Nothing outside eval/ reads or writes this.
+CREATE TABLE IF NOT EXISTS evaluation_results (
+    Id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    RoomId     TEXT    NOT NULL,          -- input room identifier, e.g. "room_03"
+    Culture    TEXT    NOT NULL,
+    -- "lora" = the trained pipeline, "baseline" = prompt-only, so the ablation
+    -- is a filter rather than a second table.
+    SetName    TEXT    NOT NULL DEFAULT 'lora',
+    InputPath  TEXT,
+    ImagePath  TEXT,
+    Ssim       REAL,
+    Lpips      REAL,
+    ClipScore  REAL,
+    Predicted  TEXT,                      -- CLIP zero-shot 3-way prediction
+    Correct    INTEGER,                   -- 1 when Predicted == Culture
+    CreatedAt  REAL    NOT NULL,
+    -- Re-running the suite updates a row instead of stacking duplicates, so the
+    -- averages can't drift upward every time the metrics are recomputed.
+    UNIQUE (RoomId, Culture, SetName)
+);
 """
 
 # UNIQUE(HistoryId) is what makes "one feedback per generated image" a property of
@@ -145,6 +187,12 @@ def _migrate(conn: sqlite3.Connection) -> None:
     for column, ddl in (
         ("Culture", "ALTER TABLE history ADD COLUMN Culture TEXT"),
         ("Intensity", "ALTER TABLE history ADD COLUMN Intensity REAL"),
+        ("Duration", "ALTER TABLE history ADD COLUMN Duration REAL"),
+        ("Ssim", "ALTER TABLE history ADD COLUMN Ssim REAL"),
+        ("Lpips", "ALTER TABLE history ADD COLUMN Lpips REAL"),
+        ("ClipScore", "ALTER TABLE history ADD COLUMN ClipScore REAL"),
+        ("PredictedCulture", "ALTER TABLE history ADD COLUMN PredictedCulture TEXT"),
+        ("IsEdited", "ALTER TABLE history ADD COLUMN IsEdited INTEGER NOT NULL DEFAULT 0"),
     ):
         if column not in existing:
             conn.execute(ddl)
@@ -231,14 +279,231 @@ def add_history(
     is_suggested: bool = False,
     culture: str | None = None,
     intensity: float | None = None,
+    duration: float | None = None,
+    ssim: float | None = None,
+    is_edited: bool = False,
 ) -> int:
     """Save one design. `culture`/`intensity` describe how it was generated and
-    become the trusted source for anything that rates this image later."""
+    become the trusted source for anything that rates this image later.
+    `duration` is the generation time in seconds, measured by the renderer."""
     return _write(
         "INSERT INTO history (UserId, OldImageUrl, NewImageUrl, IsSuggested, Culture,"
-        " Intensity, CreatedAt) VALUES (?, ?, ?, ?, ?, ?, ?)",
-        (user_id, old_url, new_url, 1 if is_suggested else 0, culture, intensity, time.time()),
+        " Intensity, Duration, Ssim, IsEdited, CreatedAt)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (user_id, old_url, new_url, 1 if is_suggested else 0, culture, intensity,
+         duration, ssim, 1 if is_edited else 0, time.time()),
     )
+
+
+def history_generation_stats(since: float | None = None, until: float | None = None) -> dict:
+    """Rooms generated and how long they took, over the history table.
+
+    `averageSeconds` divides the sum of durations by the number of rows that
+    *have* one, not by the row count: every row saved before Duration existed is
+    null, and dividing by all of them would report an average far below any real
+    generation. `sampleSize` states how many rows backed the figure.
+    """
+    where, args = _generation_filters(since, until)
+    row = _query(
+        "SELECT COUNT(*) AS rooms, SUM(Duration) AS totalSeconds,"
+        " COUNT(Duration) AS timed, MIN(Duration) AS minSeconds, MAX(Duration) AS maxSeconds,"
+        " AVG(Ssim) AS avgSsim, COUNT(Ssim) AS measured,"
+        " AVG(Lpips) AS avgLpips, COUNT(Lpips) AS lpipsMeasured,"
+        " AVG(ClipScore) AS avgClip, COUNT(ClipScore) AS clipMeasured"
+        f" FROM history{where}",
+        args,
+    )[0]
+    rooms = int(row["rooms"] or 0)
+    timed = int(row["timed"] or 0)
+    total = float(row["totalSeconds"]) if row["totalSeconds"] is not None else None
+
+    def num(key: str) -> float | None:
+        v = row[key]
+        return round(float(v), 1) if v is not None else None
+
+    return {
+        "roomsGenerated": rooms,
+        "averageSeconds": round(total / timed, 1) if timed else None,
+        "totalSeconds": round(total, 1) if total is not None else None,
+        "fastestSeconds": num("minSeconds"),
+        "slowestSeconds": num("maxSeconds"),
+        "sampleSize": timed,
+        # Structure preservation over the designs that carry a measurement.
+        "averageSsim": round(float(row["avgSsim"]), 3) if row["avgSsim"] is not None else None,
+        "ssimSampleSize": int(row["measured"] or 0),
+        "averageLpips": round(float(row["avgLpips"]), 3) if row["avgLpips"] is not None else None,
+        "lpipsSampleSize": int(row["lpipsMeasured"] or 0),
+        "averageClipScore": round(float(row["avgClip"]), 3) if row["avgClip"] is not None else None,
+        "clipSampleSize": int(row["clipMeasured"] or 0),
+    }
+
+
+def set_history_evaluation(
+    entry_id: int,
+    *,
+    lpips: float | None,
+    clip_score: float | None,
+    predicted_culture: str | None,
+    ssim: float | None = None,
+) -> None:
+    """Attach measured metrics to a saved design.
+
+    Stored on the row itself rather than in a side table, which is what makes
+    deletion automatic: remove the design and every metric, and its contribution
+    to the confusion matrix, goes with it. `ssim` is only written when supplied,
+    so a backfill cannot erase a value recorded at generation time.
+    """
+    sets = ["Lpips = ?", "ClipScore = ?", "PredictedCulture = ?"]
+    args: list[Any] = [lpips, clip_score, predicted_culture]
+    if ssim is not None:
+        sets.append("Ssim = ?")
+        args.append(ssim)
+    args.append(entry_id)
+    _write(f"UPDATE history SET {', '.join(sets)} WHERE Id = ?", args)
+
+
+def history_needing_evaluation(limit: int = 500) -> list[dict]:
+    """Saved designs with no perceptual metrics yet.
+
+    Edited designs are skipped: colour control and furniture placement change
+    the image after generation, so measuring one would score the edit rather
+    than the pipeline.
+    """
+    rows = _query(
+        "SELECT Id, OldImageUrl, NewImageUrl, Culture, Ssim FROM history"
+        " WHERE IsEdited = 0 AND (Lpips IS NULL OR ClipScore IS NULL)"
+        " ORDER BY Id DESC LIMIT ?",
+        (limit,),
+    )
+    return [
+        {"id": r["Id"], "oldImageUrl": r["OldImageUrl"],
+         "newImageUrl": r["NewImageUrl"], "culture": r["Culture"], "ssim": r["Ssim"]}
+        for r in rows
+    ]
+
+
+def culture_confusion(since: float | None = None, until: float | None = None) -> dict:
+    """Intended culture vs CLIP's prediction, over saved designs.
+
+    Reads live from `history`, so a deleted design leaves the matrix in the same
+    instant it leaves the gallery — there is no second copy to keep in step.
+    """
+    where, args = _generation_filters(since, until)
+    clause = " AND " if where else " WHERE "
+    rows = _query(
+        "SELECT Culture AS intended, PredictedCulture AS predicted, COUNT(*) AS n"
+        f" FROM history{where}{clause}"
+        " Culture IS NOT NULL AND PredictedCulture IS NOT NULL"
+        " GROUP BY Culture, PredictedCulture",
+        args,
+    )
+    matrix: dict[str, dict[str, int]] = {}
+    total = correct = 0
+    for r in rows:
+        n = int(r["n"])
+        matrix.setdefault(r["intended"], {})[r["predicted"]] = n
+        total += n
+        if r["intended"] == r["predicted"]:
+            correct += n
+    return {
+        "matrix": matrix,
+        "total": total,
+        "correct": correct,
+        # None rather than 0 when nothing is classified: an accuracy of zero is a
+        # result, and "not measured" is not.
+        "accuracy": round(correct / total, 3) if total else None,
+    }
+
+
+# ------------------------------------------------------- evaluation results
+#
+# Written only by eval/run_metrics.py. Kept out of every user-facing statistic
+# on purpose: these images were generated by the evaluation harness, not by a
+# user, so counting them as rooms generated or as a most-used culture would
+# misreport the product's actual use.
+
+
+def upsert_evaluation_result(
+    *,
+    room_id: str,
+    culture: str,
+    set_name: str = "lora",
+    input_path: str | None = None,
+    image_path: str | None = None,
+    ssim: float | None = None,
+    lpips: float | None = None,
+    clip_score: float | None = None,
+    predicted: str | None = None,
+    correct: bool | None = None,
+) -> int:
+    """Record one evaluated image, or update it in place on a re-run."""
+    return _write(
+        "INSERT INTO evaluation_results (RoomId, Culture, SetName, InputPath, ImagePath,"
+        " Ssim, Lpips, ClipScore, Predicted, Correct, CreatedAt)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+        " ON CONFLICT(RoomId, Culture, SetName) DO UPDATE SET"
+        "   InputPath = excluded.InputPath, ImagePath = excluded.ImagePath,"
+        "   Ssim = excluded.Ssim, Lpips = excluded.Lpips, ClipScore = excluded.ClipScore,"
+        "   Predicted = excluded.Predicted, Correct = excluded.Correct,"
+        "   CreatedAt = excluded.CreatedAt",
+        (room_id, culture, set_name, input_path, image_path, ssim, lpips, clip_score,
+         predicted, None if correct is None else (1 if correct else 0), time.time()),
+    )
+
+
+def list_evaluation_results(set_name: str | None = None, limit: int = 500) -> list[dict]:
+    where, args = ("", [])
+    if set_name:
+        where, args = (" WHERE SetName = ?", [set_name])
+    rows = _query(
+        f"SELECT * FROM evaluation_results{where} ORDER BY RoomId, Culture LIMIT ?",
+        [*args, limit],
+    )
+    return [
+        {
+            "id": r["Id"], "roomId": r["RoomId"], "culture": r["Culture"],
+            "set": r["SetName"], "inputPath": r["InputPath"], "imagePath": r["ImagePath"],
+            "ssim": r["Ssim"], "lpips": r["Lpips"], "clipScore": r["ClipScore"],
+            "predicted": r["Predicted"],
+            "correct": None if r["Correct"] is None else bool(r["Correct"]),
+            "createdAt": r["CreatedAt"],
+        }
+        for r in rows
+    ]
+
+
+def evaluation_summary() -> list[dict]:
+    """Per set and culture: mean metrics and 3-way cultural accuracy."""
+    rows = _query(
+        "SELECT SetName AS setName, Culture AS culture, COUNT(*) AS images,"
+        " AVG(Ssim) AS ssim, AVG(Lpips) AS lpips, AVG(ClipScore) AS clipScore,"
+        " AVG(Correct) AS accuracy"
+        " FROM evaluation_results GROUP BY SetName, Culture ORDER BY SetName, Culture"
+    )
+
+    def r3(v) -> float | None:
+        return round(float(v), 3) if v is not None else None
+
+    return [
+        {
+            "set": r["setName"], "culture": r["culture"], "images": int(r["images"]),
+            "ssim": r3(r["ssim"]), "lpips": r3(r["lpips"]), "clipScore": r3(r["clipScore"]),
+            "accuracy": r3(r["accuracy"]),
+        }
+        for r in rows
+    ]
+
+
+def _generation_filters(since: float | None, until: float | None) -> tuple[str, list[Any]]:
+    clauses: list[str] = []
+    args: list[Any] = []
+    if since is not None:
+        clauses.append("CreatedAt >= ?")
+        args.append(since)
+    if until is not None:
+        clauses.append("CreatedAt <= ?")
+        args.append(until)
+    return (" WHERE " + " AND ".join(clauses) if clauses else ""), args
 
 
 def list_history(user_id: int, limit: int = 100) -> list[dict]:
@@ -328,6 +593,12 @@ def _history_row(r: sqlite3.Row) -> dict:
         # "unknown culture" rather than pretending it was Lebanese.
         "culture": r["Culture"] if "Culture" in keys else None,
         "intensity": r["Intensity"] if "Intensity" in keys else None,
+        "duration": r["Duration"] if "Duration" in keys else None,
+        "ssim": r["Ssim"] if "Ssim" in keys else None,
+        "lpips": r["Lpips"] if "Lpips" in keys else None,
+        "clipScore": r["ClipScore"] if "ClipScore" in keys else None,
+        "predictedCulture": r["PredictedCulture"] if "PredictedCulture" in keys else None,
+        "isEdited": bool(r["IsEdited"]) if "IsEdited" in keys else False,
         "createdAt": r["CreatedAt"],
     }
 

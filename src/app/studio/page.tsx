@@ -109,6 +109,10 @@ export default function StudioPage() {
   const [validationErr, setValidationErr] = useState<string | null>(null);
   const [showElements, setShowElements] = useState(false);
   const [demoRooms, setDemoRooms] = useState<DemoRoom[]>([]);
+  // The renders exactly as generated, before any colour or furniture edit. Kept
+  // so Save can say whether what it is storing is still the pipeline's own
+  // output — an edited image is a fine design but a misleading measurement.
+  const [pristine, setPristine] = useState<Record<string, string>>({});
 
   // Defense Mode: read ?demo=1 via window.location (client-only page; avoids
   // the useSearchParams Suspense requirement) and load the static manifest.
@@ -201,6 +205,13 @@ export default function StudioPage() {
         styles: generateScope === "all" ? undefined : [generateScope],
       });
       setResult(r);
+      setPristine(
+        Object.fromEntries(
+          (r.styles ?? [])
+            .map((k) => [k, r[k]] as const)
+            .filter((pair): pair is readonly [StyleId, string] => typeof pair[1] === "string"),
+        ),
+      );
       // The featured tile must be one that actually exists, or every consumer of
       // result[featured] (slider, download, report, 3D orbit, furniture panel)
       // would read undefined.
@@ -746,6 +757,15 @@ export default function StudioPage() {
                   oldImage={result.original}
                   newImage={featuredSrc}
                   culture={featured}
+                  // The renderer's own measurement of this generation, stored on
+                  // the design so the evaluation dashboard can average it.
+                  duration={result.duration_s}
+                  // The score for the culture actually on screen — that is the
+                  // image being saved.
+                  ssim={result.ssim?.[featured] ?? null}
+                  // Colour control and furniture placement replace this image;
+                  // when they have, it is no longer what the pipeline produced.
+                  edited={!!pristine[featured] && pristine[featured] !== featuredSrc}
                 />
                 <RoomReport
                   beforeSrc={result.original}

@@ -84,6 +84,14 @@ export default function CinemaChrome({ onNavHome }: CinemaChromeProps) {
               <Link className="toggle" href="/others">
                 {isArabic ? "أعمال الآخرين" : "Others' Work"}
               </Link>
+              {/* Admins only. Hiding it is a convenience, not the control:
+                  /api/admin/evaluation checks the role server-side, so typing
+                  the URL as an ordinary user still gets a 403. */}
+              {user.role === "Admin" && (
+                <Link className="toggle" href="/evaluation">
+                  {isArabic ? "لوحة التحكم" : "Dashboard"}
+                </Link>
+              )}
               <button
                 className="toggle"
                 onClick={async () => {

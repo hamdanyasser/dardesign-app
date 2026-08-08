@@ -337,6 +337,11 @@ export interface RedesignResult {
   room_analysis?: RoomAnalysisSummary | null;
   /** Needed by the furniture endpoints, which look the cached analysis up by job. */
   job_id?: string | null;
+  /** Server-measured generation time. Absent on older backends. */
+  duration_s?: number | null;
+  /** Structure preservation per style, 0..1 — did the room survive the restyle?
+   *  Same measure the offline evaluation suite uses. Absent on older backends. */
+  ssim?: Record<string, number> | null;
   /** True in DARDESIGN_LIGHT: images are tinted stand-ins, not real renders. */
   placeholder?: boolean | null;
 }
@@ -962,7 +967,17 @@ export async function fetchMe(): Promise<AuthUser | null> {
 export async function saveToHistory(
   oldImage: string,
   newImage: string,
-  meta: { culture?: string | null; intensity?: number | null } = {},
+  meta: {
+    culture?: string | null;
+    intensity?: number | null;
+    /** Seconds the generation took, from the /redesign response. */
+    duration?: number | null;
+    /** Structure preservation for this design, 0..1. */
+    ssim?: number | null;
+    /** True when colour control or furniture placement changed the render.
+     *  Such a design is still saved, but left out of the evaluation metrics. */
+    edited?: boolean;
+  } = {},
 ): Promise<HistoryEntry> {
   const res = await safeFetch(`${DATA_API_URL}/api/history`, {
     method: "POST",
@@ -972,6 +987,9 @@ export async function saveToHistory(
       newImage,
       culture: meta.culture ?? null,
       intensity: meta.intensity ?? null,
+      duration: meta.duration ?? null,
+      ssim: meta.ssim ?? null,
+      edited: !!meta.edited,
     }),
     ...WITH_CREDENTIALS,
   });
@@ -1025,6 +1043,95 @@ export async function fetchAdminFeedback(
     ...WITH_CREDENTIALS,
   });
   return (await unwrap(res)) as AdminFeedbackResult;
+}
+
+/* ------------------------------------------------------------------
+   Evaluation dashboard. See backend/evaluation.py.
+
+   Every average is `number | null`: null means "not measured", which the UI
+   must render as "—" rather than 0. A zero on this page would be read as a
+   result, and there is a real difference between "users rated this 0" (which
+   the 1-5 scale cannot even express) and "nobody has rated this".
+   ------------------------------------------------------------------ */
+
+export interface EvaluationCultureRow {
+  culture: string | null;
+  total: number;
+  averageCulturalAccuracy: number | null;
+  averageImageQuality: number | null;
+  averageRoomPreservation: number | null;
+}
+
+/** Rooms generated and their timings, computed over the history table. */
+export interface GenerationStats {
+  /** Number of history rows — one saved design is one generated room. */
+  roomsGenerated: number;
+  /** Sum of durations divided by the rows that have one. Null when none do. */
+  averageSeconds: number | null;
+  totalSeconds: number | null;
+  fastestSeconds: number | null;
+  slowestSeconds: number | null;
+  /** How many rows carried a duration and therefore backed the average. */
+  sampleSize: number;
+  /** Mean structure preservation (SSIM) over the designs that carry one. */
+  averageSsim: number | null;
+  ssimSampleSize: number;
+  /** Perceptual distance to the input — lower is closer. */
+  averageLpips: number | null;
+  lpipsSampleSize: number;
+  /** CLIP similarity to the design's own culture prompt. */
+  averageClipScore: number | null;
+  clipSampleSize: number;
+}
+
+/** Intended culture vs CLIP's prediction, over saved designs. */
+export interface CultureConfusion {
+  /** matrix[intended][predicted] = count */
+  matrix: Record<string, Record<string, number>>;
+  total: number;
+  correct: number;
+  /** Null when nothing has been classified — never 0, which is a real result. */
+  accuracy: number | null;
+}
+
+/** SSIM / LPIPS / CLIP from eval/run_metrics.py, when it has been run. */
+export interface AutomaticMetrics {
+  available: boolean;
+  reason_en?: string;
+  reason_ar?: string;
+  hint?: string;
+  path?: string;
+  metrics: string[];
+  images?: number;
+  byCulture: Array<{ culture: string; samples: number } & Record<string, number | string | null>>;
+}
+
+export interface EvaluationReport {
+  filters: { culture: string | null; since: number | null; until: number | null };
+  cultures: string[];
+  stats: FeedbackStats;
+  /** Mean of the three rated dimensions — derived, not a stored column. */
+  averageOverall: number | null;
+  byCulture: EvaluationCultureRow[];
+  recent: Feedback[];
+  generation: GenerationStats;
+  confusion: CultureConfusion;
+  automatic: AutomaticMetrics;
+}
+
+export async function fetchEvaluation(
+  opts: { culture?: string; since?: number; until?: number; limit?: number } = {},
+): Promise<EvaluationReport> {
+  const qs = new URLSearchParams();
+  if (opts.culture) qs.set("culture", opts.culture);
+  if (opts.since != null) qs.set("since", String(opts.since));
+  if (opts.until != null) qs.set("until", String(opts.until));
+  if (opts.limit != null) qs.set("limit", String(opts.limit));
+  const res = await safeFetch(`${DATA_API_URL}/api/admin/evaluation?${qs}`, {
+    headers: COMMON_HEADERS,
+    ...WITH_CREDENTIALS,
+  });
+  return (await unwrap(res)) as EvaluationReport;
 }
 
 export async function fetchHistory(): Promise<HistoryEntry[]> {
