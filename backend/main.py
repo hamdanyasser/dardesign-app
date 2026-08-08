@@ -27,7 +27,8 @@ POST /api/usage/consume             spend one generation, or 429 when the free
                                     weekly allowance is gone
 GET  /api/admin/subscriptions       the upgrade queue (admin-only)
 POST /api/admin/subscriptions/{id}/decision
-                                    approve (30 days of Pro) or decline
+                                    approve (30 days of Pro) or decline, and
+                                    email the user the verdict (backend/mailer.py)
 GET  /api/admin/users               every account and its plan (admin-only)
 POST /api/color/{preview,apply,undo,reset}
                                     Colour Control — recolour the wall or floor
@@ -149,7 +150,7 @@ from .evaluation import (
     generation_report as eval_generation_report,
     overall_rating as eval_overall_rating,
 )
-from . import subscriptions
+from . import mailer, subscriptions
 from .share import decode as share_decode, encode as share_encode
 from .transform import (
     CONFIG,
@@ -1398,21 +1399,42 @@ async def admin_subscriptions(
 async def admin_subscription_decision(
     request_id: int,
     req: SubscriptionDecisionRequest,
+    background: BackgroundTasks,
     session: str | None = Cookie(default=None, alias=SESSION_COOKIE),
 ) -> JSONResponse:
-    """Approve or decline one pending request.
+    """Approve or decline one pending request, and email the user the verdict.
 
     Approving starts Pro now and sets the expiry 30 days out. A request that was
     already decided returns 409 rather than granting a second plan, so a
-    double-click cannot hand out 60 days.
+    double-click cannot hand out 60 days — and, because the mail is queued only
+    on a decision that actually landed, cannot send a second email either.
+
+    The email goes out *after* this response, on a background task: the plan is
+    already committed, and a slow or unreachable mail server must cost the
+    notification rather than the approval. mailer.send never raises.
     """
     admin = _require_admin(session)
     decided = subscriptions.decide(request_id, admin["Id"], req.approve)
     if decided is None:
         _raise(ERR_REQUEST_NOT_PENDING)
+
+    # Read the account after the decision, so an approval mails the expiry date
+    # that was actually stored rather than one computed here a second time.
+    user = db.get_user(decided["userId"])
+    if user is not None:
+        background.add_task(
+            mailer.notify_decision,
+            user["Email"],
+            user["FullName"],
+            req.approve,
+            expiry=user["PlanExpiryDate"],
+            duration_days=subscriptions.PRO_DURATION_DAYS,
+            weekly_limit=subscriptions.BASIC_WEEKLY_LIMIT,
+        )
+
     log_event(
         "subscription_decision", admin_id=admin["Id"], request_id=request_id,
-        approved=req.approve, ok=True,
+        approved=req.approve, ok=True, emailed=user is not None,
     )
     return JSONResponse(decided)
 

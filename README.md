@@ -120,6 +120,13 @@ train a LoRA, ship it.
 | `DARDESIGN_ALLOWED_ORIGINS` | comma-separated CORS allowlist (defaults to localhost:3000) |
 | `DARDESIGN_SHARE_SECRET` | HMAC secret for share-link tokens (random per process if unset) |
 | `DARDESIGN_AUDIT_TOKEN` | when set, `GET /audit` requires `?token=…` (audit trail is open in dev) |
+| `DARDESIGN_SMTP_HOST` | mail server for subscription decision emails — **unset = log the message instead of sending it** |
+| `DARDESIGN_SMTP_PORT` | default 587 (STARTTLS); use 465 with `DARDESIGN_SMTP_SSL=1` |
+| `DARDESIGN_SMTP_USER` / `DARDESIGN_SMTP_PASSWORD` | mailbox and **app password** (never the account password) |
+| `DARDESIGN_SMTP_FROM` | From: address (defaults to `DARDESIGN_SMTP_USER`) |
+
+Locally these come from a gitignored `.dardesign-smtp` file — copy
+`.dardesign-smtp.example` and restart `scripts/run-local-backend.ps1`.
 
 ## Where Zainab's work lands
 

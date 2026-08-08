@@ -26,6 +26,24 @@ if (-not (Test-Path $secretFile)) {
 $env:DARDESIGN_SECRET = (Get-Content $secretFile -Raw).Trim()
 $env:DARDESIGN_LIGHT = "1"
 
+# Optional email settings, KEY=VALUE per line in .dardesign-smtp (gitignored,
+# same idea as .dardesign-secret above — an app password does not belong in a
+# script that is committed). Without the file the backend logs the message it
+# would have sent instead of sending it, which is a working mode, not an error.
+$smtpFile = Join-Path $root ".dardesign-smtp"
+if (Test-Path $smtpFile) {
+    Get-Content $smtpFile | ForEach-Object {
+        $line = $_.Trim()
+        if ($line -and -not $line.StartsWith("#")) {
+            $key, $value = $line -split "=", 2
+            Set-Item -Path "env:$($key.Trim())" -Value $value.Trim()
+        }
+    }
+    Write-Host "email         : $env:DARDESIGN_SMTP_HOST as $env:DARDESIGN_SMTP_USER" -ForegroundColor Cyan
+} else {
+    Write-Host "email         : not configured - decision emails will be logged, not sent" -ForegroundColor Yellow
+}
+
 Write-Host "data backend  : http://localhost:8000" -ForegroundColor Cyan
 Write-Host "database      : $(Join-Path $root 'backend\dardesign.db')"
 Write-Host "images        : $(Join-Path $root 'images')"

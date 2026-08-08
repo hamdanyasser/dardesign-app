@@ -1,0 +1,21 @@
+# Email settings for the subscription decision notifications.
+#
+#   copy this file to  .dardesign-smtp  (gitignored) and fill it in,
+#   then restart scripts\run-local-backend.ps1
+#
+# Without it the backend logs each message instead of sending it, which is a
+# working mode: the approval still happens and the log shows exactly what the
+# user would have received.
+#
+# Gmail: DARDESIGN_SMTP_PASSWORD must be a 16-character **app password**
+# (Google Account -> Security -> 2-Step Verification -> App passwords), never
+# the account password. Gmail rejects plain passwords from SMTP outright.
+
+DARDESIGN_SMTP_HOST=smtp.gmail.com
+DARDESIGN_SMTP_PORT=587
+DARDESIGN_SMTP_USER=you@gmail.com
+DARDESIGN_SMTP_PASSWORD=abcd efgh ijkl mnop
+DARDESIGN_SMTP_FROM=you@gmail.com
+
+# Set to 1 only for implicit TLS on port 465. Leave unset for STARTTLS on 587.
+# DARDESIGN_SMTP_SSL=0

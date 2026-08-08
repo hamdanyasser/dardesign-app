@@ -105,8 +105,8 @@ export default function ManageSubscriptionsPage() {
       subtitle={
         terms
           ? t(
-              `Approving starts the Pro plan ($${terms.priceUsd}) for ${terms.durationDays} days.`,
-              `الموافقة تبدأ الخطة الاحترافية (${terms.priceUsd}$) لمدة ${terms.durationDays} يوماً.`,
+              `Approving starts the Pro plan ($${terms.priceUsd}) for ${terms.durationDays} days. Either decision emails the user.`,
+              `الموافقة تبدأ الخطة الاحترافية (${terms.priceUsd}$) لمدة ${terms.durationDays} يوماً. يُرسَل بريد إلى المستخدم في الحالتين.`,
             )
           : t("Requests from users who want the Pro plan.", "طلبات المستخدمين للحصول على الخطة الاحترافية.")
       }
