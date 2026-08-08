@@ -38,6 +38,25 @@ def _fresh_db(tmp_path, monkeypatch):
     db.close()
 
 
+@pytest.fixture(autouse=True)
+def scheduled(monkeypatch) -> list[int]:
+    """Record which designs were queued for measurement, and run nothing.
+
+    The real task loads LPIPS and CLIP. Left alone, these tests would pass or
+    fail depending on whether those packages happen to be installed — and would
+    measure a 1x1 PNG, which means nothing. Recording the call tests the wiring;
+    the values are supplied explicitly by `_measure`.
+    """
+    from backend import main as backend_main
+
+    calls: list[int] = []
+    monkeypatch.setattr(
+        backend_main, "_evaluate_saved_design",
+        lambda entry_id, old_url, new_url: calls.append(entry_id),
+    )
+    return calls
+
+
 def _client() -> httpx.AsyncClient:
     return httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test")
 
@@ -91,7 +110,7 @@ def test_averages_use_only_measured_designs() -> None:
         async with _client() as c:
             await _signup(c, "m2@example.com")
             a = await _save(c, "lebanese")
-            await _save(c, "moroccan")            # never measured
+            await _save(c, "moroccan")            # left unmeasured on purpose
             _measure(a, lpips=0.20, clip=0.30, predicted="lebanese")
 
             s = db.history_generation_stats()
