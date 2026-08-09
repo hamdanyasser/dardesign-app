@@ -100,6 +100,12 @@ CREATE TABLE IF NOT EXISTS history (
     -- was saved. Such a design is a real design, but it is no longer the
     -- pipeline's own output, so it is excluded from the evaluation metrics.
     IsEdited     INTEGER NOT NULL DEFAULT 0,
+    -- 1 when the render came back from a DARDESIGN_LIGHT backend: a tinted
+    -- placeholder produced in milliseconds without a model. Saving one is
+    -- legitimate (the demo runs that way), but averaging its duration would
+    -- report a generation time two orders of magnitude below any real render,
+    -- and its SSIM measures a tint rather than a redesign.
+    IsLight      INTEGER NOT NULL DEFAULT 0,
     CreatedAt    REAL    NOT NULL,
     FOREIGN KEY (UserId) REFERENCES users(Id) ON DELETE CASCADE
 );
@@ -241,6 +247,7 @@ def _migrate(conn: sqlite3.Connection) -> None:
         ("ClipScore", "ALTER TABLE history ADD COLUMN ClipScore REAL"),
         ("PredictedCulture", "ALTER TABLE history ADD COLUMN PredictedCulture TEXT"),
         ("IsEdited", "ALTER TABLE history ADD COLUMN IsEdited INTEGER NOT NULL DEFAULT 0"),
+        ("IsLight", "ALTER TABLE history ADD COLUMN IsLight INTEGER NOT NULL DEFAULT 0"),
     ):
         if column not in existing:
             conn.execute(ddl)
@@ -627,28 +634,51 @@ def add_history(
     duration: float | None = None,
     ssim: float | None = None,
     is_edited: bool = False,
+    is_light: bool = False,
 ) -> int:
     """Save one design. `culture`/`intensity` describe how it was generated and
     become the trusted source for anything that rates this image later.
-    `duration` is the generation time in seconds, measured by the renderer."""
+    `duration` is the generation time in seconds, measured by the renderer.
+    `is_light` marks a DARDESIGN_LIGHT placeholder — kept as a design, kept out
+    of every model and timing statistic."""
     return _write(
         "INSERT INTO history (UserId, OldImageUrl, NewImageUrl, IsSuggested, Culture,"
-        " Intensity, Duration, Ssim, IsEdited, CreatedAt)"
-        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        " Intensity, Duration, Ssim, IsEdited, IsLight, CreatedAt)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (user_id, old_url, new_url, 1 if is_suggested else 0, culture, intensity,
-         duration, ssim, 1 if is_edited else 0, time.time()),
+         duration, ssim, 1 if is_edited else 0, 1 if is_light else 0, time.time()),
     )
 
 
-def history_generation_stats(since: float | None = None, until: float | None = None) -> dict:
-    """Rooms generated and how long they took, over the history table.
+def history_generation_stats(
+    culture: str | None = None, since: float | None = None, until: float | None = None
+) -> dict:
+    """Rooms generated, how long they took, and what they measured.
 
-    `averageSeconds` divides the sum of durations by the number of rows that
-    *have* one, not by the row count: every row saved before Duration existed is
-    null, and dividing by all of them would report an average far below any real
-    generation. `sampleSize` states how many rows backed the figure.
+    Two populations, deliberately, and the response names both so the dashboard
+    never has to guess which denominator a figure used:
+
+      * `roomsGenerated` — every design saved inside the filters. This is "what
+        did people make", so an edited or preview design still counts.
+      * everything else — the pipeline's own unedited, non-placeholder output.
+        A colour-corrected render measures the edit, and a DARDESIGN_LIGHT tint
+        returns in milliseconds; averaging either into generation time or SSIM
+        reports something the model never did.
+
+    Each average divides by the rows that *have* the value, not by the row
+    count, and ships its own sample size: rows saved before a column existed are
+    null, and counting them in a denominator drags every figure toward zero.
     """
-    where, args = _generation_filters(since, until)
+    where_all, args_all = _history_filters(culture, since, until)
+    totals = _query(
+        "SELECT COUNT(*) AS saved,"
+        " SUM(CASE WHEN IsEdited = 1 THEN 1 ELSE 0 END) AS edited,"
+        " SUM(CASE WHEN IsLight = 1 AND IsEdited = 0 THEN 1 ELSE 0 END) AS light"
+        f" FROM history{where_all}",
+        args_all,
+    )[0]
+
+    where, args = _history_filters(culture, since, until, pipeline_only=True)
     row = _query(
         "SELECT COUNT(*) AS rooms, SUM(Duration) AS totalSeconds,"
         " COUNT(Duration) AS timed, MIN(Duration) AS minSeconds, MAX(Duration) AS maxSeconds,"
@@ -667,7 +697,14 @@ def history_generation_stats(since: float | None = None, until: float | None = N
         return round(float(v), 1) if v is not None else None
 
     return {
-        "roomsGenerated": rooms,
+        # Every design saved inside the filters, edits and placeholders included:
+        # a recoloured render is still a room somebody generated.
+        "roomsGenerated": int(totals["saved"] or 0),
+        # The corpus every figure below is drawn from, so a card printing an
+        # average can print the population it came from beside it.
+        "evaluableDesigns": rooms,
+        "editedExcluded": int(totals["edited"] or 0),
+        "lightExcluded": int(totals["light"] or 0),
         "averageSeconds": round(total / timed, 1) if timed else None,
         "totalSeconds": round(total, 1) if total is not None else None,
         "fastestSeconds": num("minSeconds"),
@@ -680,6 +717,40 @@ def history_generation_stats(since: float | None = None, until: float | None = N
         "lpipsSampleSize": int(row["lpipsMeasured"] or 0),
         "averageClipScore": round(float(row["avgClip"]), 3) if row["avgClip"] is not None else None,
         "clipSampleSize": int(row["clipMeasured"] or 0),
+    }
+
+
+def evaluation_coverage(
+    culture: str | None = None, since: float | None = None, until: float | None = None
+) -> dict:
+    """How complete the evaluation data is, over the same filtered corpus.
+
+    The honest companion to the averages: "SSIM 6/6, ratings 4/6" says at a
+    glance that the cultural score rests on four opinions while the structural
+    one rests on six. Without it two figures printed side by side look equally
+    well supported.
+
+    Counted from the rows themselves — a design deleted from history leaves both
+    the numerator and the denominator in the same instant.
+    """
+    where, args = _history_filters(culture, since, until, pipeline_only=True, alias="h")
+    row = _query(
+        "SELECT COUNT(*) AS total, COUNT(h.Ssim) AS ssim, COUNT(h.Lpips) AS lpips,"
+        " COUNT(h.ClipScore) AS clip, COUNT(h.PredictedCulture) AS predicted,"
+        " COUNT(h.Duration) AS timed, COUNT(f.Id) AS rated"
+        " FROM history h LEFT JOIN feedback f ON f.HistoryId = h.Id"
+        f"{where}",
+        args,
+    )[0]
+    total = int(row["total"] or 0)
+    return {
+        "total": total,
+        "ssim": int(row["ssim"] or 0),
+        "lpips": int(row["lpips"] or 0),
+        "clip": int(row["clip"] or 0),
+        "predicted": int(row["predicted"] or 0),
+        "timed": int(row["timed"] or 0),
+        "rated": int(row["rated"] or 0),
     }
 
 
@@ -712,11 +783,12 @@ def history_needing_evaluation(limit: int = 500) -> list[dict]:
 
     Edited designs are skipped: colour control and furniture placement change
     the image after generation, so measuring one would score the edit rather
-    than the pipeline.
+    than the pipeline. LIGHT placeholders are skipped for the same reason —
+    measuring a tint against its input is a number about the tint.
     """
     rows = _query(
         "SELECT Id, OldImageUrl, NewImageUrl, Culture, Ssim FROM history"
-        " WHERE IsEdited = 0 AND (Lpips IS NULL OR ClipScore IS NULL)"
+        " WHERE IsEdited = 0 AND IsLight = 0 AND (Lpips IS NULL OR ClipScore IS NULL)"
         " ORDER BY Id DESC LIMIT ?",
         (limit,),
     )
@@ -727,31 +799,44 @@ def history_needing_evaluation(limit: int = 500) -> list[dict]:
     ]
 
 
-def culture_confusion(since: float | None = None, until: float | None = None) -> dict:
-    """Intended culture vs CLIP's prediction, over saved designs.
+def culture_confusion(
+    culture: str | None = None, since: float | None = None, until: float | None = None
+) -> dict:
+    """Intended culture vs CLIP's zero-shot prediction, over saved designs.
+
+    This is a *model* recognition result, not a human judgement, so it is drawn
+    from the same pipeline-only corpus as SSIM/LPIPS/CLIP — a recoloured render
+    that CLIP no longer recognises would otherwise be charged to the generator.
 
     Reads live from `history`, so a deleted design leaves the matrix in the same
     instant it leaves the gallery — there is no second copy to keep in step.
+    Selecting a culture keeps that culture's row: the question becomes "what is
+    Lebanese mistaken for", which is exactly the per-culture read.
+
+    `rowTotals` is returned rather than left to the caller so the count and the
+    percentage in each cell are divided by the same number the backend used.
     """
-    where, args = _generation_filters(since, until)
-    clause = " AND " if where else " WHERE "
+    where, args = _history_filters(culture, since, until, pipeline_only=True)
     rows = _query(
         "SELECT Culture AS intended, PredictedCulture AS predicted, COUNT(*) AS n"
-        f" FROM history{where}{clause}"
-        " Culture IS NOT NULL AND PredictedCulture IS NOT NULL"
+        f" FROM history{where}"
+        " AND Culture IS NOT NULL AND PredictedCulture IS NOT NULL"
         " GROUP BY Culture, PredictedCulture",
         args,
     )
     matrix: dict[str, dict[str, int]] = {}
+    row_totals: dict[str, int] = {}
     total = correct = 0
     for r in rows:
         n = int(r["n"])
         matrix.setdefault(r["intended"], {})[r["predicted"]] = n
+        row_totals[r["intended"]] = row_totals.get(r["intended"], 0) + n
         total += n
         if r["intended"] == r["predicted"]:
             correct += n
     return {
         "matrix": matrix,
+        "rowTotals": row_totals,
         "total": total,
         "correct": correct,
         # None rather than 0 when nothing is classified: an accuracy of zero is a
@@ -839,15 +924,46 @@ def evaluation_summary() -> list[dict]:
     ]
 
 
-def _generation_filters(since: float | None, until: float | None) -> tuple[str, list[Any]]:
+def _history_filters(
+    culture: str | None = None,
+    since: float | None = None,
+    until: float | None = None,
+    *,
+    pipeline_only: bool = False,
+    alias: str = "",
+) -> tuple[str, list[Any]]:
+    """The one WHERE clause every dashboard query over `history` is built from.
+
+    One helper rather than a clause per query is what makes the evaluation
+    dashboard's filters trustworthy: the KPI cards, the model metrics, the
+    coverage counts and the confusion matrix are then reading provably the same
+    population, because they are reading the same SQL. The previous version
+    took only dates, which is why selecting a culture moved the rating panels
+    and left every history-derived figure showing the global number.
+
+    `pipeline_only` narrows to designs that are the pipeline's own output: no
+    colour or furniture edit, and not a DARDESIGN_LIGHT placeholder. Anything
+    describing model quality or generation speed sets it; a count of what users
+    actually saved does not.
+
+    `alias` qualifies the columns for queries that join another table — without
+    it `Culture` and `CreatedAt` are ambiguous against `feedback`.
+    """
+    p = f"{alias}." if alias else ""
     clauses: list[str] = []
     args: list[Any] = []
+    if culture:
+        clauses.append(f"{p}Culture = ?")
+        args.append(culture)
     if since is not None:
-        clauses.append("CreatedAt >= ?")
+        clauses.append(f"{p}CreatedAt >= ?")
         args.append(since)
     if until is not None:
-        clauses.append("CreatedAt <= ?")
+        clauses.append(f"{p}CreatedAt <= ?")
         args.append(until)
+    if pipeline_only:
+        clauses.append(f"{p}IsEdited = 0")
+        clauses.append(f"{p}IsLight = 0")
     return (" WHERE " + " AND ".join(clauses) if clauses else ""), args
 
 
@@ -1002,6 +1118,7 @@ def _history_row(r: sqlite3.Row) -> dict:
         "clipScore": r["ClipScore"] if "ClipScore" in keys else None,
         "predictedCulture": r["PredictedCulture"] if "PredictedCulture" in keys else None,
         "isEdited": bool(r["IsEdited"]) if "IsEdited" in keys else False,
+        "isLight": bool(r["IsLight"]) if "IsLight" in keys else False,
         # The rating this design already has, when the caller joined it in.
         # Null means nobody has rated it — displayed as "not rated", never as 0.
         "rating": _rating_from_row(r),
@@ -1158,10 +1275,15 @@ def list_feedback(
 
 
 def feedback_by_culture(
-    since: float | None = None, until: float | None = None
+    culture: str | None = None, since: float | None = None, until: float | None = None
 ) -> list[dict]:
-    """Per-culture breakdown, so the admin view can show where a culture is weak."""
-    where, args = _feedback_filters(None, since, until)
+    """Per-culture breakdown, so the admin view can show where a culture is weak.
+
+    Takes the same `culture` as every other aggregate: with one selected the
+    comparison narrows to that row instead of continuing to chart all three
+    beside a KPI strip that has already narrowed.
+    """
+    where, args = _feedback_filters(culture, since, until)
     rows = _query(
         "SELECT f.Culture AS culture, COUNT(*) AS total,"
         " AVG(f.CulturalAccuracy) AS avgCultural,"

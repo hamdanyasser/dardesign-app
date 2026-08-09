@@ -105,3 +105,6 @@ backend/dardesign.db-shm
 
 # SMTP settings for the subscription decision emails — holds an app password
 .dardesign-smtp
+
+# throwaway databases and corpora from scripts/seed_eval_demo.py
+.tmp/
