@@ -72,13 +72,11 @@ export default function AdminUsersPage() {
   return (
     <GalleryShell
       title={t("Users", "المستخدمون")}
-      subtitle={t(
-        `${users.length} accounts · ${proCount} on Pro`,
-        `${users.length} حساباً · ${proCount} على الخطة الاحترافية`,
-      )}
+      subtitle={t(`${proCount} on Pro`, `${proCount} على الخطة الاحترافية`)}
+      eyebrow={t(`ADMIN · ${users.length} ACCOUNTS`, `إدارة · ${users.length} حساباً`)}
     >
       {error && (
-        <p className="mb-6 rounded-lg border border-[var(--error)]/40 bg-[var(--error)]/10 px-3 py-2 text-sm text-[var(--error)]">
+        <p className="mb-6 border-s-2 border-[var(--error)] ps-3 text-sm text-[var(--error)]">
           {error}
         </p>
       )}
@@ -98,11 +96,12 @@ export default function AdminUsersPage() {
         </p>
       ) : (
         // The table is wider than a phone; it scrolls inside its own box so the
-        // page itself never scrolls sideways.
-        <div className="overflow-x-auto rounded-2xl border border-[var(--dd-gold-dim)]/25 bg-[var(--dd-surface)]">
-          <table className="w-full min-w-[52rem] text-sm" dir={isArabic ? "rtl" : "ltr"}>
+        // page itself never scrolls sideways. A1: a plain hairline table, no
+        // card wrapper.
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[52rem] border-collapse text-sm" dir={isArabic ? "rtl" : "ltr"}>
             <thead>
-              <tr className="border-b border-[var(--dd-gold-dim)]/25 text-xs uppercase tracking-wide text-[var(--dd-text-secondary)]">
+              <tr className="border-b border-[var(--dd-border)] bg-[var(--dd-text)]/[0.025]">
                 <Th>{t("User", "المستخدم")}</Th>
                 <Th>{t("Role", "الدور")}</Th>
                 <Th>{t("Plan", "الخطة")}</Th>
@@ -113,41 +112,59 @@ export default function AdminUsersPage() {
                 <Th>{t("Joined", "تاريخ الانضمام")}</Th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-[var(--dd-gold-dim)]/15">
+            <tbody>
               {users.map((u) => (
-                <tr key={u.id} className="text-[var(--dd-text-soft)]">
-                  <Td>
-                    <span className="font-medium">{u.fullName}</span>
-                    <span className="block text-xs text-[var(--dd-text-secondary)]">{u.email}</span>
-                  </Td>
-                  <Td>{u.role === "Admin" ? t("Admin", "مشرف") : t("User", "مستخدم")}</Td>
+                <tr key={u.id} className="border-b border-[var(--dd-border)] text-[var(--dd-text-soft)]">
                   <Td>
                     <span
                       className={cn(
-                        "rounded-full border px-2 py-0.5 text-xs",
-                        u.isSubscribed
-                          ? "border-[var(--dd-gold)]/60 text-[var(--dd-gold)]"
-                          : "border-[var(--dd-gold-dim)]/40 text-[var(--dd-text-secondary)]",
+                        "text-[14px]",
+                        isArabic ? "font-editorial-ar font-normal" : "font-editorial font-normal",
                       )}
                     >
-                      {u.isSubscribed ? t("Pro", "احترافية") : t("Basic", "أساسية")}
+                      {u.fullName}
                     </span>
+                    <span className="block text-xs text-[var(--dd-text-secondary)]">{u.email}</span>
                   </Td>
-                  <Td>{fmt(u.planStartedAt)}</Td>
-                  <Td>{fmt(u.planExpiryDate)}</Td>
-                  <Td>
+                  <Td mono>
+                    <span
+                      aria-hidden
+                      className={cn(
+                        "inline-block h-1.5 w-1.5 rounded-full",
+                        isArabic ? "ms-1.5" : "me-1.5",
+                      )}
+                      style={{
+                        background: u.role === "Admin" ? "var(--dd-gold)" : "var(--dd-text-secondary)",
+                      }}
+                    />
+                    {u.role === "Admin" ? t("ADMIN", "مشرف") : t("USER", "مستخدم")}
+                  </Td>
+                  <Td mono>{u.isSubscribed ? t("PRO", "احترافية") : t("BASIC", "أساسية")}</Td>
+                  <Td mono muted={!u.isSubscribed}>
+                    {fmt(u.planStartedAt)}
+                  </Td>
+                  <Td mono muted={!u.isSubscribed}>
+                    {fmt(u.planExpiryDate)}
+                  </Td>
+                  <Td mono>
                     {/* Pro has no weekly limit, so the count is shown on its own
                         rather than out of a maximum that does not apply. */}
                     {u.isSubscribed
                       ? `${u.numberOfUses}`
                       : `${u.numberOfUses} / ${terms?.basicWeeklyLimit ?? 3}`}
                   </Td>
-                  <Td>{u.designsSaved}</Td>
-                  <Td>{fmt(u.createdAt)}</Td>
+                  <Td mono>{u.designsSaved}</Td>
+                  <Td mono>{fmt(u.createdAt)}</Td>
                 </tr>
               ))}
             </tbody>
           </table>
+          <p className="font-editorial-mono mt-4 text-[9px] text-[var(--dd-text-secondary)]">
+            {t(
+              "Basic accounts print — for plan dates, never today's date.",
+              "تُظهر الحسابات الأساسية — لتواريخ الخطة، لا تاريخ اليوم أبداً.",
+            )}
+          </p>
         </div>
       )}
     </GalleryShell>
@@ -155,9 +172,31 @@ export default function AdminUsersPage() {
 }
 
 function Th({ children }: { children: React.ReactNode }) {
-  return <th className="whitespace-nowrap px-4 py-3 text-start font-medium">{children}</th>;
+  return (
+    <th className="font-editorial-mono whitespace-nowrap px-4 py-3 text-start text-[9.5px] text-[var(--dd-text-secondary)]">
+      {children}
+    </th>
+  );
 }
 
-function Td({ children }: { children: React.ReactNode }) {
-  return <td className="whitespace-nowrap px-4 py-3 text-start align-top">{children}</td>;
+function Td({
+  children,
+  mono,
+  muted,
+}: {
+  children: React.ReactNode;
+  mono?: boolean;
+  muted?: boolean;
+}) {
+  return (
+    <td
+      className={cn(
+        "whitespace-nowrap px-4 py-3 text-start align-top",
+        mono && "font-editorial-mono text-[11px]",
+        muted && "text-[var(--dd-text-secondary)]",
+      )}
+    >
+      {children}
+    </td>
+  );
 }

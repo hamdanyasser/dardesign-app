@@ -38,6 +38,12 @@ export const MotifTiles: Record<MotifTileId, FC> = {
       </g>
     </svg>
   ),
+  // Interlocking square + 45°-rotated square (an 8-pointed geometric lattice,
+  // not a star silhouette) — the same construction as the approved design-doc
+  // reference motif for Moroccan. The previous version here was a literal
+  // 5-pointed star shape, which reads as a flag emblem — exactly the national-
+  // flag reference this motif system exists to retire. Outlines only, no
+  // filled star, so there is no silhouette to mistake for one.
   zellige: () => (
     <svg viewBox="0 0 100 100" preserveAspectRatio="xMidYMid slice">
       <rect width="100" height="100" fill="#1f4287" />
@@ -45,15 +51,17 @@ export const MotifTiles: Record<MotifTileId, FC> = {
         {[0, 50].map((y) =>
           [0, 50].map((x) => (
             <g key={`${x}-${y}`} transform={`translate(${x + 25} ${y + 25})`}>
-              <path
-                d="M0 -18 L5 -5 L18 -5 L8 4 L12 18 L0 10 L-12 18 L-8 4 L-18 -5 L-5 -5 Z"
-                fill="#ede4d2"
+              <rect x="-14" y="-14" width="28" height="28" fill="none" stroke="#ede4d2" strokeWidth="1.2" />
+              <rect
+                x="-14" y="-14" width="28" height="28" fill="none" stroke="#ede4d2" strokeWidth="1.2"
+                transform="rotate(45)"
               />
-              <path
-                d="M0 -10 L3 -3 L10 -3 L5 2 L7 10 L0 6 L-7 10 L-5 2 L-10 -3 L-3 -3 Z"
-                fill="#c44a36"
+              <rect x="-7" y="-7" width="14" height="14" fill="none" stroke="#c44a36" strokeWidth="0.9" opacity="0.85" />
+              <rect
+                x="-7" y="-7" width="14" height="14" fill="none" stroke="#c44a36" strokeWidth="0.9" opacity="0.85"
+                transform="rotate(45)"
               />
-              <circle r="2.5" fill="#d4a24a" />
+              <circle r="2" fill="#d4a24a" />
             </g>
           ))
         )}

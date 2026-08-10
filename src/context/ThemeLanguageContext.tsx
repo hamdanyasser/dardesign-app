@@ -5,10 +5,22 @@ import React, {
   useCallback,
   useContext,
   useEffect,
+  useLayoutEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import type { StyleId } from "@/context/ImageContext";
+
+/* useEffect fires after the browser paints, so restoring language/theme
+   state there let the first frame render in English/dark before flipping —
+   a visible flash even though the inline script in layout.tsx had already
+   set the *attributes* correctly pre-paint. useLayoutEffect corrects the
+   state before that first paint instead. It's a no-op during SSR (no
+   `window`), which is exactly when we must not run it — the guard avoids
+   React's server-side useLayoutEffect warning. */
+const useIsomorphicLayoutEffect =
+  typeof window !== "undefined" ? useLayoutEffect : useEffect;
 
 export type Language = "en" | "ar";
 export type Theme = "dark" | "light";
@@ -26,7 +38,6 @@ type StepCopy = {
 };
 
 type StyleCopy = {
-  flag: string;
   name: string;
   selectorDescription: string;
   origin: string;
@@ -227,7 +238,6 @@ const translations = {
     shared: {
       styles: {
         lebanese: {
-          flag: "🇱🇧",
           name: "Lebanese",
           selectorDescription: "Stone arches · Warm limestone · Cedar warmth",
           origin: "Lebanese Heritage · التراث اللبناني",
@@ -237,7 +247,6 @@ const translations = {
           learnMore: "Learn More",
         },
         khaleeji: {
-          flag: "🇸🇦",
           name: "Khaleeji",
           selectorDescription:
             "Majlis seating · Gold accents · Geometric elegance",
@@ -248,7 +257,6 @@ const translations = {
           learnMore: "Learn More",
         },
         moroccan: {
-          flag: "🇲🇦",
           name: "Moroccan",
           selectorDescription:
             "Zellige tiles · Carved plaster · Vibrant color",
@@ -400,7 +408,6 @@ const translations = {
     shared: {
       styles: {
         lebanese: {
-          flag: "🇱🇧",
           name: "لبناني",
           selectorDescription: "أقواس حجرية · حجر دافئ · خشب أرز",
           origin: "التراث اللبناني · Lebanese Heritage",
@@ -410,7 +417,6 @@ const translations = {
           learnMore: "اعرف المزيد",
         },
         khaleeji: {
-          flag: "🇸🇦",
           name: "خليجي",
           selectorDescription: "مجالس فاخرة · لمسات ذهبية · هندسة أنيقة",
           origin: "التراث الخليجي · Gulf Heritage",
@@ -420,7 +426,6 @@ const translations = {
           learnMore: "اعرف المزيد",
         },
         moroccan: {
-          flag: "🇲🇦",
           name: "مغربي",
           selectorDescription: "زليج · جص منقوش · ألوان نابضة",
           origin: "التراث المغربي · Moroccan Heritage",
@@ -509,26 +514,89 @@ function getNestedString(source: Record<string, unknown>, key: string): string {
   return typeof value === "string" ? value : key;
 }
 
+/* Storage keys — must stay in sync with the inline restore script in
+   src/app/layout.tsx, which reads these before first paint. */
+const THEME_STORAGE_KEY = "dd-theme";
+const LANGUAGE_STORAGE_KEY = "dd-language";
+
 export function ThemeLanguageProvider({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  // Defaults must match the server-rendered <html> so hydration matches.
+  // The real values are read from localStorage on mount (see below); the
+  // blocking inline script in layout.tsx has already applied them to <html>
+  // before first paint, so the user never sees the wrong theme.
   const [language, setLanguage] = useState<Language>("en");
   const [theme, setTheme] = useState<Theme>("dark");
+  const [restored, setRestored] = useState(false);
+  const themeAnimTimer = useRef<number | undefined>(undefined);
 
+  // Don't leave a pending timer (or a stuck data-theme-anim) behind on unmount.
+  useEffect(
+    () => () => {
+      window.clearTimeout(themeAnimTimer.current);
+      document.documentElement.removeAttribute("data-theme-anim");
+    },
+    []
+  );
+
+  // Restore once, on mount, before the browser paints (see
+  // useIsomorphicLayoutEffect above). Never read localStorage during
+  // render — it breaks SSR.
+  useIsomorphicLayoutEffect(() => {
+    try {
+      const storedTheme = window.localStorage.getItem(THEME_STORAGE_KEY);
+      if (storedTheme === "dark" || storedTheme === "light") {
+        setTheme(storedTheme);
+      } else if (window.matchMedia?.("(prefers-color-scheme: light)").matches) {
+        setTheme("light");
+      }
+
+      const storedLanguage = window.localStorage.getItem(LANGUAGE_STORAGE_KEY);
+      if (storedLanguage === "en" || storedLanguage === "ar") {
+        setLanguage(storedLanguage);
+      }
+    } catch {
+      // Private mode / storage disabled — fall back to the defaults above.
+    }
+    setRestored(true);
+  }, []);
+
+  // Mirror to <html> and persist. Gated on `restored` so this effect cannot
+  // stomp the inline script's correct value with the default on first paint.
   useEffect(() => {
+    if (!restored) return;
+
     const html = document.documentElement;
     html.setAttribute("lang", language);
     html.setAttribute("dir", language === "ar" ? "rtl" : "ltr");
     html.setAttribute("data-theme", theme);
-  }, [language, theme]);
+
+    try {
+      window.localStorage.setItem(THEME_STORAGE_KEY, theme);
+      window.localStorage.setItem(LANGUAGE_STORAGE_KEY, language);
+    } catch {
+      // Persistence is best-effort; the in-memory state still drives the UI.
+    }
+  }, [language, theme, restored]);
 
   const toggleLanguage = useCallback(() => {
     setLanguage((current) => (current === "en" ? "ar" : "en"));
   }, []);
 
   const toggleTheme = useCallback(() => {
+    // Arm the global colour cross-fade for the length of the switch only.
+    // globals.css keys the 300ms transition off this attribute so hovers and
+    // page loads aren't dragged to 300ms too. See the note there.
+    const html = document.documentElement;
+    html.setAttribute("data-theme-anim", "");
+    window.clearTimeout(themeAnimTimer.current);
+    themeAnimTimer.current = window.setTimeout(() => {
+      html.removeAttribute("data-theme-anim");
+    }, 320);
+
     setTheme((current) => (current === "dark" ? "light" : "dark"));
   }, []);
 

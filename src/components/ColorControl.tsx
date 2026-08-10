@@ -18,8 +18,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Check, Eye, Loader2, Paintbrush, RotateCcw, Undo2, X } from "lucide-react";
 import { useThemeLanguage } from "@/context/ThemeLanguageContext";
 import {
-  ApiError,
   applyRecolor,
+  describeEditError,
   fetchColorState,
   previewRecolor,
   resetRecolor,
@@ -126,16 +126,11 @@ export default function ColorControl({ jobId, style, imageSrc, onImageChange }: 
     [availability, target],
   );
 
-  const fail = useCallback(
-    (e: unknown) => {
-      if (e instanceof ApiError) {
-        setError({ en: e.message_en, ar: e.message_ar });
-      } else {
-        setError({ en: "Could not change the colour.", ar: "تعذّر تغيير اللون." });
-      }
-    },
-    [],
-  );
+  const fail = useCallback((e: unknown) => {
+    setError(
+      describeEditError(e, { en: "Could not change the colour.", ar: "تعذّر تغيير اللون." }),
+    );
+  }, []);
 
   const run = useCallback(
     async (kind: Exclude<Busy, null>) => {

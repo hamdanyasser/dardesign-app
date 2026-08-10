@@ -148,8 +148,6 @@ All colors are defined via `--dd-*` variables in `globals.css` under `@layer bas
 | `.noise-overlay::before` | SVG feTurbulence noise texture at 3% opacity |
 | `.shimmer-btn` | Gold gradient button with animated shimmer highlight |
 | `.upload-zone-dashed` | Dashed border dropzone with hover/dragover gold border |
-| `.style-card-base` | Base style card with surface bg + border |
-| `.style-card-selected` | Gold border + glow shadow on selected card |
 | `.glass-panel` | Glassmorphism with backdrop-blur |
 | `.hero-mesh` | Animated radial gradient mesh background |
 | `.floating-shape` | Animated floating hexagon/diamond/circle decorations |
@@ -173,6 +171,24 @@ All colors are defined via `--dd-*` variables in `globals.css` under `@layer bas
 | `float-shape` | variable | Floating decorative elements |
 | `marquee` | 25s loop | Social proof horizontal scroll |
 
+### Visual direction (frozen 2026-08-10)
+
+Three intensities of one identity — same palette, type and material logic, differing only in how much spatial drama vs. drawing-instrument language each surface carries. Source of truth: Claude Design project "DAR Design — Contemporary Arab Architectural Editorial" (`00 Design Context.dc.html` + `A1/A2/A3 *.dc.html`).
+
+| Variant | Character | Governs | Signature move |
+|---|---|---|---|
+| A1 | Editorial Minimal | History · Others · Auth · Subscription · Admin | Type and hairline rules carry everything; image small, whitespace large |
+| A2 | Cinematic Editorial | Landing · Studio · Result | Image is the page; type sits over/beside it at scale |
+| A3 | Technical Editorial | Understand · Evaluation | Drawing sheet: dimension ticks, leader lines, mono annotation |
+
+Shared, non-negotiable: hairline rules instead of card borders; one radius family (2/6/14px, never pill except toggles); no drop shadows except one cinematic lift on hero imagery; mono restricted to metric values/dimensions/durations/codes, never headings/body/buttons/nav; em-dash (never a fabricated zero) for any unmeasured figure.
+
+A1/A2/A3 are implemented across the app: Landing/Studio/Result carry A2 (CinemaChrome, Studio tabs, the material culture picker), and History/Others/Subscription/Admin Users/Admin Subscriptions/Login/Register carry A1's concrete patterns (hairline-only entries, diamond-shaped ratings, underline-only auth inputs, non-card subscription rows, plain hairline admin tables). Evaluation's A3 restructure (01–04 sectioning) is tracked separately below.
+
+Known tensions in the source material itself (not yet reconciled, currently resolved in code by favoring the actual A1/A2 mockups over the context doc's prose summary): the context doc says "no glass" and "mono forbidden on nav/buttons," but the A2 mockup's own `.chrome` uses `backdrop-filter:blur`, and both A1 and A2 set `.nav`/`.btn` to the mono font. The current `CinemaChrome` scrim (`backdrop-filter: blur(8px)`, replacing an unreadable `mix-blend-mode: difference`) is a deliberate, working legibility fix — kept as-is.
+
+**Flags retired (2026-08-10, completed).** The design context doc called national flag emoji "the single clearest thing to replace" with a material-stack + proportion-motif treatment. No flag emoji or flag-like imagery remains anywhere in the app. Studio's culture picker, the "All three" triptych, and the post-generation result tiles all render `MotifTiles[STYLE_MOTIF[id]]` (`src/components/cinema/svg/MotifTiles.tsx` — qanater for Lebanese, majlis for Khaleeji, zellige for Moroccan; the "Original" result tile keeps its house icon — it isn't a culture). The Moroccan `zellige` tile was itself rebuilt: it was a literal 5-pointed star shape, which reads as a flag emblem rather than tessellation — replaced with the design doc's own reference construction (a square + the same square rotated 45°, i.e. an 8-pointed geometric lattice, outline only, no filled star silhouette). The dead `style-card.tsx`/`style-selector.tsx` pair (unreachable — their only caller was the retired `/transform` flow) has been deleted rather than left as unused code, along with its orphaned `.style-card-base`/`.style-card-selected` CSS and `ThemeLanguageContext`'s `StyleCopy.flag` field.
+
 ---
 
 ## Component API Reference
@@ -194,23 +210,6 @@ Renders `<Link>` when `href` provided (and not disabled), otherwise `<button>`.
 />
 ```
 Validates: image type + max 10MB. Shows preview with remove button when image is set.
-
-### StyleCard
-```tsx
-<StyleCard
-  id="lebanese" flag="🇱🇧" name="Lebanese" description="..."
-  selected={boolean} onSelect={(id) => void}
-/>
-```
-
-### StyleSelector
-```tsx
-<StyleSelector
-  selectedStyle={string | null}
-  onStyleSelect={(style: string) => void}
-/>
-```
-Renders 3 cards from `styleOrder` array. Pulls copy from `copy.shared.styles[styleId]`.
 
 ### LoadingScreen
 ```tsx
@@ -268,13 +267,13 @@ Every component uses `const { copy, isArabic } = useThemeLanguage()` and:
 
 ## Three Styles
 
-| ID | Flag | English Name | Arabic Name |
-|----|------|-------------|-------------|
-| `lebanese` | 🇱🇧 | Lebanese | لبناني |
-| `khaleeji` | 🇦🇪 | Khaleeji | خليجي |
-| `moroccan` | 🇲🇦 | Moroccan | مغربي |
+| ID | Motif (`MotifTiles` key) | English Name | Arabic Name |
+|----|---------------------------|-------------|-------------|
+| `lebanese` | `qanater` — triple-arch, limestone/cedar | Lebanese | لبناني |
+| `khaleeji` | `majlis` — brass lamp, deep-shadow bench | Khaleeji | خليجي |
+| `moroccan` | `zellige` — cobalt tessellation | Moroccan | مغربي |
 
-Each style has: `flag`, `name`, `selectorDescription`, `origin`, `landingDescription`, `tags[]`, `learnMore` — defined in both EN and AR translations.
+Each style has: `name`, `selectorDescription`, `origin`, `landingDescription`, `tags[]`, `learnMore` — defined in both EN and AR translations. (A `flag` field used to live here; removed along with the rest of the flag system — see "Flags retired" above.)
 
 A 4th culture, `persian` (فارسي), is **prompt-only** and restyle-only — it exists in the backend `StylePack`/ontology and the intensity slider, but not in the core `StyleId`, `/redesign`, or the landing copy.
 
@@ -283,7 +282,7 @@ A 4th culture, `persian` (فارسي), is **prompt-only** and restyle-only — i
 ## Known Decisions
 
 - **Backend lives in [backend/](backend/):** FastAPI service with `/upload`, `/transform`, `/status`, `/result`, `/retry`, `/share`. Real SDXL + dual ControlNet pipeline in [backend/transform.py](backend/transform.py). Set `DARDESIGN_LIGHT=1` for placeholder-PNG mode without a GPU.
-- **No localStorage:** Theme and language state reset on page reload (context-only persistence).
+- **Theme/language persist via localStorage** (`dd-theme`, `dd-language` keys): a blocking inline script in `layout.tsx` reads them and sets `data-theme`/`lang`/`dir` on `<html>` before first paint (avoids a flash of the wrong theme), and `ThemeLanguageProvider` restores the same keys into React state on mount, gated so it can't stomp the inline script's value. Keep the storage keys in sync between the two if either changes.
 - **No next/image:** Using `<img>` elements because blob URLs and SVG data URIs are incompatible with Next.js image optimization. ESLint warnings for this are expected.
 - **All client components:** Every page and component uses `"use client"` since they depend on context providers.
 
@@ -329,3 +328,21 @@ Demo path: `/` (DarCinema landing, CTA → `/studio`) → **`/studio`** (upload 
 - Output → `models/loras/<culture>/dardesign-<culture>-lora.safetensors` (+ checkpoints at 500/1000/1500). The backend lazy-loads it from `models/loras/<culture>/` — no code change. **Lebanese is trained** (hero, 19 imgs); Khaleeji/Moroccan (12–14 imgs) are prompt-only-acceptable per the cut order.
 - **Deployed Lebanese checkpoint is step1500**, verified by hash (2026-08-02): `_save_checkpoint` copies *every* checkpoint over the canonical filename, so the last one written (step1500) is what `dardesign-lebanese-lora.safetensors` contains — the step1000 pick described in `kaggle/TRAIN_NOW.md` §3 was never applied. Kept deliberately: step1500 generalises across different input rooms in practice, so the "1500 may be baked-in" note was a pre-render precaution, not an observed failure. No side-by-side step1000-vs-1500 comparison has been run — don't claim one.
 - `kaggle/TRAIN_NOW.md` = paste-into-cell runbook; `push_kernel.py` (repo root) pushes a self-contained training kernel via the Kaggle REST API (KGAT bearer token — the old `kaggle` CLI can't read it).
+
+---
+
+## UI / Frontend tooling
+
+MCP servers configured for this project (see `.mcp.json` for project scope, `~/.claude.json` for user scope).
+
+- **Chrome DevTools** (`mcp__chrome-devtools__*`, user scope) — inspect the *rendered* app rather than guessing from source. Use it to read the DOM, the console, computed CSS, network activity, and to run performance/accessibility checks. After any meaningful visual change, verify it in Chrome at the relevant viewport and check the console for errors. It launches its own Chrome profile (`~/.cache/chrome-devtools-mcp/`), so it does not touch personal browsing; keep it pointed at `localhost` unless told otherwise.
+- **Context7** (`mcp__plugin_context7_context7__*`, user scope) — fetch *current* framework/library documentation instead of relying on model memory. Use whenever Next.js, React, Tailwind, or three.js behaviour matters.
+- **shadcn** (`mcp__shadcn__*`, project scope) — discover robust, accessible primitives. The registry tools need the registry passed explicitly (`registries: ["@shadcn"]`); they do not auto-resolve it.
+- **Figma** (`mcp__figma__*`, user scope) — use when working from approved design-system or design context.
+
+Rules:
+
+- Preserve DarDesign's custom architectural/cinematic identity. Do **not** turn it into a generic shadcn/SaaS template.
+- Never install a component or major dependency just because a registry offers it — first show that it improves on what exists.
+- The theme is driven entirely by CSS variables under `[data-theme]`; there are **no Tailwind `dark:` utilities** and `tailwind.config.ts` sets no `darkMode`. Adding a `dark:` class would silently follow the OS setting rather than the app toggle. Stay with the CSS-variable system.
+- `--ink` means *page background* in `cinema.css` but *text colour* in `dar-cinema.css`; the latter is scoped under `.dar-cinema`. Keep that scoping intact.

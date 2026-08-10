@@ -9,6 +9,11 @@
  * distinction is the whole point of the page — an FYP panel cannot tell a real
  * 0.0 from a placeholder 0.0, so we never print one.
  *
+ * Organised as a drawing-sheet reads: 01 the human judgement, 02 the objective
+ * image-quality measurements, 03 whether CLIP recognises what was asked for,
+ * 04 the operational numbers behind it. Same data as before — this file only
+ * changed how it's grouped and drawn.
+ *
  * Admin-only, because the feedback table carries other people's comments.
  */
 
@@ -135,110 +140,108 @@ export default function EvaluationPage() {
   const gen = report?.generation;
   const confusion = report?.confusion;
   const noData = t("Not measured yet", "لم يُقَس بعد");
+  const isEmpty = (gen?.roomsGenerated ?? 0) === 0 && (stats?.total ?? 0) === 0;
 
   return (
     // Same shell as History and Others' Work: it carries the nav, the language
     // toggle and the page chrome, so this page can't drift from the rest of the app.
     <GalleryShell
-      title={t("Evaluation dashboard", "لوحة التقييم")}
+      title={t("Evaluation", "التقييم")}
       subtitle={t(
         "System performance from stored data only — every saved design across all users, with its ratings and its measured metrics. Nothing on this page is sampled or estimated.",
         "أداء النظام من البيانات المخزَّنة فقط — كل تصميم محفوظ لكل المستخدمين، مع تقييماته ومقاييسه المحسوبة. لا شيء هنا مُقدَّر أو تجريبي.",
       )}
+      eyebrow={
+        report
+          ? t(
+              `${gen?.roomsGenerated ?? 0} GENERATED · ${stats?.total ?? 0} RATED`,
+              `${gen?.roomsGenerated ?? 0} تصميم · ${stats?.total ?? 0} تقييم`,
+            )
+          : undefined
+      }
     >
       <div>
         {/* ---------- filters ---------- */}
-        <section className="mb-8 rounded-2xl border border-gold/20 bg-[var(--dd-surface)] p-4">
-          <div className={cn("flex flex-wrap items-end gap-4", isArabic && "flex-row-reverse")}>
-            <div>
-              <span className="mb-2 block text-xs uppercase tracking-wide text-cream-muted">
-                {t("Culture", "الثقافة")}
-              </span>
-              <div className={cn("flex flex-wrap gap-2", isArabic && "flex-row-reverse")}>
-                {(["all", ...cultures] as CultureFilter[]).map((c) => (
-                  <button
-                    key={c}
-                    onClick={() => setCulture(c)}
-                    aria-pressed={culture === c}
-                    className={cn(
-                      "rounded-lg border px-3 py-1.5 text-sm transition",
-                      culture === c
-                        ? "border-gold bg-[var(--dd-surface-strong)] text-gold"
-                        : "border-gold/30 text-cream-muted hover:border-gold hover:text-gold",
-                      isArabic ? "font-arabic" : "font-ui",
-                    )}
-                  >
-                    {c === "all"
-                      ? t("All cultures", "كل الثقافات")
-                      : isArabic
-                        ? CULTURE_LABEL[c]?.ar ?? c
-                        : CULTURE_LABEL[c]?.en ?? c}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div className={cn("flex items-end gap-2", isArabic && "flex-row-reverse")}>
-              <label className="block">
-                <span className="mb-2 block text-xs uppercase tracking-wide text-cream-muted">
-                  {t("From", "من")}
-                </span>
-                <input
-                  type="date"
-                  value={from}
-                  onChange={(e) => setFrom(e.target.value)}
-                  className="rounded-lg border border-gold/30 bg-[var(--dd-surface-strong)] px-3 py-1.5 text-sm text-cream outline-none focus:border-gold"
-                />
-              </label>
-              <label className="block">
-                <span className="mb-2 block text-xs uppercase tracking-wide text-cream-muted">
-                  {t("To", "إلى")}
-                </span>
-                <input
-                  type="date"
-                  value={to}
-                  onChange={(e) => setTo(e.target.value)}
-                  className="rounded-lg border border-gold/30 bg-[var(--dd-surface-strong)] px-3 py-1.5 text-sm text-cream outline-none focus:border-gold"
-                />
-              </label>
-              {(from || to || culture !== "all") && (
+        <div className={cn("mb-8 flex flex-wrap items-end gap-5 border-b border-[var(--dd-border)] pb-6", isArabic && "flex-row-reverse")}>
+          <div>
+            <span className="font-editorial-mono mb-2 block text-[9px] text-[var(--dd-text-secondary)]">
+              {t("Culture", "الثقافة")}
+            </span>
+            <div className={cn("flex flex-wrap gap-1.5", isArabic && "flex-row-reverse")}>
+              {(["all", ...cultures] as CultureFilter[]).map((c) => (
                 <button
-                  onClick={() => {
-                    setCulture("all");
-                    setFrom("");
-                    setTo("");
-                  }}
+                  key={c}
+                  onClick={() => setCulture(c)}
+                  aria-pressed={culture === c}
                   className={cn(
-                    "rounded-lg border border-gold/30 px-3 py-1.5 text-sm text-cream-muted transition hover:border-gold hover:text-gold",
-                    isArabic ? "font-arabic" : "font-ui",
+                    "font-editorial-mono rounded-[2px] border px-2.5 py-1.5 text-[10px] transition",
+                    culture === c
+                      ? "border-[var(--dd-gold)] text-[var(--dd-gold)]"
+                      : "border-[var(--dd-border)] text-[var(--dd-text-secondary)] hover:border-[var(--dd-gold)] hover:text-[var(--dd-gold)]",
                   )}
                 >
-                  {t("Clear", "مسح")}
+                  {c === "all"
+                    ? t("ALL", "الكل")
+                    : (isArabic ? CULTURE_LABEL[c]?.ar ?? c : CULTURE_LABEL[c]?.en ?? c).toUpperCase()}
                 </button>
-              )}
+              ))}
             </div>
-
-            <button
-              onClick={() => void load()}
-              disabled={busy}
-              className={cn(
-                "flex items-center gap-2 rounded-lg border border-gold px-3 py-1.5 text-sm text-gold transition hover:bg-gold hover:text-[var(--dd-ink)] disabled:opacity-50",
-                isArabic ? "font-arabic flex-row-reverse" : "font-ui",
-              )}
-            >
-              <RefreshCw size={14} className={busy ? "animate-spin" : ""} />
-              {t("Refresh", "تحديث")}
-            </button>
           </div>
-        </section>
+
+          <div className={cn("flex items-end gap-2", isArabic && "flex-row-reverse")}>
+            <label className="block">
+              <span className="font-editorial-mono mb-2 block text-[9px] text-[var(--dd-text-secondary)]">
+                {t("From", "من")}
+              </span>
+              <input
+                type="date"
+                value={from}
+                onChange={(e) => setFrom(e.target.value)}
+                className="font-editorial-mono h-[34px] border-0 border-b border-[var(--dd-border)] bg-transparent px-1 text-xs text-[var(--dd-text)] outline-none focus:border-[var(--dd-gold)]"
+              />
+            </label>
+            <label className="block">
+              <span className="font-editorial-mono mb-2 block text-[9px] text-[var(--dd-text-secondary)]">
+                {t("To", "إلى")}
+              </span>
+              <input
+                type="date"
+                value={to}
+                onChange={(e) => setTo(e.target.value)}
+                className="font-editorial-mono h-[34px] border-0 border-b border-[var(--dd-border)] bg-transparent px-1 text-xs text-[var(--dd-text)] outline-none focus:border-[var(--dd-gold)]"
+              />
+            </label>
+            {(from || to || culture !== "all") && (
+              <button
+                onClick={() => {
+                  setCulture("all");
+                  setFrom("");
+                  setTo("");
+                }}
+                className="font-editorial-mono rounded-[2px] border border-[var(--dd-border)] px-2.5 py-1.5 text-[10px] text-[var(--dd-text-secondary)] transition hover:border-[var(--dd-gold)] hover:text-[var(--dd-gold)]"
+              >
+                {t("CLEAR", "مسح")}
+              </button>
+            )}
+          </div>
+
+          <button
+            onClick={() => void load()}
+            disabled={busy}
+            className={cn(
+              "font-editorial-mono flex items-center gap-1.5 rounded-[2px] border border-[var(--dd-gold)] px-2.5 py-1.5 text-[10px] text-[var(--dd-gold)] transition hover:bg-[var(--dd-gold)] hover:text-[var(--dd-ink)] disabled:opacity-50",
+              isArabic && "flex-row-reverse",
+            )}
+          >
+            <RefreshCw size={12} className={busy ? "animate-spin" : ""} />
+            {t("REFRESH", "تحديث")}
+          </button>
+        </div>
 
         {err && (
           <p
             role="alert"
-            className={cn(
-              "mb-6 rounded-lg border border-[var(--error)]/40 bg-[var(--error)]/10 px-3 py-2 text-sm text-[var(--error)]",
-              isArabic && "font-arabic",
-            )}
+            className={cn("mb-6 border-s-2 border-[var(--error)] ps-3 text-sm text-[var(--error)]", isArabic && "font-arabic")}
           >
             {err}
           </p>
@@ -246,56 +249,79 @@ export default function EvaluationPage() {
 
         {report && (
           <>
-            {/* ---------- 1. summary cards ---------- */}
-            <section className="mb-8 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-              <SummaryCard
-                isArabic={isArabic}
-                label={t("Rooms generated", "الغرف المولَّدة")}
-                value={String(gen?.roomsGenerated ?? 0)}
-                sub={t("Saved designs in the history table", "التصاميم المحفوظة في سجل التصاميم")}
-              />
-              <SummaryCard
-                isArabic={isArabic}
-                label={t("Average overall rating", "متوسط التقييم العام")}
-                value={fmt(report.averageOverall)}
-                suffix="/ 5"
-                sub={t(
-                  "Mean of the three rated dimensions (derived)",
-                  "متوسط الأبعاد الثلاثة المُقيَّمة (مشتق)",
+            {/* Dataset-empty banner. With nothing saved yet every figure on this
+                page is correctly a "—", which reads as broken rather than as
+                "not measured yet". This states the reason once, at the top, so
+                the dashes below are understood as pending measurement. It is
+                shown ONLY when the dataset is genuinely empty, and it invents
+                no numbers — it explains absence, it does not fill it. */}
+            {isEmpty && (
+              <section
+                className={cn(
+                  "mb-10 border-s-2 border-[var(--dd-gold)] ps-4",
+                  isArabic ? "text-right font-arabic" : "text-left font-ui",
                 )}
-              />
-              <SummaryCard
-                isArabic={isArabic}
-                label={t("Average cultural accuracy", "متوسط الدقة الثقافية")}
-                value={fmt(stats?.averageCulturalAccuracy)}
-                suffix="/ 5"
-                sub={t(
-                  `${stats?.total ?? 0} ratings`,
-                  `${stats?.total ?? 0} تقييم`,
-                )}
-              />
-              <SummaryCard
-                isArabic={isArabic}
-                label={t("Average generation time", "متوسط زمن التوليد")}
-                value={fmtDuration(gen?.averageSeconds ?? null)}
-                sub={t(
-                  `Total ${fmtDuration(gen?.totalSeconds ?? null)} over ${gen?.sampleSize ?? 0} timed design${
-                    gen?.sampleSize === 1 ? "" : "s"
-                  }`,
-                  `الإجمالي ${fmtDuration(gen?.totalSeconds ?? null)} على ${gen?.sampleSize ?? 0} تصميم موقوت`,
-                )}
-              />
-            </section>
+              >
+                <h2 className="font-editorial-mono text-[10px] text-[var(--dd-gold)]">
+                  {t("NO MEASUREMENTS YET", "لا توجد قياسات بعد")}
+                </h2>
+                <p className="mt-1.5 text-sm text-[var(--dd-text-soft)]">
+                  {t(
+                    "Every figure below is shown as “—” because nothing has been measured yet, not because a value is zero.",
+                    "كل رقم في الأسفل يظهر كـ «—» لأنه لم يُقَس بعد، وليس لأن قيمته صفر.",
+                  )}
+                </p>
+                <p className="mt-1 text-xs text-[var(--dd-text-secondary)]">
+                  {t(
+                    "The dataset is the saved designs: save a generation to record SSIM, then LPIPS and CLIP, and rate it to populate the user-rating and cultural-accuracy figures.",
+                    "مجموعة البيانات هي التصاميم المحفوظة: احفظ تصميماً لتسجيل SSIM ثم LPIPS و CLIP، وقيّمه لتعبئة أرقام تقييم المستخدمين والدقة الثقافية.",
+                  )}
+                </p>
+              </section>
+            )}
 
-            {/* ---------- 2. culture performance comparison ---------- */}
-            <Panel
+            {/* ================= 01 — USER EVALUATION ================= */}
+            <Section
               isArabic={isArabic}
-              title={t("Culture performance comparison", "مقارنة أداء الثقافات")}
+              number="01"
+              title={t("User evaluation", "تقييم المستخدمين")}
               note={t(
-                "Averages of real user ratings, per culture. Filters above apply to ratings; a culture with no ratings shows no bar rather than a zero.",
-                "متوسطات تقييمات المستخدمين الحقيقية لكل ثقافة. الثقافة بلا تقييمات لا تظهر كصفر.",
+                "What people who saw the result actually said, on the 1–5 scale the rating form asks.",
+                "ما قاله من رأوا النتيجة فعلاً، على مقياس ١–٥ الذي تطلبه استمارة التقييم.",
               )}
             >
+              <div className="grid grid-cols-2 gap-x-6 gap-y-6 sm:grid-cols-4">
+                <Stat
+                  isArabic={isArabic}
+                  label={t("Overall rating", "التقييم العام")}
+                  value={fmt(report.averageOverall)}
+                  suffix="/ 5"
+                  sub={t("Mean of the three dimensions", "متوسط الأبعاد الثلاثة")}
+                />
+                <Stat
+                  isArabic={isArabic}
+                  label={t("Cultural accuracy", "الدقة الثقافية")}
+                  value={fmt(stats?.averageCulturalAccuracy)}
+                  suffix="/ 5"
+                  sub={t(`${stats?.total ?? 0} ratings`, `${stats?.total ?? 0} تقييم`)}
+                />
+                <Stat
+                  isArabic={isArabic}
+                  label={t("Furniture placement", "وضع الأثاث")}
+                  value={`${stats?.placementValid ?? 0} / ${stats?.placementInvalid ?? 0}`}
+                  sub={t("valid / invalid, judged", "صحيح / غير صحيح، مُحكَّم")}
+                />
+                <Stat
+                  isArabic={isArabic}
+                  label={t("Ratings recorded", "التقييمات المسجّلة")}
+                  value={String(stats?.total ?? 0)}
+                  sub={t("matching current filters", "ضمن عوامل التصفية الحالية")}
+                />
+              </div>
+
+              <h3 className="font-editorial-mono mt-8 mb-3 text-[9px] text-[var(--dd-text-secondary)]">
+                {t("BY CULTURE", "حسب الثقافة")}
+              </h3>
               <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
                 <MetricComparison
                   isArabic={isArabic}
@@ -325,10 +351,10 @@ export default function EvaluationPage() {
                   return (
                     <span
                       key={c}
-                      className={cn("flex items-center gap-2 text-xs text-cream-muted", isArabic && "flex-row-reverse")}
+                      className={cn("font-editorial-mono flex items-center gap-1.5 text-[10px] text-[var(--dd-text-secondary)]", isArabic && "flex-row-reverse")}
                     >
-                      <span className="text-cream-soft">
-                        {isArabic ? CULTURE_LABEL[c]?.ar ?? c : CULTURE_LABEL[c]?.en ?? c}
+                      <span className="text-[var(--dd-text-soft)]">
+                        {(isArabic ? CULTURE_LABEL[c]?.ar ?? c : CULTURE_LABEL[c]?.en ?? c).toUpperCase()}
                       </span>
                       <span dir="ltr">
                         ({n} {t(n === 1 ? "rating" : "ratings", "تقييم")})
@@ -342,230 +368,69 @@ export default function EvaluationPage() {
                   than the overview total. Saying so beats leaving an examiner to
                   notice the arithmetic doesn't close. */}
               {unattributed > 0 && (
-                <p className={cn("mt-2 text-xs text-cream-muted", isArabic && "font-arabic")}>
+                <p className={cn("mt-2 text-xs text-[var(--dd-text-secondary)]", isArabic && "font-arabic")}>
                   {t(
-                    `${unattributed} further rating${unattributed === 1 ? "" : "s"} could not be attributed to a culture (saved before the culture was recorded), so ${unattributed === 1 ? "it is" : "they are"} counted in the overview below but not in this comparison.`,
-                    `${unattributed} تقييم إضافي بلا ثقافة مُسجَّلة (حُفظ قبل تسجيل الثقافة)، لذلك يُحتسب في النظرة العامة أدناه وليس في هذه المقارنة.`,
+                    `${unattributed} further rating${unattributed === 1 ? "" : "s"} could not be attributed to a culture (saved before the culture was recorded), so ${unattributed === 1 ? "it is" : "they are"} counted above but not in this comparison.`,
+                    `${unattributed} تقييم إضافي بلا ثقافة مُسجَّلة (حُفظ قبل تسجيل الثقافة)، لذلك يُحتسب أعلاه وليس في هذه المقارنة.`,
                   )}
                 </p>
               )}
-            </Panel>
 
-            {/* ---------- 3. evaluation overview ---------- */}
-            <Panel
-              isArabic={isArabic}
-              title={t("Evaluation overview", "نظرة عامة على التقييم")}
-              note={t(
-                "Overall averages across every rating matching the current filters.",
-                "المتوسطات الإجمالية لكل التقييمات ضمن عوامل التصفية الحالية.",
-              )}
-            >
+              <h3 className="font-editorial-mono mt-8 mb-3 text-[9px] text-[var(--dd-text-secondary)]">
+                {t("OVERALL, ALL CULTURES", "الإجمالي، كل الثقافات")}
+              </h3>
               <ScoreBars
                 isArabic={isArabic}
                 bars={[
-                  {
-                    key: "quality",
-                    label: t("Design quality", "جودة التصميم"),
-                    value: stats?.averageImageQuality ?? null,
-                  },
-                  {
-                    key: "cultural",
-                    label: t("Cultural accuracy", "الدقة الثقافية"),
-                    value: stats?.averageCulturalAccuracy ?? null,
-                  },
-                  {
-                    key: "preservation",
-                    label: t("Room preservation", "الحفاظ على الغرفة"),
-                    value: stats?.averageRoomPreservation ?? null,
-                  },
+                  { key: "quality", label: t("Design quality", "جودة التصميم"), value: stats?.averageImageQuality ?? null },
+                  { key: "cultural", label: t("Cultural accuracy", "الدقة الثقافية"), value: stats?.averageCulturalAccuracy ?? null },
+                  { key: "preservation", label: t("Room preservation", "الحفاظ على الغرفة"), value: stats?.averageRoomPreservation ?? null },
                 ]}
               />
-              <p className={cn("mt-3 text-xs text-cream-muted", isArabic && "font-arabic")}>
-                {t(
-                  `Based on ${stats?.total ?? 0} ratings · furniture placement judged valid ${stats?.placementValid ?? 0}×, invalid ${stats?.placementInvalid ?? 0}×`,
-                  `استناداً إلى ${stats?.total ?? 0} تقييم · وضع الأثاث صحيح ${stats?.placementValid ?? 0} مرة، غير صحيح ${stats?.placementInvalid ?? 0} مرة`,
-                )}
-              </p>
 
-              {/* Measured, not rated — so it sits apart from the 1-5 bars above
-                  and on its own 0-1 scale. Computed on every generation, unlike
-                  LPIPS/CLIP which need the offline corpus. */}
-              <div className="mt-5 border-t border-gold/15 pt-4">
-                <h4
-                  className={cn(
-                    "mb-2 text-xs font-medium uppercase tracking-wide text-cream-muted",
-                    isArabic && "font-arabic",
-                  )}
-                >
-                  {t("Measured on every generation", "مقاس في كل عملية توليد")}
-                </h4>
-                <ScoreBars
-                  isArabic={isArabic}
-                  max={1}
-                  bars={[
-                    {
-                      key: "ssim",
-                      label: t("Structure (SSIM)", "الحفاظ على البنية"),
-                      value: gen?.averageSsim ?? null,
-                      note: t(`↑ n=${gen?.ssimSampleSize ?? 0}`, `↑ ن=${gen?.ssimSampleSize ?? 0}`),
-                    },
-                    {
-                      key: "lpips",
-                      label: t("Perceptual (LPIPS)", "المسافة الإدراكية"),
-                      value: gen?.averageLpips ?? null,
-                      note: t(`↓ n=${gen?.lpipsSampleSize ?? 0}`, `↓ ن=${gen?.lpipsSampleSize ?? 0}`),
-                    },
-                    {
-                      key: "clip",
-                      label: t("Style match (CLIP)", "مطابقة الطراز"),
-                      value: gen?.averageClipScore ?? null,
-                      note: t(`↑ n=${gen?.clipSampleSize ?? 0}`, `↑ ن=${gen?.clipSampleSize ?? 0}`),
-                    },
-                  ]}
-                />
-                <p className={cn("mt-2 text-xs text-cream-muted", isArabic && "font-arabic")}>
-                  {t(
-                    "SSIM ↑ the room's layout survived · LPIPS ↓ perceptually close to the input · CLIP ↑ looks like the culture it was asked for. Measured once per saved design; edited designs (colour or furniture) are excluded.",
-                    "SSIM ↑ بقي مخطط الغرفة · LPIPS ↓ قريب إدراكياً من الأصل · CLIP ↑ يشبه الثقافة المطلوبة. تُقاس مرة واحدة لكل تصميم محفوظ، وتُستثنى التصاميم المعدّلة.",
-                  )}
-                </p>
-              </div>
-
-              {/* ---------- cultural confusion matrix ---------- */}
-              <div className="mt-5 border-t border-gold/15 pt-4">
-                <h4
-                  className={cn(
-                    "mb-1 text-xs font-medium uppercase tracking-wide text-cream-muted",
-                    isArabic && "font-arabic",
-                  )}
-                >
-                  {t("Cultural confusion matrix", "مصفوفة الالتباس الثقافي")}
-                </h4>
-                <p className={cn("mb-3 text-xs text-cream-muted", isArabic && "font-arabic")}>
-                  {t(
-                    "Rows: the culture the design was generated as. Columns: the culture CLIP recognises it as. A strong diagonal means the three read as distinct.",
-                    "الصفوف: الثقافة المطلوبة. الأعمدة: ما تعرّف عليه CLIP. القطر القوي يعني أن الثقافات الثلاث مميّزة.",
-                  )}
-                </p>
-                {confusion && confusion.total > 0 ? (
-                  <>
-                    <div className="overflow-x-auto rounded-xl border border-gold/20">
-                      <table className="w-full border-collapse text-sm">
-                        <thead>
-                          <tr className="bg-[var(--dd-surface-strong)] text-xs uppercase tracking-wide text-cream-muted">
-                            <th className="px-3 py-2 text-start">
-                              {t("Intended ↓ / CLIP →", "المطلوب ↓ / CLIP ←")}
-                            </th>
-                            {cultures.map((c) => (
-                              <th key={c} className="px-3 py-2 text-center">
-                                {isArabic ? CULTURE_LABEL[c]?.ar ?? c : CULTURE_LABEL[c]?.en ?? c}
-                              </th>
-                            ))}
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {cultures.map((row) => (
-                            <tr key={row} className="border-t border-gold/10 text-cream-soft">
-                              <td className={cn("px-3 py-2", isArabic && "font-arabic")}>
-                                {isArabic ? CULTURE_LABEL[row]?.ar ?? row : CULTURE_LABEL[row]?.en ?? row}
-                              </td>
-                              {cultures.map((col) => {
-                                const n = confusion.matrix?.[row]?.[col] ?? 0;
-                                return (
-                                  <td
-                                    key={col}
-                                    className={cn(
-                                      "px-3 py-2 text-center font-mono text-xs",
-                                      // The diagonal is the answer; make it readable at a glance.
-                                      row === col && n > 0 && "bg-gold/15 font-bold text-gold",
-                                      n === 0 && "text-cream-muted",
-                                    )}
-                                  >
-                                    {n}
-                                  </td>
-                                );
-                              })}
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                    <p className={cn("mt-2 text-xs text-cream-muted", isArabic && "font-arabic")}>
-                      {t(
-                        `3-way accuracy: ${((confusion.accuracy ?? 0) * 100).toFixed(0)}% — CLIP identified the intended culture in ${confusion.correct} of ${confusion.total} saved designs.`,
-                        `دقة التصنيف الثلاثي: ${((confusion.accuracy ?? 0) * 100).toFixed(0)}% — تعرّف CLIP على الثقافة المطلوبة في ${confusion.correct} من ${confusion.total} تصميم.`,
-                      )}
-                    </p>
-                  </>
-                ) : (
-                  <p className={cn("text-xs text-cream-muted", isArabic && "font-arabic")}>
-                    {t(
-                      "No design has been classified yet. Save a generation — or run scripts/backfill_evaluation.py for existing ones.",
-                      "لم يُصنَّف أي تصميم بعد. احفظ تصميماً جديداً أو شغّل scripts/backfill_evaluation.py للتصاميم السابقة.",
-                    )}
-                  </p>
-                )}
-              </div>
-            </Panel>
-
-            {/* The offline-corpus panel used to sit here. Removed because every
-                saved design is now measured for SSIM, LPIPS and CLIP live, and
-                a permanently empty "not computed yet" box reads as unfinished.
-                The backend still serves `automatic` from eval/results.csv, so
-                putting the panel back is a paste job if the corpus is ever run
-                for the LoRA-vs-baseline comparison. */}
-
-            {/* ---------- 4. recent feedback ---------- */}
-            <Panel
-              isArabic={isArabic}
-              title={t("Recent user feedback", "أحدث تقييمات المستخدمين")}
-              note={t("Newest first, matching the filters above.", "الأحدث أولاً، ضمن عوامل التصفية أعلاه.")}
-            >
+              <h3 className="font-editorial-mono mt-8 mb-3 text-[9px] text-[var(--dd-text-secondary)]">
+                {t("RECENT FEEDBACK", "أحدث التقييمات")}
+              </h3>
               {report.recent.length === 0 ? (
-                <p className={cn("text-sm text-cream-muted", isArabic && "font-arabic")}>
+                <p className={cn("text-sm text-[var(--dd-text-secondary)]", isArabic && "font-arabic")}>
                   {t("No ratings match these filters yet.", "لا توجد تقييمات مطابقة بعد.")}
                 </p>
               ) : (
-                <div className="overflow-x-auto rounded-xl border border-gold/20">
-                  <table className="w-full border-collapse text-sm">
+                <div className="overflow-x-auto">
+                  <table className="w-full min-w-[40rem] border-collapse text-sm" dir={isArabic ? "rtl" : "ltr"}>
                     <thead>
-                      <tr className="bg-[var(--dd-surface-strong)] text-start font-ui text-xs uppercase tracking-wide text-cream-muted">
-                        <th className="px-3 py-2 text-start">{t("Culture", "الثقافة")}</th>
-                        <th className="px-3 py-2 text-start">{t("Overall", "العام")}</th>
-                        <th className="px-3 py-2 text-start">{t("Cultural", "ثقافي")}</th>
-                        <th className="px-3 py-2 text-start">{t("Preservation", "الحفاظ")}</th>
-                        <th className="px-3 py-2 text-start">{t("Comment", "التعليق")}</th>
-                        <th className="px-3 py-2 text-start">{t("Date", "التاريخ")}</th>
+                      <tr className="border-b border-[var(--dd-border)] bg-[var(--dd-text)]/[0.025]">
+                        <Th>{t("Culture", "الثقافة")}</Th>
+                        <Th>{t("Overall", "العام")}</Th>
+                        <Th>{t("Cultural", "ثقافي")}</Th>
+                        <Th>{t("Preservation", "الحفاظ")}</Th>
+                        <Th>{t("Comment", "التعليق")}</Th>
+                        <Th>{t("Date", "التاريخ")}</Th>
                       </tr>
                     </thead>
                     <tbody>
                       {report.recent.map((f) => {
-                        const overall =
-                          (f.culturalAccuracy + f.imageQuality + f.roomPreservation) / 3;
+                        const overall = (f.culturalAccuracy + f.imageQuality + f.roomPreservation) / 3;
                         return (
-                          <tr key={f.id} className="border-t border-gold/10 text-cream-soft">
-                            <td className={cn("px-3 py-2", isArabic && "font-arabic")}>
-                              {f.culture
-                                ? isArabic
-                                  ? CULTURE_LABEL[f.culture]?.ar ?? f.culture
-                                  : CULTURE_LABEL[f.culture]?.en ?? f.culture
-                                : "—"}
-                            </td>
-                            <td className="px-3 py-2 font-mono text-xs" dir="ltr">
-                              {overall.toFixed(2)}
-                            </td>
-                            <td className="px-3 py-2 font-mono text-xs" dir="ltr">
-                              {f.culturalAccuracy}
-                            </td>
-                            <td className="px-3 py-2 font-mono text-xs" dir="ltr">
-                              {f.roomPreservation}
-                            </td>
-                            <td className={cn("max-w-xs px-3 py-2 text-xs", isArabic && "font-arabic")}>
-                              {f.comment || "—"}
-                            </td>
-                            <td className="whitespace-nowrap px-3 py-2 font-mono text-xs" dir="ltr">
-                              {new Date(f.createdAt * 1000).toLocaleDateString()}
-                            </td>
+                          <tr key={f.id} className="border-b border-[var(--dd-border)] text-[var(--dd-text-soft)]">
+                            <Td>
+                              <span className={isArabic ? "font-arabic" : undefined}>
+                                {f.culture
+                                  ? isArabic
+                                    ? CULTURE_LABEL[f.culture]?.ar ?? f.culture
+                                    : CULTURE_LABEL[f.culture]?.en ?? f.culture
+                                  : "—"}
+                              </span>
+                            </Td>
+                            <Td mono>{overall.toFixed(2)}</Td>
+                            <Td mono>{f.culturalAccuracy}</Td>
+                            <Td mono>{f.roomPreservation}</Td>
+                            <Td>
+                              <span className={cn("block max-w-xs truncate text-xs", isArabic && "font-arabic")}>
+                                {f.comment || "—"}
+                              </span>
+                            </Td>
+                            <Td mono>{new Date(f.createdAt * 1000).toLocaleDateString()}</Td>
                           </tr>
                         );
                       })}
@@ -573,7 +438,151 @@ export default function EvaluationPage() {
                   </table>
                 </div>
               )}
-            </Panel>
+            </Section>
+
+            {/* ================= 02 — IMAGE QUALITY ================= */}
+            <Section
+              isArabic={isArabic}
+              number="02"
+              title={t("Image quality", "جودة الصورة")}
+              note={t(
+                "Objective, not rated — computed once per saved design (edited designs excluded, since colour/furniture edits would measure the edit, not the pipeline).",
+                "مقاييس موضوعية غير مُقيَّمة — تُحسب مرة لكل تصميم محفوظ (تُستثنى التصاميم المعدَّلة، لأن التعديل يقيس نفسه لا الأنبوب).",
+              )}
+            >
+              <ScoreBars
+                isArabic={isArabic}
+                max={1}
+                bars={[
+                  {
+                    key: "ssim",
+                    label: t("Structure (SSIM)", "الحفاظ على البنية"),
+                    value: gen?.averageSsim ?? null,
+                    note: t(`↑ n=${gen?.ssimSampleSize ?? 0}`, `↑ ن=${gen?.ssimSampleSize ?? 0}`),
+                  },
+                  {
+                    key: "lpips",
+                    label: t("Perceptual (LPIPS)", "المسافة الإدراكية"),
+                    value: gen?.averageLpips ?? null,
+                    note: t(`↓ n=${gen?.lpipsSampleSize ?? 0}`, `↓ ن=${gen?.lpipsSampleSize ?? 0}`),
+                  },
+                  {
+                    key: "clip",
+                    label: t("Style match (CLIP)", "مطابقة الطراز"),
+                    value: gen?.averageClipScore ?? null,
+                    note: t(`↑ n=${gen?.clipSampleSize ?? 0}`, `↑ ن=${gen?.clipSampleSize ?? 0}`),
+                  },
+                ]}
+              />
+              <p className={cn("mt-3 text-xs text-[var(--dd-text-secondary)]", isArabic && "font-arabic")}>
+                {t(
+                  "SSIM ↑ the room's layout survived · LPIPS ↓ perceptually close to the input · CLIP ↑ looks like the culture it was asked for.",
+                  "SSIM ↑ بقي مخطط الغرفة · LPIPS ↓ قريب إدراكياً من الأصل · CLIP ↑ يشبه الثقافة المطلوبة.",
+                )}
+              </p>
+            </Section>
+
+            {/* ================= 03 — CULTURAL CLASSIFICATION ================= */}
+            <Section
+              isArabic={isArabic}
+              number="03"
+              title={t("Cultural classification", "التصنيف الثقافي")}
+              note={t(
+                "Rows: the culture the design was generated as. Columns: the culture CLIP recognises it as. A strong diagonal means the three read as distinct.",
+                "الصفوف: الثقافة المطلوبة. الأعمدة: ما تعرّف عليه CLIP. القطر القوي يعني أن الثقافات الثلاث مميّزة.",
+              )}
+            >
+              {confusion && confusion.total > 0 ? (
+                <>
+                  <div className="overflow-x-auto">
+                    <table className="w-full border-collapse text-sm" dir={isArabic ? "rtl" : "ltr"}>
+                      <thead>
+                        <tr className="border-b border-[var(--dd-border)] bg-[var(--dd-text)]/[0.025]">
+                          <Th>{t("Intended ↓ / CLIP →", "المطلوب ↓ / CLIP ←")}</Th>
+                          {cultures.map((c) => (
+                            <th key={c} className="font-editorial-mono whitespace-nowrap px-4 py-2.5 text-center text-[9.5px] text-[var(--dd-text-secondary)]">
+                              {(isArabic ? CULTURE_LABEL[c]?.ar ?? c : CULTURE_LABEL[c]?.en ?? c).toUpperCase()}
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {cultures.map((row) => (
+                          <tr key={row} className="border-b border-[var(--dd-border)] text-[var(--dd-text-soft)]">
+                            <Td>
+                              <span className={isArabic ? "font-arabic" : undefined}>
+                                {isArabic ? CULTURE_LABEL[row]?.ar ?? row : CULTURE_LABEL[row]?.en ?? row}
+                              </span>
+                            </Td>
+                            {cultures.map((col) => {
+                              const n = confusion.matrix?.[row]?.[col] ?? 0;
+                              return (
+                                <td
+                                  key={col}
+                                  className={cn(
+                                    "font-editorial-mono px-4 py-3 text-center text-xs",
+                                    row === col && n > 0 && "font-bold text-[var(--dd-gold)]",
+                                    n === 0 && "text-[var(--dd-text-secondary)]",
+                                  )}
+                                >
+                                  {n}
+                                </td>
+                              );
+                            })}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  <p className={cn("mt-3 text-xs text-[var(--dd-text-secondary)]", isArabic && "font-arabic")}>
+                    {t(
+                      `3-way accuracy: ${((confusion.accuracy ?? 0) * 100).toFixed(0)}% — CLIP identified the intended culture in ${confusion.correct} of ${confusion.total} saved designs.`,
+                      `دقة التصنيف الثلاثي: ${((confusion.accuracy ?? 0) * 100).toFixed(0)}% — تعرّف CLIP على الثقافة المطلوبة في ${confusion.correct} من ${confusion.total} تصميم.`,
+                    )}
+                  </p>
+                </>
+              ) : (
+                <p className={cn("text-xs text-[var(--dd-text-secondary)]", isArabic && "font-arabic")}>
+                  {t(
+                    "No design has been classified yet. Save a generation — or run scripts/backfill_evaluation.py for existing ones.",
+                    "لم يُصنَّف أي تصميم بعد. احفظ تصميماً جديداً أو شغّل scripts/backfill_evaluation.py للتصاميم السابقة.",
+                  )}
+                </p>
+              )}
+            </Section>
+
+            {/* ================= 04 — SYSTEM ================= */}
+            <Section
+              isArabic={isArabic}
+              number="04"
+              title={t("System", "النظام")}
+              note={t(
+                "Operational figures over the history table — how many rooms, and how long they took.",
+                "أرقام تشغيلية من سجل التصاميم — عدد الغرف والوقت الذي استغرقته.",
+              )}
+              last
+            >
+              <div className="grid grid-cols-2 gap-x-6 gap-y-6 sm:grid-cols-3">
+                <Stat
+                  isArabic={isArabic}
+                  label={t("Rooms generated", "الغرف المولَّدة")}
+                  value={String(gen?.roomsGenerated ?? 0)}
+                  sub={t("Saved designs in history", "التصاميم المحفوظة")}
+                />
+                <Stat
+                  isArabic={isArabic}
+                  label={t("Average generation time", "متوسط زمن التوليد")}
+                  value={fmtDuration(gen?.averageSeconds ?? null)}
+                  sub={t(`over ${gen?.sampleSize ?? 0} timed`, `على ${gen?.sampleSize ?? 0} موقوت`)}
+                />
+                <Stat
+                  isArabic={isArabic}
+                  label={t("Total generation time", "إجمالي زمن التوليد")}
+                  value={fmtDuration(gen?.totalSeconds ?? null)}
+                  sub={t("across every timed design", "على كل التصاميم الموقوتة")}
+                />
+              </div>
+            </Section>
           </>
         )}
       </div>
@@ -583,7 +592,7 @@ export default function EvaluationPage() {
 
 /* ---------- small presentational pieces ---------- */
 
-function SummaryCard({
+function Stat({
   label,
   value,
   suffix,
@@ -597,46 +606,71 @@ function SummaryCard({
   isArabic: boolean;
 }) {
   return (
-    <div className="rounded-2xl border border-gold/20 bg-[var(--dd-surface)] p-4">
-      <p className={cn("text-xs uppercase tracking-wide text-cream-muted", isArabic && "font-arabic")}>
+    <div>
+      <p className={cn("font-editorial-mono text-[9px] text-[var(--dd-text-secondary)]", isArabic && "text-right")}>
         {label}
       </p>
-      <p className="mt-2 flex items-baseline gap-1 text-2xl font-semibold text-gold" dir="ltr">
+      <p className="font-editorial-mono mt-1.5 flex items-baseline gap-1 text-[1.6rem] text-[var(--dd-gold)]" dir="ltr">
         {value}
-        {suffix && <span className="text-sm text-cream-muted">{suffix}</span>}
+        {suffix && <span className="text-xs text-[var(--dd-text-secondary)]">{suffix}</span>}
       </p>
       {sub && (
-        <p className={cn("mt-1 text-xs text-cream-muted", isArabic && "font-arabic")}>{sub}</p>
+        <p className={cn("mt-0.5 text-xs text-[var(--dd-text-secondary)]", isArabic && "text-right font-arabic")}>{sub}</p>
       )}
     </div>
   );
 }
 
-function Panel({
+function Section({
+  number,
   title,
   note,
   isArabic,
+  last,
   children,
 }: {
+  number: string;
   title: string;
   note?: string;
   isArabic: boolean;
+  last?: boolean;
   children: React.ReactNode;
 }) {
   return (
-    <section className="mb-8 rounded-2xl border border-gold/20 bg-[var(--dd-surface)] p-5">
-      <h2
-        className={cn(
-          "text-lg font-semibold text-gold",
-          isArabic ? "font-arabic" : "font-display",
-        )}
-      >
-        {title}
-      </h2>
+    <section className={cn("mb-10 border-b border-[var(--dd-border)] pb-10", last && "border-b-0 pb-0")}>
+      <div className={cn("flex items-baseline gap-3", isArabic && "flex-row-reverse")}>
+        <span className="font-editorial-mono text-[10px] text-[var(--dd-gold)]">{number}</span>
+        <h2
+          className={cn(
+            "text-[1.6rem] leading-none text-[var(--dd-text)]",
+            isArabic ? "font-editorial-ar font-normal" : "font-editorial font-normal",
+          )}
+        >
+          {title}
+        </h2>
+      </div>
       {note && (
-        <p className={cn("mb-4 mt-1 text-xs text-cream-muted", isArabic && "font-arabic")}>{note}</p>
+        <p className={cn("mt-2 max-w-[70ch] text-xs text-[var(--dd-text-secondary)]", isArabic && "text-right font-arabic")}>
+          {note}
+        </p>
       )}
-      {children}
+      <div className="mt-6">{children}</div>
     </section>
+  );
+}
+
+function Th({ children }: { children: React.ReactNode }) {
+  return (
+    <th className="font-editorial-mono whitespace-nowrap px-4 py-2.5 text-start text-[9.5px] text-[var(--dd-text-secondary)]">
+      {children}
+    </th>
+  );
+}
+
+function Td({ children, mono }: { children: React.ReactNode; mono?: boolean }) {
+  return (
+    <td className={cn("px-4 py-3 align-top", mono && "font-editorial-mono text-xs")} dir={mono ? "ltr" : undefined}>
+      {children}
+    </td>
   );
 }

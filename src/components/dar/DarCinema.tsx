@@ -16,6 +16,8 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 
+import { useThemeLanguage } from "@/context/ThemeLanguageContext";
+
 type Tradition = "lebanese" | "khaleeji" | "moroccan";
 
 interface Soul {
@@ -115,7 +117,10 @@ const EASE = "cubic-bezier(.22,.61,.36,1)";
 export default function DarCinema() {
   const rootRef = useRef<HTMLDivElement>(null);
   const [tradition, setTradition] = useState<Tradition>("lebanese");
-  const [theme, setTheme] = useState<"dark" | "light">("dark");
+  // Theme is owned by ThemeLanguageContext (single source of truth for the whole
+  // app). We still mirror it onto this component's root div below so the existing
+  // .dar-cinema[data-theme="light"] scoped CSS keeps matching.
+  const { theme, toggleTheme } = useThemeLanguage();
   const [introVisible, setIntroVisible] = useState(true);
   const [introOpacity, setIntroOpacity] = useState(1);
 
@@ -485,8 +490,6 @@ export default function DarCinema() {
     // mount-only; handlers read live state via refs
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  const toggleTheme = () => setTheme((p) => (p === "light" ? "dark" : "light"));
 
   const archLayer = (z: number, label: string, grad: string, glow: string, color: string, op: number) => (
     <div

@@ -68,11 +68,13 @@ const DISSOLVE_COLOR: Record<StyleId, number> = {
   moroccan: 0xf0d78c,
 };
 
+// "original" isn't a culture, so it keeps a plain glyph; the three cultures
+// get their material motif instead (see the Motif lookup at render time).
 const TILES = [
   { key: "original", ar: "الأصلية", en: "Original", flag: "🏠" },
-  { key: "lebanese", ar: "لبناني", en: "Lebanese", flag: "🇱🇧" },
-  { key: "khaleeji", ar: "خليجي", en: "Khaleeji", flag: "🇸🇦" },
-  { key: "moroccan", ar: "مغربي", en: "Moroccan", flag: "🇲🇦" },
+  { key: "lebanese", ar: "لبناني", en: "Lebanese" },
+  { key: "khaleeji", ar: "خليجي", en: "Khaleeji" },
+  { key: "moroccan", ar: "مغربي", en: "Moroccan" },
 ] as const;
 
 function mmss(totalSeconds: number): string {
@@ -117,7 +119,13 @@ export default function StudioPage() {
   const [comparePos, setComparePos] = useState(50);
   const [over, setOver] = useState(false);
   const [validationErr, setValidationErr] = useState<string | null>(null);
-  const [showElements, setShowElements] = useState(false);
+  /* Results IA (P1-8). The results view used to stack ~9 heavy panels in one
+     column behind a single Show/Hide toggle, so the jury had to scroll a long
+     way to find anything. Grouped into three tabs instead — every panel is
+     still reachable, now in one click. Panels stay mounted (hidden via CSS)
+     so an in-progress colour pick or furniture placement survives a tab
+     switch. */
+  const [resultTab, setResultTab] = useState<"result" | "understand" | "edit">("result");
   const [demoRooms, setDemoRooms] = useState<DemoRoom[]>([]);
   // The renders exactly as generated, before any colour or furniture edit. Kept
   // so Save can say whether what it is storing is still the pipeline's own
@@ -249,7 +257,7 @@ export default function StudioPage() {
     setErr(null);
     setQuotaBlocked(false);
     setResult(null);
-    setShowElements(false);
+    setResultTab("result");
     setComparePos(50);
     setProgress(0);
 
@@ -316,7 +324,7 @@ export default function StudioPage() {
       }
     }
     setErr(null);
-    setShowElements(false);
+    setResultTab("result");
     setComparePos(50);
     setResult({
       original: `${base}/original.png`,
@@ -336,7 +344,7 @@ export default function StudioPage() {
     abortRef.current?.abort();
     setResult(null);
     setErr(null);
-    setShowElements(false);
+    setResultTab("result");
     setProgress(0);
     clearImage();
     setPhase("idle");
@@ -412,7 +420,7 @@ export default function StudioPage() {
             };
 
   return (
-    <main className="relative min-h-screen" style={{ background: "var(--ink)" }}>
+    <main className="relative min-h-screen" style={{ background: "var(--bg)" }}>
       <div className="cinema">
         <CinemaChrome onNavHome={startOver} />
       </div>
@@ -609,7 +617,20 @@ export default function StudioPage() {
                     className={"style-card " + (generateScope === "all" ? "selected" : "")}
                     onClick={() => setGenerateScope("all")}
                   >
-                    <div className="motif" />
+                    {/* Was an empty <div className="motif"/>, which rendered as a
+                        blank black square next to three illustrated cards — it
+                        read as a failed image. A triptych of the three motifs
+                        says "all three" without inventing new artwork. */}
+                    <div className="motif motif-trio" aria-hidden>
+                      {STYLE_ORDER.map((id) => {
+                        const Motif = MotifTiles[STYLE_MOTIF[id] as keyof typeof MotifTiles];
+                        return Motif ? (
+                          <span key={id} className="motif-third">
+                            <Motif />
+                          </span>
+                        ) : null;
+                      })}
+                    </div>
                     <div>
                       <h3 className="name">{isArabic ? "الثلاثة معاً" : "All three"}</h3>
                       <p className="desc">
@@ -867,11 +888,21 @@ export default function StudioPage() {
 
           {/* ----- FYP: full grid + Cultural Highlighter + 2D map (outside .cinema) ----- */}
           <section className="relative z-10 mx-auto max-w-5xl px-4 pb-16">
-            <div className="mb-6 flex items-center justify-between">
-              <h2 className={cn("text-lg font-semibold text-cream", isArabic ? "font-arabic" : "font-display")}>
+            <div
+              className={cn(
+                "mb-6 flex flex-wrap items-end justify-between gap-4 border-b border-[var(--dd-border)] pb-4",
+                isArabic && "flex-row-reverse",
+              )}
+            >
+              <h2
+                className={cn(
+                  "text-[1.6rem] leading-none text-cream",
+                  isArabic ? "font-editorial-ar font-normal" : "font-editorial font-normal",
+                )}
+              >
                 {isArabic ? "كل البيوت الثلاثة" : "All three houses"}
               </h2>
-              <div className={cn("flex items-center gap-3", isArabic && "flex-row-reverse")}>
+              <div className={cn("flex items-center gap-4", isArabic && "flex-row-reverse")}>
                 {/* Save the CURRENT state: featuredSrc is replaced after every
                     furniture insertion, so pressing this after editing stores
                     the edited room, not the freshly generated one. */}
@@ -906,11 +937,11 @@ export default function StudioPage() {
                 <button
                   onClick={startOver}
                   className={cn(
-                    "flex items-center gap-2 text-sm text-cream-muted transition hover:text-gold",
-                    isArabic ? "font-arabic flex-row-reverse" : "font-ui"
+                    "font-editorial-mono flex items-center gap-2 text-[11px] uppercase tracking-wide text-cream-muted transition hover:text-gold",
+                    isArabic && "flex-row-reverse",
                   )}
                 >
-                  <RotateCcw size={16} />
+                  <RotateCcw size={14} />
                   {isArabic ? "غرفة جديدة" : "New room"}
                 </button>
               </div>
@@ -922,8 +953,44 @@ export default function StudioPage() {
                 only derivable from the generation pass. Confirming replaces
                 the featured image, so Save, the report and the 3D orbit all
                 pick the recoloured room up without knowing about this panel. */}
+            {/* ---- Tabs: Result / Understand / Edit ---- */}
+            <div
+              role="tablist"
+              aria-label={isArabic ? "أقسام النتيجة" : "Result sections"}
+              className={cn(
+                "mb-6 flex gap-6 border-b border-[var(--dd-border)]",
+                isArabic && "flex-row-reverse",
+              )}
+            >
+              {([
+                { id: "result", ar: "النتيجة", en: "Result" },
+                { id: "understand", ar: "افهم الغرفة", en: "Understand" },
+                { id: "edit", ar: "تعديل", en: "Edit" },
+              ] as const).map((tab) => {
+                const active = resultTab === tab.id;
+                return (
+                  <button
+                    key={tab.id}
+                    role="tab"
+                    id={`studio-tab-${tab.id}`}
+                    aria-selected={active}
+                    aria-controls={`studio-panel-${tab.id}`}
+                    onClick={() => setResultTab(tab.id)}
+                    className={cn(
+                      "font-editorial-mono relative -mb-px border-b py-2.5 text-[11px] uppercase tracking-wide transition-colors",
+                      active
+                        ? "border-[var(--dd-gold)] text-[var(--dd-gold)]"
+                        : "border-transparent text-cream-muted hover:text-cream-soft",
+                    )}
+                  >
+                    {isArabic ? tab.ar : tab.en}
+                  </button>
+                );
+              })}
+            </div>
+
             {result.job_id && result.room_analysis && (
-              <div className="mb-6">
+              <div className={cn("mb-6", resultTab !== "edit" && "hidden")}>
                 <ColorControl
                   jobId={result.job_id}
                   style={featured}
@@ -935,35 +1002,59 @@ export default function StudioPage() {
               </div>
             )}
 
-            <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
+            <div
+              id="studio-panel-result"
+              role="tabpanel"
+              aria-labelledby="studio-tab-result"
+              className={cn(
+                "grid grid-cols-1 gap-6 sm:grid-cols-2",
+                resultTab !== "result" && "hidden"
+              )}
+            >
               {/* Only tiles that were actually generated — a single-culture
                   request legitimately returns nulls for the other two. */}
               {TILES.filter((t) => typeof result[t.key] === "string").map((t) => {
                 const src = result[t.key] as string;
+                // Culture tiles carry a material motif, same vocabulary as the
+                // style picker above and the "all three" triptych — "original"
+                // isn't a culture, so it keeps its house glyph.
+                const Motif =
+                  t.key === "original"
+                    ? null
+                    : MotifTiles[STYLE_MOTIF[t.key as StyleId] as keyof typeof MotifTiles];
                 return (
                   <figure
                     key={t.key}
-                    className="group overflow-hidden rounded-2xl border border-gold/20 bg-[var(--dd-surface)] transition-colors duration-300 hover:border-gold/60"
+                    className="group overflow-hidden rounded-[6px] border border-[var(--dd-border)] transition-colors duration-300 hover:border-[var(--dd-gold)]/60"
                   >
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img src={src} alt={isArabic ? t.ar : t.en} className="block aspect-[4/3] w-full object-cover" />
                     <figcaption
-                      className={cn("flex items-center justify-between gap-2 px-4 py-3", isArabic && "flex-row-reverse")}
+                      className={cn(
+                        "flex items-center justify-between gap-2 border-t border-[var(--dd-border)] px-4 py-3",
+                        isArabic && "flex-row-reverse",
+                      )}
                     >
                       <span className={cn("flex items-center gap-2", isArabic && "flex-row-reverse")}>
-                        <span>{t.flag}</span>
-                        <span className={cn("text-sm font-medium text-cream-soft", isArabic && "font-arabic")}>{t.ar}</span>
-                        <span className="font-ui text-xs text-cream-muted">{t.en}</span>
+                        {Motif ? (
+                          <span className="block h-5 w-5 shrink-0 overflow-hidden rounded-sm" aria-hidden>
+                            <Motif />
+                          </span>
+                        ) : (
+                          <span>{t.key === "original" ? t.flag : null}</span>
+                        )}
+                        <span className={cn("text-sm text-cream-soft", isArabic ? "font-editorial-ar" : "font-editorial")}>{t.ar}</span>
+                        <span className="font-editorial-mono text-[10px] uppercase tracking-wide text-cream-muted">{t.en}</span>
                       </span>
                       <button
                         onClick={() => downloadTile(src, t.key)}
                         aria-label={isArabic ? `تنزيل التصميم ${t.ar}` : `Download ${t.en} design`}
                         className={cn(
-                          "flex items-center gap-1.5 rounded-lg border border-gold px-3 py-1.5 text-xs font-semibold text-gold transition-all duration-300 hover:bg-gold hover:text-[var(--dd-ink)]",
-                          isArabic ? "font-arabic flex-row-reverse" : "font-ui"
+                          "font-editorial-mono flex items-center gap-1.5 rounded-[2px] border border-[var(--dd-border)] px-3 py-1.5 text-[10px] uppercase tracking-wide text-cream-muted transition-colors duration-300 hover:border-[var(--dd-gold)] hover:text-gold",
+                          isArabic && "flex-row-reverse",
                         )}
                       >
-                        <Download size={14} />
+                        <Download size={13} />
                         {isArabic ? "تنزيل" : "Download"}
                       </button>
                     </figcaption>
@@ -972,13 +1063,20 @@ export default function StudioPage() {
               })}
             </div>
 
-            {/* Cultural elements + 2D layout — scaffold preview (sample data). */}
-            <div className="mt-12 border-t border-gold/15 pt-8">
+            {/* Cultural elements + 2D layout. Visibility is driven by the tab
+                bar above, so the old Show/Hide button is gone — but nothing it
+                controlled was removed, only regrouped. */}
+            <div className={cn("mt-2", resultTab === "result" && "hidden")}>
               <div className={cn("mb-4 flex items-center justify-between gap-3", isArabic && "flex-row-reverse")}>
-                <div className={cn(isArabic ? "text-right" : "text-left")}>
-                  <h2 className={cn("text-lg font-semibold text-cream", isArabic ? "font-arabic" : "font-display")}>
+                <div className={cn(isArabic ? "text-right" : "text-left", resultTab !== "understand" && "hidden")}>
+                  <h2
+                    className={cn(
+                      "text-[1.3rem] leading-none text-cream",
+                      isArabic ? "font-editorial-ar font-normal" : "font-editorial font-normal",
+                    )}
+                  >
                     {isArabic ? "العناصر الثقافية والمخطط" : "Cultural elements & layout"}
-                    <span className="ms-2 align-middle text-xs text-cream-muted">
+                    <span className="font-editorial-mono ms-2 align-middle text-[10px] uppercase tracking-wide text-cream-muted">
                       {hasRealRegions && hasRealMap ? (isArabic ? "(حيّ)" : "(live)") : isArabic ? "(تجريبي)" : "(preview)"}
                     </span>
                   </h2>
@@ -996,23 +1094,23 @@ export default function StudioPage() {
                           : "Sample regions + top-down map — the backend did not return segmentation & projection data. Click any element."}
                   </p>
                 </div>
-                <button
-                  onClick={() => setShowElements((v) => !v)}
-                  className={cn(
-                    "shrink-0 rounded-lg border border-cream-muted px-3 py-1.5 text-xs text-cream-muted transition hover:border-gold hover:text-gold",
-                    isArabic ? "font-arabic" : "font-ui"
-                  )}
-                  aria-pressed={showElements}
-                >
-                  {showElements ? (isArabic ? "إخفاء" : "Hide") : isArabic ? "إظهار العناصر" : "Show elements"}
-                </button>
               </div>
 
-              {showElements && (
+              {(
                 <>
-                  <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+                  <div
+                    id="studio-panel-understand"
+                    role="tabpanel"
+                    aria-labelledby="studio-tab-understand"
+                    className={cn(
+                      "grid grid-cols-1 gap-6 lg:grid-cols-2",
+                      resultTab !== "understand" && "hidden"
+                    )}
+                  >
                     <div>
-                      <p className={cn("mb-2 text-xs font-medium text-cream-soft", isArabic && "font-arabic")}>
+                      <p className={cn(
+                        "font-editorial-mono mb-2 text-[10px] uppercase tracking-wide text-cream-muted",
+                      )}>
                         {isArabic ? "التظليل على الصورة" : "On-image highlight"}
                       </p>
                       <CulturalElementHighlighter
@@ -1022,7 +1120,9 @@ export default function StudioPage() {
                       />
                     </div>
                     <div>
-                      <p className={cn("mb-2 text-xs font-medium text-cream-soft", isArabic && "font-arabic")}>
+                      <p className={cn(
+                        "font-editorial-mono mb-2 text-[10px] uppercase tracking-wide text-cream-muted",
+                      )}>
                         {isArabic ? "المخطط العلوي ثنائي الأبعاد" : "2D top-down map"}
                       </p>
                       <RoomMap2D objects={mapObjects} />
@@ -1032,8 +1132,10 @@ export default function StudioPage() {
                       Depth comes from the input photo; structure is preserved by
                       the ControlNets, so it displaces the styled image cleanly. */}
                   {result.depth_map && (
-                    <div className="mt-6">
-                      <p className={cn("mb-2 text-xs font-medium text-cream-soft", isArabic && "font-arabic")}>
+                    <div className={cn("mt-6", resultTab !== "understand" && "hidden")}>
+                      <p className={cn(
+                        "font-editorial-mono mb-2 text-[10px] uppercase tracking-wide text-cream-muted",
+                      )}>
                         {isArabic
                           ? `الجولة ثلاثية الأبعاد — ${TILES.find((t) => t.key === featured)?.ar ?? ""} (اسحب للدوران)`
                           : `3D room view — ${TILES.find((t) => t.key === featured)?.en ?? ""} (drag to orbit)`}
@@ -1048,30 +1150,66 @@ export default function StudioPage() {
                       analysis — otherwise placement has nothing to validate
                       against and the panel would offer a broken promise. */}
                   {result.job_id && result.room_analysis && (
-                    <FurniturePlacement
-                      jobId={result.job_id}
-                      style={featured}
-                      imageSrc={featuredSrc}
-                      analysis={result.room_analysis}
-                      onPlaced={(image) =>
-                        setResult((prev) => (prev ? { ...prev, [featured]: image } : prev))
-                      }
-                    />
+                    <div
+                      id="studio-panel-edit"
+                      role="tabpanel"
+                      aria-labelledby="studio-tab-edit"
+                      className={cn(resultTab !== "edit" && "hidden")}
+                    >
+                      <FurniturePlacement
+                        jobId={result.job_id}
+                        style={featured}
+                        imageSrc={featuredSrc}
+                        analysis={result.room_analysis}
+                        onPlaced={(image) =>
+                          setResult((prev) => (prev ? { ...prev, [featured]: image } : prev))
+                        }
+                      />
+                    </div>
                   )}
 
-                  <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
-                    <div>
-                      <p className={cn("mb-2 text-xs font-medium text-cream-soft", isArabic && "font-arabic")}>
-                        {isArabic ? "السرد الثقافي الصوتي (يتحدّث عربيّاً)" : "Bilingual cultural narration (it speaks)"}
+                  <div className={cn("mt-6", resultTab !== "understand" && "hidden")}>
+                    <p className={cn(
+                        "font-editorial-mono mb-2 text-[10px] uppercase tracking-wide text-cream-muted",
+                      )}>
+                      {isArabic ? "السرد الثقافي الصوتي (يتحدّث عربيّاً)" : "Bilingual cultural narration (it speaks)"}
+                    </p>
+                    <CulturalNarration />
+                  </div>
+
+                  {/* Colour control and furniture placement both need the room
+                      analysis the generation pass cached server-side. Defense
+                      Mode serves pre-rendered images with no job behind them,
+                      so they are legitimately absent — say so, rather than
+                      leaving the tab looking half-broken. */}
+                  {!(result.job_id && result.room_analysis) && (
+                    <div
+                      className={cn(
+                        "mb-6 border-s-2 border-[var(--dd-gold-dim)] ps-4 py-1",
+                        resultTab !== "edit" && "hidden",
+                        isArabic ? "text-right font-arabic" : "text-left font-ui"
+                      )}
+                    >
+                      <p className="text-sm text-cream-soft">
+                        {isArabic
+                          ? "تغيير الألوان وإضافة الأثاث يحتاجان تحليل الغرفة من الخادم."
+                          : "Colour control and furniture placement need the room analysis from the server."}
                       </p>
-                      <CulturalNarration />
-                    </div>
-                    <div>
-                      <p className={cn("mb-2 text-xs font-medium text-cream-soft", isArabic && "font-arabic")}>
-                        {isArabic ? "شدّة الطراز (الاستئصال حيّاً)" : "Style intensity (the ablation, live)"}
+                      <p className="mt-1 text-xs text-cream-muted">
+                        {isArabic
+                          ? "ارفع صورة غرفة وولّد تصميماً حقيقياً لتفعيلهما."
+                          : "Upload a room and run a real generation to enable them."}
                       </p>
-                      <StyleIntensitySlider />
                     </div>
+                  )}
+
+                  <div className={cn("mt-6", resultTab !== "edit" && "hidden")}>
+                    <p className={cn(
+                        "font-editorial-mono mb-2 text-[10px] uppercase tracking-wide text-cream-muted",
+                      )}>
+                      {isArabic ? "شدّة الطراز (الاستئصال حيّاً)" : "Style intensity (the ablation, live)"}
+                    </p>
+                    <StyleIntensitySlider />
                   </div>
                 </>
               )}

@@ -53,6 +53,31 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * Studio edit actions (colour control, furniture placement) act on a job that
+ * only exists in the render backend's memory. If that process restarts
+ * mid-session — a real failure mode this app cannot recover from without a
+ * fresh generation, since the depth/segmentation data behind it is never
+ * persisted — the backend correctly reports "job_not_found", but that raw
+ * string doesn't say why or what to do about it. This turns it into an
+ * honest, actionable message instead of hiding or inventing a recovery.
+ */
+export function describeEditError(
+  e: unknown,
+  fallback: { en: string; ar: string },
+): { en: string; ar: string } {
+  if (e instanceof ApiError) {
+    if (e.code === "job_not_found") {
+      return {
+        en: "This design session is no longer available on the server (it may have restarted). Redesign the room to continue editing.",
+        ar: "لم تعد جلسة التصميم هذه متاحة على الخادم (قد يكون قد أعيد تشغيله). أعد تصميم الغرفة لمتابعة التعديل.",
+      };
+    }
+    return { en: e.message_en, ar: e.message_ar };
+  }
+  return fallback;
+}
+
 async function unwrap(res: Response): Promise<unknown> {
   if (res.ok) return res.json();
   let body: unknown = null;

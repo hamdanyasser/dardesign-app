@@ -161,11 +161,15 @@ class RoomAnalysis:
 # looked up thereafter.
 #
 # Bounded LRU because the masks are big: at 1024x1024 one analysis is roughly
-# 9 MB (five bool masks + a float32 depth map). The default of 8 caps this at
-# ~72 MB. Mirrors jobs.py in being in-memory and single-process; when the
-# database lands this moves there with no change to callers.
+# 9 MB (five bool masks + a float32 depth map). The default of 32 caps this at
+# ~288 MB — small next to a GPU host's system RAM, and generous enough that a
+# realistic demo/QA session (a handful of rooms, each generated once) never
+# evicts an analysis a user could still be editing. Raised from an original
+# default of 8 (~72 MB) after that cap was observed to be reachable well
+# within one sitting. Mirrors jobs.py in being in-memory and single-process;
+# when the database lands this moves there with no change to callers.
 # --------------------------------------------------------------------------
-CACHE_MAX = int(os.environ.get("DARDESIGN_ROOM_CACHE", "8"))
+CACHE_MAX = int(os.environ.get("DARDESIGN_ROOM_CACHE", "32"))
 _CACHE: "OrderedDict[str, RoomAnalysis]" = OrderedDict()
 
 

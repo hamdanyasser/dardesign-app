@@ -19,10 +19,13 @@ import { cn } from "@/lib/utils";
 export default function GalleryShell({
   title,
   subtitle,
+  eyebrow,
   children,
 }: {
   title: string;
   subtitle: string;
+  /** A1 pagehead: a small mono status line above the title, e.g. a count. */
+  eyebrow?: string;
   children: ReactNode;
 }) {
   const { isArabic } = useThemeLanguage();
@@ -30,7 +33,7 @@ export default function GalleryShell({
   return (
     <main
       className="relative min-h-screen"
-      style={{ background: "var(--ink)" }}
+      style={{ background: "var(--bg)" }}
       dir={isArabic ? "rtl" : "ltr"}
     >
       {/* Same wrapper /studio uses — this is what the chrome CSS is scoped to. */}
@@ -41,16 +44,26 @@ export default function GalleryShell({
       <IslamicPattern opacity={0.03} />
 
       <section className="relative z-10 mx-auto max-w-5xl px-4 pb-24 pt-32">
-        <header className={cn("mb-8", isArabic ? "text-right" : "text-left")}>
+        <header
+          className={cn(
+            "mb-10 border-b border-[var(--dd-border)] pb-7",
+            isArabic ? "text-right" : "text-left",
+          )}
+        >
+          {eyebrow && (
+            <div className="font-editorial-mono text-[10.5px] text-[var(--dd-gold)]">
+              {eyebrow}
+            </div>
+          )}
           <h1
             className={cn(
-              "text-2xl font-semibold text-[var(--dd-gold)]",
-              isArabic ? "font-arabic" : "font-display",
+              "mt-1.5 text-[2.5rem] leading-[1.05] tracking-tight text-[var(--dd-text)]",
+              isArabic ? "font-editorial-ar font-normal" : "font-editorial font-normal",
             )}
           >
             {title}
           </h1>
-          <p className="mt-1.5 text-sm text-[var(--dd-text-secondary)]">{subtitle}</p>
+          <p className="mt-2 text-sm text-[var(--dd-text-secondary)]">{subtitle}</p>
         </header>
         {children}
       </section>
@@ -58,59 +71,89 @@ export default function GalleryShell({
   );
 }
 
-/** One before/after card. Actions differ per page, so they're passed in. */
+/**
+ * One archive entry, A1-style: a hairline row, not a card. The before/after
+ * pair is a single plate split by a gold rule (not two separately-labelled
+ * images), the title sits where A1 puts the culture name, and `tag` is the
+ * small mono aside A1 uses for a one-off status word ("Shared", "by X").
+ * Actions differ per page, so they're passed in.
+ */
 export function DesignCard({
   beforeUrl,
   afterUrl,
   createdAt,
-  caption,
+  title,
+  tag,
+  rating,
   actions,
 }: {
   beforeUrl: string;
   afterUrl: string;
   createdAt: number;
-  caption?: ReactNode;
+  title?: ReactNode;
+  tag?: ReactNode;
+  rating?: ReactNode;
   actions?: ReactNode;
 }) {
   const { isArabic } = useThemeLanguage();
   return (
-    <article className="overflow-hidden rounded-2xl border border-[var(--dd-gold-dim)]/25 bg-[var(--dd-surface)]">
-      <div className="grid grid-cols-1 sm:grid-cols-2">
-        {[
-          { url: beforeUrl, label: isArabic ? "قبل" : "Before" },
-          { url: afterUrl, label: isArabic ? "بعد" : "After" },
-        ].map((side) => (
-          <figure key={side.label} className="relative">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={side.url}
-              alt={side.label}
-              className="block aspect-[4/3] w-full object-cover"
-            />
-            <figcaption className="absolute bottom-2 start-2 rounded-md bg-[var(--dd-bg)]/75 px-2 py-0.5 text-xs text-[var(--dd-text-soft)]">
-              {side.label}
-            </figcaption>
-          </figure>
-        ))}
+    <article className="border-b border-[var(--dd-border)] pb-8 pt-8 first:pt-0">
+      <div className="relative grid grid-cols-2 border border-[var(--dd-border)]">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={beforeUrl}
+          alt={isArabic ? "قبل" : "Before"}
+          className="block aspect-[4/3] w-full object-cover"
+        />
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={afterUrl}
+          alt={isArabic ? "بعد" : "After"}
+          className="block aspect-[4/3] w-full border-s border-[var(--dd-gold)] object-cover"
+        />
+        <span className="font-editorial-mono absolute bottom-2 start-2 rounded bg-[var(--dd-bg)]/70 px-1.5 py-0.5 text-[8.5px] text-[var(--dd-text-soft)]">
+          {isArabic ? "قبل · بعد" : "BEFORE · AFTER"}
+        </span>
       </div>
+
       <div
         className={cn(
-          "flex flex-wrap items-center justify-between gap-3 px-4 py-3",
+          "mt-4 flex flex-wrap items-baseline justify-between gap-2",
           isArabic && "flex-row-reverse",
         )}
       >
-        <div className={cn("flex items-center gap-3", isArabic && "flex-row-reverse")}>
-          <time className="text-xs text-[var(--dd-text-secondary)]">
-            {new Date(createdAt * 1000).toLocaleString(isArabic ? "ar" : "en-GB")}
-          </time>
-          {caption}
+        <div className={cn("flex items-baseline gap-2", isArabic && "flex-row-reverse")}>
+          {title && (
+            <div
+              className={cn(
+                "text-2xl leading-none text-[var(--dd-text)]",
+                isArabic ? "font-editorial-ar font-normal" : "font-editorial font-normal",
+              )}
+            >
+              {title}
+            </div>
+          )}
+          {tag && (
+            <span className="font-editorial-mono text-[9.5px] text-[var(--dd-text-secondary)]">
+              {tag}
+            </span>
+          )}
         </div>
-        {actions && (
-          <div className={cn("flex items-center gap-2", isArabic && "flex-row-reverse")}>
-            {actions}
-          </div>
-        )}
+        <time className="font-editorial-mono text-[10px] text-[var(--dd-text-secondary)]">
+          {new Date(createdAt * 1000).toLocaleDateString(isArabic ? "ar" : "en-GB", {
+            day: "2-digit",
+            month: "short",
+          })}
+        </time>
       </div>
+
+      {rating && <div className="mt-2.5">{rating}</div>}
+
+      {actions && (
+        <div className={cn("mt-4 flex flex-wrap items-center gap-2", isArabic && "flex-row-reverse")}>
+          {actions}
+        </div>
+      )}
     </article>
   );
 }
