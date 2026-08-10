@@ -1157,8 +1157,6 @@ def transform_room(
     use_ontology: bool = True,
     controlnet_weights: tuple[float, float] | None = None,
     lora_scale: float | None = None,
-    extra_positive: str | None = None,
-    controlnet_boost: float = 1.0,
 ) -> Path:
     """Transform a room photo into a culturally-styled redesign.
 
@@ -1168,15 +1166,6 @@ def transform_room(
         use_lora=False        → ablation (--no-lora)
         use_segmentation=False → ablation (--no-segmentation): seg control gets weight 0
         use_ontology=False    → ablation (--no-ontology): plain "<style> interior" prompt
-
-    Refinement knobs (Quick AI Refinement, /refine):
-        extra_positive    → appended to the built prompt (lighting/mood cues).
-                            Appended rather than substituted so the ontology
-                            terms that make the culture legible are never lost.
-        controlnet_boost  → multiplies the resolved (depth, seg) weights. A
-                            multiplier, not a pair, so the per-style sweep
-                            winners keep their relative balance instead of
-                            being flattened to one hardcoded setting.
     """
     if style not in StylePack:
         raise PipelineError(
@@ -1213,18 +1202,10 @@ def transform_room(
         positive = f"a {room or 'interior'} in {style} style, photorealistic, 8k, magazine quality"
         negative = CONFIG.get("extra_negative_en", _DEFAULT_CONFIG["extra_negative_en"])
 
-    if extra_positive:
-        positive = f"{positive}, {extra_positive}"
-
     cn_w = controlnet_weights or _winner_weights(style) or (
         CONFIG["default_controlnet_weights"]["depth"],
         CONFIG["default_controlnet_weights"]["seg"],
     )
-    # Clamped at 2.0: past roughly there ControlNet overpowers the prompt and the
-    # render comes back as the original photo with a faint wash of style — the
-    # opposite of what "preserve the room more" is asking for.
-    if controlnet_boost != 1.0:
-        cn_w = (min(2.0, cn_w[0] * controlnet_boost), min(2.0, cn_w[1] * controlnet_boost))
     if not use_segmentation:
         cn_w = (cn_w[0], 0.0)
 

@@ -26,7 +26,6 @@ import ColorControl from "@/components/ColorControl";
 import CulturalNarration from "@/components/CulturalNarration";
 import DepthOrbit from "@/components/DepthOrbit";
 import FurniturePlacement from "@/components/FurniturePlacement";
-import RefinementControls, { type RefinedDesign } from "@/components/RefinementControls";
 import RoomReport from "@/components/RoomReport";
 import SaveDesignButton from "@/components/SaveDesignButton";
 import StyleIntensitySlider from "@/components/StyleIntensitySlider";
@@ -124,14 +123,6 @@ export default function StudioPage() {
   // so Save can say whether what it is storing is still the pipeline's own
   // output — an edited image is a fine design but a misleading measurement.
   const [pristine, setPristine] = useState<Record<string, string>>({});
-  // Per culture, what Quick AI Refinement replaced. `baseImage`/`baseSsim` are
-  // captured once — from the ORIGINAL generation — so Revert goes back to the
-  // pipeline's own output however many times the user has refined. `duration`
-  // is the current refinement's own render time, which is what Save should
-  // record for it rather than the parent /redesign's three-style total.
-  const [refined, setRefined] = useState<
-    Record<string, { baseImage: string; baseSsim: number | null; duration: number | null }>
-  >({});
   // The account's plan and what is left of the weekly allowance. Displayed here
   // and enforced by the backend — this copy is only ever what the server last
   // said, never the thing that decides.
@@ -261,7 +252,6 @@ export default function StudioPage() {
     setShowElements(false);
     setComparePos(50);
     setProgress(0);
-    setRefined({});
 
     // Before the loading scene, so a refusal is immediate rather than a
     // dissolve that turns out to have been for nothing.
@@ -328,7 +318,6 @@ export default function StudioPage() {
     setErr(null);
     setShowElements(false);
     setComparePos(50);
-    setRefined({});
     setResult({
       original: `${base}/original.png`,
       lebanese: `${base}/lebanese.png`,
@@ -349,67 +338,9 @@ export default function StudioPage() {
     setErr(null);
     setShowElements(false);
     setProgress(0);
-    setRefined({});
     clearImage();
     setPhase("idle");
   }, [clearImage]);
-
-  /**
-   * A refinement landed: it replaces the featured render everywhere.
-   *
-   * `pristine` is updated alongside the image — unlike a recolour or a placed
-   * sofa, this IS the pipeline's own output, just at different parameters, so
-   * it must not be saved as edited and dropped from the evaluation averages.
-   * The SSIM is replaced too (or removed if the backend could not measure one):
-   * the parent's score belongs to a different image, and "Preserve room more"
-   * is precisely the button that should move it.
-   */
-  const applyRefinement = useCallback(
-    (r: RefinedDesign) => {
-      const current = result?.[featured];
-      setRefined((prev) => ({
-        ...prev,
-        [featured]: {
-          // Captured only on the first refinement of this culture.
-          baseImage:
-            prev[featured]?.baseImage ?? (typeof current === "string" ? current : ""),
-          baseSsim: prev[featured]?.baseSsim ?? result?.ssim?.[featured] ?? null,
-          duration: r.duration,
-        },
-      }));
-      setResult((prev) => {
-        if (!prev) return prev;
-        const ssim = { ...(prev.ssim ?? {}) };
-        if (r.ssim != null) ssim[featured] = r.ssim;
-        else delete ssim[featured];
-        return { ...prev, [featured]: r.image, ssim };
-      });
-      setPristine((prev) => ({ ...prev, [featured]: r.image }));
-      setComparePos(50);
-    },
-    [featured, result],
-  );
-
-  /** Back to the original generation for this culture, discarding every
-   *  refinement of it — including its SSIM and its render time. */
-  const revertRefinement = useCallback(() => {
-    const base = refined[featured];
-    if (!base?.baseImage) return;
-    setResult((prev) => {
-      if (!prev) return prev;
-      const ssim = { ...(prev.ssim ?? {}) };
-      if (base.baseSsim != null) ssim[featured] = base.baseSsim;
-      else delete ssim[featured];
-      return { ...prev, [featured]: base.baseImage, ssim };
-    });
-    setPristine((prev) => ({ ...prev, [featured]: base.baseImage }));
-    setRefined((prev) => {
-      const next = { ...prev };
-      delete next[featured];
-      return next;
-    });
-    setComparePos(50);
-  }, [featured, refined]);
 
   const downloadTile = useCallback((dataUrl: string, key: string) => {
     const a = document.createElement("a");
@@ -951,11 +882,8 @@ export default function StudioPage() {
                   newImage={featuredSrc}
                   culture={featured}
                   // The renderer's own measurement of this generation, stored on
-                  // the design so the evaluation dashboard can average it. A
-                  // refined design reports its OWN single-style render time —
-                  // the parent figure is a three-culture total and would
-                  // overstate it about threefold.
-                  duration={refined[featured]?.duration ?? result.duration_s}
+                  // the design so the evaluation dashboard can average it.
+                  duration={result.duration_s}
                   // The score for the culture actually on screen — that is the
                   // image being saved.
                   ssim={result.ssim?.[featured] ?? null}
@@ -991,27 +919,6 @@ export default function StudioPage() {
                 </button>
               </div>
             </div>
-
-            {/* Quick AI Refinement — four one-click nudges that re-run the SAME
-                pipeline on the ORIGINAL upload with one parameter changed.
-                Placed above the edit panels because it is a generation, not an
-                edit: its output replaces the featured render as a fresh
-                pipeline result, which is why it also updates `pristine`.
-                Hidden in Defense Mode, where the images are a pre-rendered
-                pack and there is no backend to refine with. */}
-            {imageFile && (
-              <div className="mb-6">
-                <RefinementControls
-                  file={imageFile}
-                  style={featured}
-                  baseJobId={result.job_id}
-                  canRevert={!!refined[featured]?.baseImage}
-                  onRefined={applyRefinement}
-                  onRevert={revertRefinement}
-                  spend={spendGeneration}
-                />
-              </div>
-            )}
 
             {/* Colour Control — repaint the wall or floor of the featured
                 render. Needs the cached room analysis for the same reason

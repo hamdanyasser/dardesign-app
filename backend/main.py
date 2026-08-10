@@ -83,7 +83,6 @@ from .errors import (
     ERR_BAD_CREDENTIALS,
     ERR_BAD_FURNITURE_ID,
     ERR_BAD_IMAGE_DATA,
-    ERR_BAD_REFINE_MODE,
     ERR_BAD_SHARE_TOKEN,
     ERR_BAD_STYLE,
     ERR_CATALOGUE_UNAVAILABLE,
@@ -413,22 +412,6 @@ class RestyleResponse(BaseModel):
     privacy_notice: str = PRIVACY_NOTICE
 
 
-class RefineResponse(BaseModel):
-    """Quick AI Refinement: one culture re-rendered from the ORIGINAL upload with
-    one parameter nudged. Carries its own SSIM because the refined image is a
-    real pipeline output that will be saved and evaluated — reusing the parent
-    render's score would file a new image under an old measurement."""
-
-    image: str
-    style: str
-    mode: str
-    ssim: float | None = None
-    duration_s: float | None = None
-    manifest: dict | None = None
-    placeholder: bool | None = None
-    privacy_notice: str = PRIVACY_NOTICE
-
-
 # ---------- endpoints ----------
 
 
@@ -728,157 +711,6 @@ async def restyle(
             duration_s=round(time.monotonic() - started, 2), light=_light_mode(),
         )
         return RestyleResponse(image=_png_data_url(out), style=style, scale=scale, manifest=manifest)
-
-    return _stream_keepalive(_build())
-
-
-# ---------- Quick AI Refinement ----------
-
-# Four one-click nudges on the SAME generation pipeline. Each is a delta against
-# the configured baseline rather than an absolute, so retuning pipeline.yaml (or
-# a per-style sweep winner) moves the refinements with it instead of silently
-# turning "slightly more cultural" into "less".
-#
-# Two knobs deliberately unused here: `steps` and `guidance`. Both change render
-# time or prompt adherence globally, which would make a refinement incomparable
-# with the generation it refines — and these images are evaluation data.
-_REFINE_MODES: dict[str, dict] = {
-    "more_cultural": {
-        # The LoRA carries the culture; the prompt only reinforces what it does.
-        "lora_delta": 0.15,
-        "extra_positive": (
-            "rich authentic {style} craftsmanship, detailed traditional ornament, "
-            "culturally distinctive architectural detail"
-        ),
-    },
-    "preserve_room": {
-        # Less denoising keeps the original geometry; the ControlNet boost holds
-        # the depth and segmentation of the actual room while it does.
-        "strength_delta": -0.15,
-        "controlnet_boost": 1.2,
-    },
-    "brighter": {
-        "extra_positive": (
-            "bright natural daylight, sunlight through the windows, airy and "
-            "well-lit, luminous, clean bright exposure"
-        ),
-    },
-    "warmer": {
-        "extra_positive": (
-            "warm golden lighting, cozy inviting ambiance, warm amber colour "
-            "tones, soft lamplight, welcoming"
-        ),
-    },
-}
-
-@app.post("/refine")
-async def refine(
-    file: UploadFile,
-    style: str = Form(...),
-    mode: str = Form(...),
-    base_job_id: str = Form(""),
-) -> StreamingResponse:
-    """Quick AI Refinement — re-render ONE culture from the original upload with
-    a single parameter nudged (see `_REFINE_MODES`).
-
-    `file` is the ORIGINAL room photo, never the generated image: this is a
-    fresh generation with different parameters, not an edit of a render. Feeding
-    a render back in would compound SDXL artefacts every click and make the
-    saved SSIM meaningless, since it measures against the true original.
-
-    `base_job_id` carries the parent render's seed so a refinement is the same
-    room with one thing changed. Without it, a 0.15 nudge on a fresh seed comes
-    back as a different room and reads as a re-roll rather than a refinement."""
-    if style not in StylePack:
-        _raise(ERR_BAD_STYLE)
-    if mode not in _REFINE_MODES:
-        _raise(ERR_BAD_REFINE_MODE)
-    spec = _REFINE_MODES[mode]
-
-    raw = await file.read()
-    _guard_upload(file.filename, raw)
-    try:
-        validate_upload(content_type=file.content_type, raw_bytes=raw)
-    except ValidationFailure as v:
-        _raise(v.error)
-
-    suffix = Path(file.filename or "image.jpg").suffix.lower()
-    if suffix not in (".jpg", ".jpeg", ".png", ".webp"):
-        suffix = ".jpg"
-    job = jobs.create(input_path="")
-    input_path = UPLOAD_DIR / f"{job.id}_input{suffix}"
-    input_path.write_bytes(raw)
-    job.input_path = str(input_path)
-    jobs.transition(job.id, JobStatus.running, style=style)
-
-    # Same derivation as /redesign, so passing that job's id reproduces its seed.
-    seed_source = base_job_id.strip() or job.id
-    try:
-        seed = int(seed_source[:8], 16)
-    except ValueError:
-        seed = int(job.id[:8], 16)
-
-    lora_scale = max(
-        0.0, min(1.0, float(CONFIG.get("lora_scale", 0.8)) + spec.get("lora_delta", 0.0))
-    )
-    # Floored at 0.25: below roughly there img2img returns the input essentially
-    # untouched, so "preserve the room more" would start returning no redesign.
-    strength = max(
-        0.25, min(0.95, float(CONFIG.get("strength", 0.7)) + spec.get("strength_delta", 0.0))
-    )
-    extra_positive = (spec.get("extra_positive") or "").format(style=style) or None
-
-    async def _build() -> RefineResponse:
-        started = time.monotonic()
-        try:
-            async with _GEN_LOCK:
-                out = await asyncio.to_thread(
-                    transform_room, str(input_path), style,
-                    seed=seed,
-                    lora_scale=lora_scale,
-                    strength=strength,
-                    extra_positive=extra_positive,
-                    controlnet_boost=float(spec.get("controlnet_boost", 1.0)),
-                )
-        except PipelineError as e:
-            jobs.transition(
-                job.id, JobStatus.error,
-                error_code=ERR_PIPELINE.code, error_en=e.message_en, error_ar=e.message_ar,
-            )
-            logger.exception("refine job %s pipeline error", job.id)
-            log_event(
-                "refine", job_id=job.id, style=style, mode=mode, ok=False,
-                error=e.message_en, duration_s=round(time.monotonic() - started, 2),
-                light=_light_mode(),
-            )
-            _raise(ERR_PIPELINE, detail_en=e.message_en, detail_ar=e.message_ar)
-
-        duration_s = round(time.monotonic() - started, 2)
-
-        # Measured against the original upload, exactly as /redesign does it, so
-        # this design's score sits in the same population as every other.
-        ssim = await asyncio.to_thread(ssim_paths, str(input_path), str(out))
-
-        manifest: dict | None = None
-        try:
-            mpath = out.with_suffix(".manifest.json")
-            if mpath.exists():
-                manifest = json.loads(mpath.read_text(encoding="utf-8"))
-        except Exception:
-            logger.exception("failed to read provenance manifest for refine job %s", job.id)
-
-        jobs.transition(job.id, JobStatus.done, output_path=str(out))
-        log_event(
-            "refine", job_id=job.id, style=style, mode=mode, ok=True,
-            lora_scale=lora_scale, strength=strength, seed=seed,
-            duration_s=duration_s, light=_light_mode(),
-        )
-        return RefineResponse(
-            image=_png_data_url(out), style=style, mode=mode,
-            ssim=round(ssim, 4) if ssim is not None else None,
-            duration_s=duration_s, manifest=manifest,
-            placeholder=True if _light_mode() else None,
-        )
 
     return _stream_keepalive(_build())
 

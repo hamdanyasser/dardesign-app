@@ -56,11 +56,6 @@ ERR_BAD_STYLE = ApiError(
     "Unknown style.",
     "النمط غير معروف.",
 )
-ERR_BAD_REFINE_MODE = ApiError(
-    "bad_refine_mode", 400,
-    "Unknown refinement.",
-    "تحسين غير معروف.",
-)
 ERR_HISTORY_NOT_FOUND = ApiError(
     "history_not_found", 404,
     "Design not found.",
