@@ -821,6 +821,110 @@ export async function restyleRoom(
   return { image: data.image, style, scale, manifest: data.manifest ?? null };
 }
 
+/** The four Quick AI Refinement nudges. Server-side `_REFINE_MODES` is the
+ *  authority on what each one actually changes — this is only the name. */
+export type RefineMode = "more_cultural" | "preserve_room" | "brighter" | "warmer";
+
+export interface RefineResult {
+  image: string;
+  style: StyleId;
+  mode: RefineMode;
+  /** Re-measured against the original upload, not inherited from the parent
+   *  render — the refined image is a different image and needs its own score. */
+  ssim: number | null;
+  duration_s: number | null;
+  manifest?: Record<string, unknown> | null;
+  placeholder?: boolean;
+}
+
+/**
+ * Quick AI Refinement — re-render ONE culture from the ORIGINAL room photo with
+ * a single pipeline parameter nudged. Same generation path and same cost as a
+ * normal design (~1–3 min on the T4), which is why the caller spends a use for
+ * it. Pass the parent render's `baseJobId` so the seed matches and the result
+ * is the same room refined rather than a different room.
+ */
+export async function refineRoom(
+  file: File,
+  style: StyleId,
+  mode: RefineMode,
+  {
+    baseJobId,
+    timeoutMs = 360_000,
+    signal,
+  }: { baseJobId?: string | null; timeoutMs?: number; signal?: AbortSignal } = {},
+): Promise<RefineResult> {
+  const fd = new FormData();
+  fd.append("file", file);
+  fd.append("style", style);
+  fd.append("mode", mode);
+  if (baseJobId) fd.append("base_job_id", baseJobId);
+
+  const ctrl = new AbortController();
+  let timedOut = false;
+  const onParentAbort = () => ctrl.abort();
+  if (signal) {
+    if (signal.aborted) ctrl.abort();
+    else signal.addEventListener("abort", onParentAbort, { once: true });
+  }
+  const timer = setTimeout(() => {
+    timedOut = true;
+    ctrl.abort();
+  }, timeoutMs);
+
+  let res: Response;
+  try {
+    res = await safeFetch(`${API_URL}/refine`, {
+      method: "POST",
+      headers: COMMON_HEADERS,
+      body: fd,
+      signal: ctrl.signal,
+    });
+  } catch (e) {
+    if (timedOut) {
+      throw new ApiError(
+        {
+          code: "timeout",
+          message_en: "The refinement is taking longer than expected. Please try again.",
+          message_ar: "استغرق التحسين وقتاً أطول من المتوقع. يرجى المحاولة مجدداً.",
+        },
+        0,
+      );
+    }
+    if (signal?.aborted) {
+      throw new ApiError(
+        { code: "aborted", message_en: "Request cancelled", message_ar: "تم إلغاء الطلب" },
+        0,
+      );
+    }
+    throw e;
+  } finally {
+    clearTimeout(timer);
+    if (signal) signal.removeEventListener("abort", onParentAbort);
+  }
+
+  const data = (await unwrap(res)) as Partial<RefineResult>;
+  if (typeof data.image !== "string" || !data.image.startsWith("data:image")) {
+    throw new ApiError(
+      {
+        code: "bad_response",
+        message_en: "Server returned an incomplete refinement. Please try again.",
+        message_ar: "أعاد الخادم نتيجة غير مكتملة. يرجى المحاولة مجدداً.",
+      },
+      res.status,
+    );
+  }
+  return {
+    image: data.image,
+    style,
+    mode,
+    ssim: typeof data.ssim === "number" ? data.ssim : null,
+    duration_s: typeof data.duration_s === "number" ? data.duration_s : null,
+    manifest: data.manifest ?? null,
+    placeholder: data.placeholder === true,
+  };
+}
+
 /* -------------------------------------------------------------------------- */
 /*  Accounts + saved designs                                                   */
 /* -------------------------------------------------------------------------- */
