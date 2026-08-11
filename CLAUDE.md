@@ -27,28 +27,37 @@ src/
 │   ├── globals.css              # All CSS variables, themes, animations, utility classes (~548 lines)
 │   ├── layout.tsx               # Root layout — fonts (Tajawal, Reem Kufi, Noto Kufi, Amiri, Inter, DM Sans, JetBrains Mono); imports cinema.css + dar-cinema.css; both providers, <html> defaults
 │   ├── page.tsx                 # Home — thin wrapper that renders <DarCinema /> from src/components/dar/                                             
-│   ├── transform/page.tsx       # Upload + style selection page
-│   └── result/page.tsx          # Loading animation + before/after slider
+│   ├── studio/page.tsx          # The product — upload → /redesign → reveal + six result tabs
+│   └── transform|result/page.tsx # Retired — redirect("/studio") stubs only
 ├── components/
 │   ├── ui/                      # shadcn primitives (button, card, badge, separator, switch, dropdown-menu)
 │   ├── dar/                     # DarCinema — the DEFAULT cinematic RTL landing (Claude Design handoff), scoped under .dar-cinema
 │   │   ├── DarCinema.tsx         # 5-scene scrollytelling: intro bloom → threshold tunnel (scroll 3D) → 3D scan → souls carousel → orbit room → provenance
 │   │   └── dar-cinema.css        # ~180 lines, scoped under .dar-cinema (warm charcoal/gold v2 tokens, Reem Kufi + Tajawal, dark/light toggle)
 │   ├── cinema/                  # Shared cinematic chrome for /studio + error + 404 only (CinemaChrome, ArchCanvas, DissolveCanvas, DustLayer, copy, hooks, cinema.css)
+│   ├── story/                   # Narrative layer for /studio results + wait (see "Narrative layer" below)
+│   │   ├── DesignStory.tsx       # 8-chapter editorial reading of one finished result
+│   │   ├── CultureDNA.tsx        # Ontology vocabulary for one culture, or all three side by side
+│   │   ├── GenerationStory.tsx   # "Inside DAR" — 7-chapter documentary loop
+│   │   ├── StoryComparison.tsx   # Accessible built-in wipe used inside DesignStory
+│   │   ├── RoomUnderstandingFigure.tsx  # Detections + top-down projection figure
+│   │   ├── adapters.ts           # RedesignResult → story data. The truth gate; see README.md
+│   │   ├── cultureData.ts        # Reads the canonical root ontology/ontology.json
+│   │   ├── copy.ts / types.ts    # Bilingual copy + public types
+│   │   ├── *.module.css          # Scoped CSS modules (authored to a 1480px measure)
+│   │   └── README.md             # Integration contract — read before wiring anything new
 │   ├── islamic-pattern.tsx      # Decorative 8-pointed star repeating SVG background
 │   ├── gold-button.tsx          # Primary CTA — renders as <Link> or <button>
 │   ├── upload-zone.tsx          # Drag-and-drop image upload with preview
-│   ├── style-card.tsx           # Single style option card with radio indicator
-│   ├── style-selector.tsx       # Grid of 3 StyleCards
 │   ├── loading-screen.tsx       # 8s loading animation with spinning star + progress bar
 │   ├── error-banner.tsx         # Bilingual error display + retry CTA
 │   ├── share-dialog.tsx         # Copy-to-clipboard share modal
-│   └── before-after-slider.tsx  # Draggable clip-path image comparison slider
+│   └── before-after-slider.tsx  # Pointer/keyboard/ARIA image comparison wipe
 ├── context/
 │   ├── ThemeLanguageContext.tsx  # Language (EN/AR), theme (dark/light), all translations
 │   └── ImageContext.tsx          # Cross-page state: uploaded image + selected style + jobId
 └── lib/
-    ├── api.ts                   # Typed backend client (uploadImage, startTransform, pollStatus, …)
+    ├── api.ts                   # Typed backend client — redesignRoom/restyleRoom, colour + furniture, auth, history, subscription/usage, admin. (uploadImage/startTransform/pollStatus are the retired async flow, still exported)
     └── utils.ts                 # cn() utility (clsx + tailwind-merge)
 ```
 
@@ -75,8 +84,15 @@ src/
 | Route | Purpose |
 |-------|---------|
 | `/` | **DarCinema** — cinematic 5-scene RTL-Arabic scrollytelling (the default design, `src/components/dar/`). Header dark/light toggle + studio CTA. Door CTA → `/studio`. |
-| `/transform` | Upload room photo + select style |
-| `/result?jobId=…&style=…` | Live progress polling → before/after slider, download, share, try-another-style |
+| `/studio` | **The product.** Upload → `/redesign` → reveal wipe + six result tabs (Result · Design Story · Culture DNA · Inside DAR · Understand · Edit). `?demo=1` adds the Defense Mode strip of pre-rendered rooms. |
+| `/history` · `/others` | Saved designs; other users' saved work + ratings |
+| `/subscription` | Both plans, current weekly usage, subscribe/unsubscribe |
+| `/login` · `/register` | Auth (A1 underline-only inputs) |
+| `/evaluation` | Admin-only evaluation dashboard (A3) |
+| `/admin/users` · `/admin/subscriptions` | Admin: accounts + the approve/decline queue |
+| `/audit` | Unlinked admin audit table (token-gated endpoint) |
+| `/v2` | Understood Room Three.js rebuild (see `UNDERSTOOD_ROOM_THREEJS_SPEC.md`) |
+| `/transform` · `/result` | **Retired** — server-side `redirect("/studio")` stubs only |
 
 ### Context: ThemeLanguageContext
 
@@ -185,6 +201,8 @@ Shared, non-negotiable: hairline rules instead of card borders; one radius famil
 
 A1/A2/A3 are implemented across the app: Landing/Studio/Result carry A2 (CinemaChrome, Studio tabs, the material culture picker), and History/Others/Subscription/Admin Users/Admin Subscriptions/Login/Register carry A1's concrete patterns (hairline-only entries, diamond-shaped ratings, underline-only auth inputs, non-card subscription rows, plain hairline admin tables). Evaluation's A3 restructure (01–04 sectioning) is tracked separately below.
 
+The `src/components/story/` narrative tabs are a **separate handoff** styled in scoped CSS modules rather than the `--dd-*`/cinema token surface. They read as A1-at-editorial-scale — numbered chapters, hairline rules, mono confined to chapter numbers and measurement values — and they honour the em-dash rule strictly (see "Narrative layer" below). They have **not** been formally reconciled against the A1/A2/A3 mockups; treat that as open rather than settled.
+
 Known tensions in the source material itself (not yet reconciled, currently resolved in code by favoring the actual A1/A2 mockups over the context doc's prose summary): the context doc says "no glass" and "mono forbidden on nav/buttons," but the A2 mockup's own `.chrome` uses `backdrop-filter:blur`, and both A1 and A2 set `.nav`/`.btn` to the mono font. The current `CinemaChrome` scrim (`backdrop-filter: blur(8px)`, replacing an unreadable `mix-blend-mode: difference`) is a deliberate, working legibility fix — kept as-is.
 
 **Flags retired (2026-08-10, completed).** The design context doc called national flag emoji "the single clearest thing to replace" with a material-stack + proportion-motif treatment. No flag emoji or flag-like imagery remains anywhere in the app. Studio's culture picker, the "All three" triptych, and the post-generation result tiles all render `MotifTiles[STYLE_MOTIF[id]]` (`src/components/cinema/svg/MotifTiles.tsx` — qanater for Lebanese, majlis for Khaleeji, zellige for Moroccan; the "Original" result tile keeps its house icon — it isn't a culture). The Moroccan `zellige` tile was itself rebuilt: it was a literal 5-pointed star shape, which reads as a flag emblem rather than tessellation — replaced with the design doc's own reference construction (a square + the same square rotated 45°, i.e. an 8-pointed geometric lattice, outline only, no filled star silhouette). The dead `style-card.tsx`/`style-selector.tsx` pair (unreachable — their only caller was the retired `/transform` flow) has been deleted rather than left as unused code, along with its orphaned `.style-card-base`/`.style-card-selected` CSS and `ThemeLanguageContext`'s `StyleCopy.flag` field.
@@ -222,9 +240,15 @@ Validates: image type + max 10MB. Shows preview with remove button when image is
 <BeforeAfterSlider
   beforeSrc={string} afterSrc={string}
   beforeLabel="Before" afterLabel="After"
+  beforeAlt={string} afterAlt={string}      // default to the labels
+  sliderLabel={string}                       // aria-label; defaults to "before / after"
+  afterSide={"left" | "right"}               // omit to follow reading direction
+  className={string}
 />
 ```
-Draggable comparison slider using `clip-path: inset()`. Supports mouse + touch. RTL-aware labels.
+Comparison wipe using `clip-path: inset()`. **Pointer events with pointer capture**, so a drag keeps tracking after the cursor leaves the frame — one code path for mouse, touch and pen. Keyboard: `←/↓` and `→/↑` step 2%, `Shift` steps 10%, `Home`/`End` jump to the ends. Exposed as `role="slider"` with live `aria-valuenow`/`aria-valuetext`, and `touch-action: pan-y` so vertical page scrolling still works over it.
+
+By default the result follows the reading direction (right in EN, left in AR). `afterSide` pins it to a physical side for callers with an established convention — `/studio` passes `"right"` because `.lbl.before`/`.lbl.after` in `cinema.css` are pinned left/right in both languages, so the images must match.
 
 ### IslamicPattern
 ```tsx
@@ -285,6 +309,7 @@ A 4th culture, `persian` (فارسي), is **prompt-only** and restyle-only — i
 - **Theme/language persist via localStorage** (`dd-theme`, `dd-language` keys): a blocking inline script in `layout.tsx` reads them and sets `data-theme`/`lang`/`dir` on `<html>` before first paint (avoids a flash of the wrong theme), and `ThemeLanguageProvider` restores the same keys into React state on mount, gated so it can't stomp the inline script's value. Keep the storage keys in sync between the two if either changes.
 - **No next/image:** Using `<img>` elements because blob URLs and SVG data URIs are incompatible with Next.js image optimization. ESLint warnings for this are expected.
 - **All client components:** Every page and component uses `"use client"` since they depend on context providers.
+- **Sprint worktrees are merged, not authoritative (2026-08-11).** `C:\Users\hamda\dar-designer` (`sprint/designer`) and `C:\Users\hamda\dar-story` (`sprint/story`) are `git worktree` checkouts of this repo. Both sat on the *same* commit as main with their work **uncommitted**, so `git log` showed nothing — `git -C <path> status` / `diff HEAD` is the only way to see what they hold. Their finished work (the `BeforeAfterSlider` rewrite; the whole `src/components/story/` package) now lives here. Their copies of `src/app/studio/page.tsx` are built on the **pre-overhaul baseline** and are older than this one: never copy that file across, port the hunk. `git worktree list` is the quickest way to re-check what exists.
 
 ---
 
@@ -293,7 +318,8 @@ A 4th culture, `persian` (فارسي), is **prompt-only** and restyle-only — i
 Demo path: `/` (DarCinema landing, CTA → `/studio`) → **`/studio`** (upload → all three redesigns).
 
 - **`POST /redesign`** (synchronous, ~1–2 min): multipart `file`; returns `{ original, lebanese, khaleeji, moroccan }` as base64 PNG **data URLs**, plus `object_map` (top-down projection), `seg_regions` (on-image highlighter bboxes from `seg_bounding_boxes()` in `backend/projection.py`), and `depth_map` (grayscale depth PNG data URL for DepthOrbit) — all from one depth+seg pass, null on failure, `placeholder: true` in LIGHT mode. Client = `redesignRoom()` in `src/lib/api.ts` (≥180s timeout, `AbortController`, typed bilingual errors, response-shape validation). Replaces the old async `/upload`+`/transform`+`/status`+`/result` polling flow.
-- **`/studio`** (`src/app/studio/page.tsx`): drag-drop (`UploadZone`) → skeleton loading (`جارٍ التصميم…` + elapsed timer, `.dd-skeleton` shimmer) → responsive 2-col grid of original + Lebanese/Khaleeji/Moroccan, each labelled AR+EN with a per-image PNG download. Bilingual error + retry. RTL/Tajawal, gold-on-charcoal.
+- **`/studio`** (`src/app/studio/page.tsx`): drag-drop (`UploadZone`) → cinematic loading scene (indeterminate ring + measured elapsed time + scope label — **no percentage**, because `/redesign` returns once and has no intermediate state to report) → the reveal: a `BeforeAfterSlider` wipe over the featured culture, a design-directions rail, then a six-tab working area. Bilingual error + retry. RTL/Tajawal, gold-on-charcoal.
+- **Result tabs** (`ResultTab` in `studio/page.tsx`): **Result** (all generated tiles + per-image download) · **Design Story** · **Culture DNA** · **Inside DAR** · **Understand** (highlighter, 2D map, DepthOrbit, narration) · **Edit** (colour, furniture, intensity). The three narrative tabs are **conditionally mounted**, not CSS-hidden like the tool tabs — `GenerationStory` runs a timed chapter loop and `DesignStory` measures natural image ratios, both of which would otherwise run offscreen. `TOOL_TABS` is what keeps the shared Understand/Edit wrapper from leaking into the narrative tabs; it is the thing to update if a tab is ever added.
 - **`/transform` and `/result`** are retired — they now `redirect("/studio")`.
 - **CulturalElementHighlighter** (`src/components/CulturalElementHighlighter.tsx` + `src/data/ontology.json`): overlays segmentation regions (SVG + accessible hotspots) and reveals an element's Arabic term + note on click. **Wired**: real regions arrive in `/redesign`'s `seg_regions`; `DEMO_REGIONS` is the fallback for placeholder/absent data. `/studio` labels the section "(live)" when both regions and map are real.
 - **Env:** `NEXT_PUBLIC_API_URL` in `.env.local` (gitignored; template in `.env.example`). The tunnel URL rotates each session — keep it swappable. **`npm run dev:tunnel <url>`** (`scripts/dev-tunnel.mjs`) is the one-command session start: writes `.env.local`, probes `/healthz`, then runs `next dev` on :3000. It hard-fails if :3000 is taken, because the backend's CORS allowlist is localhost:3000 only and Next's silent fallback to :3001 would break every `/redesign` call. Re-run with no URL to reuse the saved one.
@@ -306,6 +332,30 @@ Demo path: `/` (DarCinema landing, CTA → `/studio`) → **`/studio`** (upload 
 - **Saved designs are the evaluation dataset**: every unedited design saved to `history` is measured once — SSIM at generation time (`backend/quality.py`, numpy+scipy, matches skimage to 1e-9), then LPIPS + CLIP in a FastAPI background task after the save responds. The scores are **columns on the history row**, which is what makes deletion total: remove a design and it leaves every average and the confusion matrix in the same instant, with no side table to keep in step. `Culture` vs `PredictedCulture` *is* the confusion matrix (`db.culture_confusion()`). Designs edited by colour control or furniture placement carry `IsEdited=1` and are never measured — they are real designs but no longer the pipeline's own output. LPIPS/CLIP need `pip install lpips open_clip_torch`; without them the values stay null and `scripts/backfill_evaluation.py` fills them in later (it never overwrites a generation-time SSIM). The dashboard aggregates **all users**, not the viewer.
 - **Audit trail**: `backend/audit.py` (append-only JSONL, metadata only, never raises) ← logged by `/redesign` + `/restyle`; `GET /audit` (token via `DARDESIGN_AUDIT_TOKEN`) → `/audit` page (unlinked admin table). `backend/audit.jsonl` is gitignored.
 - **Ops**: root `Dockerfile` (LIGHT image on `backend/requirements-light.txt`) + `.github/workflows/ci.yml` (pytest in LIGHT + `npm run build`).
+
+---
+
+## Narrative layer (`src/components/story/`)
+
+Three client components that turn data `/redesign` **already returned** into a bilingual narrative. They never fetch, generate, save, or manufacture evidence. Integrated into `/studio` on 2026-08-11 from the `sprint/story` worktree.
+
+- **DesignStory** — eight chapters over one finished, single-culture result. Stateful actions stay as React-node slots (`save`, `history`, `report`, `designer`, `comparison`) so the story never duplicates a flow that already has an owner.
+- **CultureDNA** — canonical ontology vocabulary for one culture, or an editorial synthesis of all three. `"all"` is **not** a blended backend style, a percentage mixture, or a cultural-accuracy score.
+- **GenerationStory** ("Inside DAR") — a seven-chapter documentary loop. Mounted twice: during the live wait (`phase === "loading"`), and as a post-result replay on the Inside DAR tab.
+
+**`adapters.ts` is the truth gate, and the reason this layer is safe.** `createDesignStoryData(result, culture, opts)` excludes placeholder segmentation/map/depth artifacts, never falls back to `DEMO_REGIONS`/`DEMO_MAP`, preserves genuine numeric zeroes, emits unavailable measurements as `value: null, measured: false`, and returns `null` outright when the original or the selected output is missing. Read measurements through that gate rather than off the raw response. Consequence worth expecting: in Defense Mode and LIGHT runs, **duration and SSIM correctly render as "—"** because the demo pack reports neither — that is the gate working, not a wiring bug.
+
+Rules that are easy to violate:
+
+- **Never pass Studio's animated `progress` as `reportedProgress`.** It is an animation curve, not telemetry. The only supported envelope is `BackendReportedProgress` with `source: "backend"`, and `/redesign` has none. The chapter clock is documentary pacing and does not estimate completion.
+- Pass the culture **actually on screen** (`featured`), not `result.object_map.style` — the map describes a shared analysis artifact, not the selected output.
+- `slots.report` is deliberately **not** auto-wired: `RoomReport`'s canvas footer hardcodes SDXL 1.0 + dual ControlNet + a cultural LoRA, which is not true for every runtime/culture path, and `/redesign` returns no provenance to prove it. Make that footer take real capability props first.
+- `cultureData.ts` reads the canonical root `ontology/ontology.json`, while `RoomReport` and the highlighter read `src/data/ontology.json`. **Two copies — keep them in step** until they share one import.
+- Unavailable facts stay absent or `null`. The components render honest empty states and em dashes; never substitute sample values for presentation.
+
+**Layout note.** The `.module.css` files are authored to a `max-width: 1480px` measure, which the surrounding `max-w-5xl` results column would collapse (the chapter rail labels collide). `/studio` breaks the three panels out with symmetric negative `margin-inline`, clamped to `min(1480px, calc(100vw - 2rem))`. Use logical margins here, **not** the usual `left-1/2` + `-translate-x-1/2` trick: `left` resolves against the inline start, so in RTL that throws the panel hundreds of pixels off the side of the page.
+
+Full integration contract, including the `/restyle` provenance path and the explicitly unsupported list: [src/components/story/README.md](src/components/story/README.md).
 
 ---
 

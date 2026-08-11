@@ -60,7 +60,10 @@
    proper light-theme background further down this file (a vellum radial
    gradient), so it genuinely goes light — forcing dark-stage text onto it
    produced cream-on-cream. Only stages with no light background belong here. */
-html[data-theme="light"] .cinema .result-scene,
+/* .result-scene has also left this list. It now paints var(--bg), so in light
+   mode it is a genuine vellum sheet with the room photography as the subject —
+   which is what survives a projector in a lit hall, where near-black collapses
+   to muddy grey. Forcing cream text onto it produced cream-on-vellum. */
 html[data-theme="light"] .cinema .loading-scene,
 html[data-theme="light"] .cinema .error-scene,
 html[data-theme="light"] .cinema .nf-scene {
@@ -970,12 +973,16 @@ html[lang="ar"] .cinema .transform-scene .lead h1 { font-family: var(--f-display
 .cinema .transform-scene .lead p { font-family: var(--f-display); font-style: italic; color: var(--fg-soft); font-size: var(--t-lead); margin: 0; }
 html[lang="ar"] .cinema .transform-scene .lead p { font-family: var(--f-display-ar); font-style: normal; }
 
+/* 60/40. The room is the workspace and the culture picker is configuration
+   beside it — an even split made the two read as equal peers, which is not the
+   hierarchy: nothing on this page matters until a photograph exists. */
 .cinema .transform-scene .stage {
   display: grid;
-  grid-template-columns: 1.1fr 1fr;
+  grid-template-columns: 1.5fr 1fr;
   gap: var(--s-8);
   align-items: stretch;
 }
+@media (max-width: 1180px) { .cinema .transform-scene .stage { grid-template-columns: 1.25fr 1fr; gap: var(--s-6); } }
 @media (max-width: 1000px) { .cinema .transform-scene .stage { grid-template-columns: 1fr; } }
 
 .cinema .dropzone {
@@ -1189,19 +1196,53 @@ html[lang="ar"] .cinema .style-card .name { font-family: var(--f-display-ar); fo
 .cinema .loading-scene .ring-wrap svg { width: 100%; height: 100%; transform: rotate(-90deg); }
 .cinema .loading-scene .ring-bg { fill: none; stroke: var(--hairline); stroke-width: 0.5; }
 .cinema .loading-scene .ring-fg { fill: none; stroke: var(--brass); stroke-width: 0.5; stroke-linecap: round; transition: stroke-dashoffset 600ms var(--ease-cinema); }
+
+/* Indeterminate sweep. A fixed-length arc that orbits forever says "working,
+   duration unknown" — which is the truth. It deliberately cannot be read as a
+   completion percentage, because /redesign exposes no progress to measure. */
+.cinema .loading-scene .ring-indeterminate {
+  stroke-width: 1.25;
+  transform-origin: 100px 100px;
+  animation: dd-ring-sweep 1.9s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+  transition: none;
+}
+@keyframes dd-ring-sweep { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .cinema .loading-scene .ring-indeterminate { animation-duration: 6s; animation-timing-function: linear; }
+}
+
 .cinema .loading-scene .ring-pct {
   position: absolute;
   inset: 0;
   display: grid;
   place-items: center;
+  align-content: center;
+  gap: 4px;
   font-family: var(--f-display);
   font-style: italic;
   font-size: 3rem;
   color: var(--brass-bright);
   letter-spacing: var(--tr-snug);
 }
-.cinema .loading-scene .ring-pct .pct-num { font-feature-settings: "tnum"; }
-.cinema .loading-scene .ring-pct .pct { font-size: 1rem; color: var(--brass-dim); margin-left: 2px; }
+/* Elapsed time is the one honest number here, so it takes the centre. Mono +
+   tabular figures so the digits do not jitter as the seconds tick. */
+.cinema .loading-scene .ring-pct .pct-num {
+  font-family: var(--f-mono);
+  font-style: normal;
+  font-size: 2.1rem;
+  font-feature-settings: "tnum";
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+.cinema .loading-scene .ring-pct .pct {
+  font-family: var(--f-mono);
+  font-style: normal;
+  font-size: 0.6rem;
+  letter-spacing: var(--tr-caps);
+  text-transform: uppercase;
+  color: var(--brass-dim);
+}
+html[lang="ar"] .cinema .loading-scene .ring-pct .pct { font-family: var(--f-ui-ar); letter-spacing: 0; text-transform: none; font-size: 0.72rem; }
 
 .cinema .loading-scene h2 {
   font-family: var(--f-display);
@@ -1243,21 +1284,27 @@ html[lang="ar"] .cinema .loading-scene .footer-meta { font-family: var(--f-ui-ar
 /* ---------- RESULT SCENE ---------- */
 .cinema .result-scene {
   min-height: 100vh;
-  background: var(--ink);
+  /* --bg, not --ink: --ink is a fixed near-black with no light-theme value, so
+     using it here kept the Result screen dark while --fg flipped to dark text. */
+  background: var(--bg);
   position: relative;
 }
+/* The room is the deliverable, so it must not sit below a full screen of
+   decorative canvas. The arch is now a masthead band: enough to establish the
+   scene, short enough that the generated room clears the fold on a laptop. */
 .cinema .result-scene .reveal-stage {
   position: relative;
-  height: 100vh;
+  height: clamp(300px, 44vh, 520px);
   overflow: hidden;
 }
 .cinema .result-scene .reveal-stage .canvas { position: absolute; inset: 0; z-index: 1; }
 .cinema .result-scene .reveal-stage .label {
   position: absolute;
-  top: 12vh; left: 50%;
-  transform: translateX(-50%);
+  top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
   z-index: 5;
   text-align: center;
+  width: min(1100px, 90vw);
 }
 .cinema .result-scene .reveal-stage .label .eyebrow { color: var(--brass); margin-bottom: var(--s-3); }
 .cinema .result-scene .reveal-stage .label h1 {
@@ -1270,16 +1317,24 @@ html[lang="ar"] .cinema .loading-scene .footer-meta { font-family: var(--f-ui-ar
 }
 html[lang="ar"] .cinema .result-scene .reveal-stage .label h1 { font-family: var(--f-display-ar); font-style: normal; font-weight: 700; }
 
+/* The hero. Sized off the viewport height rather than a fixed aspect box so a
+   16:9 room fills a laptop screen without the actions being pushed off it.
+   The single permitted drop shadow in the system lives here — a cinematic lift
+   that separates the room from the page. */
 .cinema .compare {
   position: relative;
-  width: min(1400px, 92vw);
+  width: min(1560px, 94vw);
+  height: min(72vh, calc(94vw * 0.5625));
   margin: 0 auto;
-  aspect-ratio: 16/9;
-  background: var(--ink-2);
+  background: var(--surface-2);
   cursor: ew-resize;
   user-select: none;
   overflow: hidden;
-  box-shadow: 0 40px 100px -20px rgba(0,0,0,0.8);
+  box-shadow: 0 40px 100px -20px rgba(0,0,0,0.55);
+}
+html[data-theme="light"] .cinema .compare { box-shadow: 0 30px 80px -24px rgba(90,70,30,0.34); }
+@media (max-width: 900px) {
+  .cinema .compare { height: auto; aspect-ratio: 4/3; width: 94vw; }
 }
 .cinema .compare img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
 .cinema .compare .after-wrap { position: absolute; inset: 0; overflow: hidden; clip-path: inset(0 0 0 50%); }
@@ -1324,12 +1379,86 @@ html[lang="ar"] .cinema .result-scene .reveal-stage .label h1 { font-family: var
 .cinema .compare .lbl.after { right: var(--s-5); color: var(--brass-bright); }
 html[lang="ar"] .cinema .compare .lbl { font-family: var(--f-ui-ar); letter-spacing: 0; text-transform: none; }
 
+/* ---------- design directions rail (result) ---------- */
+.cinema .directions {
+  width: min(1560px, 94vw);
+  margin: var(--s-6) auto 0;
+}
+.cinema .directions-label {
+  font-family: var(--f-mono);
+  font-size: 0.66rem;
+  letter-spacing: var(--tr-caps);
+  text-transform: uppercase;
+  color: var(--fg-mute);
+  padding-bottom: var(--s-3);
+  border-bottom: 1px solid var(--hairline);
+  margin-bottom: var(--s-4);
+}
+html[lang="ar"] .cinema .directions-label { font-family: var(--f-ui-ar); letter-spacing: 0; text-transform: none; font-size: 0.82rem; }
+.cinema .directions-rail {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: var(--s-4);
+}
+.cinema .direction {
+  display: grid;
+  grid-template-columns: 52px 1fr;
+  gap: var(--s-4);
+  align-items: center;
+  text-align: start;
+  padding: var(--s-4);
+  background: transparent;
+  border: 0;
+  border-top: 1px solid var(--hairline-2);
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
+}
+.cinema .direction:hover { background: var(--brass-wash); }
+/* Selected reads as a drawn rule, not a filled chip — hairline vocabulary. */
+.cinema .direction.selected { border-top-color: var(--brass); background: var(--brass-wash); }
+.cinema .direction-motif {
+  width: 52px;
+  height: 52px;
+  display: block;
+  border: 1px solid var(--hairline);
+  overflow: hidden;
+  opacity: 0.72;
+  transition: opacity var(--dur-fast) var(--ease-out);
+}
+.cinema .direction.selected .direction-motif { opacity: 1; border-color: var(--brass-dim); }
+.cinema .direction-motif svg { width: 100%; height: 100%; display: block; }
+.cinema .direction-text { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.cinema .direction-name {
+  font-family: var(--f-display);
+  font-style: italic;
+  font-size: 1.24rem;
+  line-height: 1.15;
+  color: var(--fg);
+}
+html[lang="ar"] .cinema .direction-name { font-family: var(--f-display-ar); font-style: normal; font-weight: 700; }
+/* Selection is carried by the gold rule, the wash and the motif coming to full
+   opacity — never by tinting the name. --brass-bright is tuned for dark grounds
+   and measures 1.84:1 on vellum; the name has to stay legible, so it keeps --fg
+   and gains weight instead. */
+.cinema .direction.selected .direction-name { color: var(--fg); font-weight: 600; }
+.cinema .direction-materials {
+  font-family: var(--f-mono);
+  font-size: 0.64rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--fg-mute);
+  line-height: 1.5;
+}
+html[lang="ar"] .cinema .direction-materials { font-family: var(--f-ui-ar); letter-spacing: 0; text-transform: none; font-size: 0.78rem; }
+
 .cinema .result-scene .actions {
-  margin-top: var(--s-7);
+  margin-top: var(--s-6);
   display: flex;
   gap: var(--s-4);
   justify-content: center;
-  padding: 0 var(--safe) var(--s-11);
+  /* Was --s-11 (192px), which opened a dead band between the room and the
+     working area below and read as the page having ended. */
+  padding: 0 var(--safe) var(--s-8);
   flex-wrap: wrap;
 }
 html[lang="ar"] .cinema .result-scene .actions { flex-direction: row-reverse; }

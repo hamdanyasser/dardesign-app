@@ -26,6 +26,14 @@ import ColorControl from "@/components/ColorControl";
 import CulturalNarration from "@/components/CulturalNarration";
 import DepthOrbit from "@/components/DepthOrbit";
 import FurniturePlacement from "@/components/FurniturePlacement";
+import BeforeAfterSlider from "@/components/before-after-slider";
+import {
+  CultureDNA,
+  DesignStory,
+  GenerationStory,
+  createDesignStoryData,
+  type GenerationStoryAssets,
+} from "@/components/story";
 import RoomReport from "@/components/RoomReport";
 import SaveDesignButton from "@/components/SaveDesignButton";
 import StyleIntensitySlider from "@/components/StyleIntensitySlider";
@@ -44,6 +52,15 @@ import {
 import { cn } from "@/lib/utils";
 
 type Phase = "idle" | "loading" | "done" | "error";
+
+/** Result sections. "result" is the room itself; "story"/"dna"/"inside" are the
+ *  narrative layer (Design Story, Culture DNA, Inside DAR); "understand"/"edit"
+ *  are the existing analysis and editing tools. */
+type ResultTab = "result" | "story" | "dna" | "inside" | "understand" | "edit";
+
+/** The analysis/editing panels below the tab bar belong to these two tabs only,
+ *  so the narrative tabs render on their own rather than inheriting them. */
+const TOOL_TABS: readonly ResultTab[] = ["understand", "edit"];
 
 /** Defense Mode (?demo=1): pre-rendered canonical rooms served from
  *  /public/demo — the zero-backend fallback if the GPU tunnel dies mid-demo.
@@ -116,7 +133,6 @@ export default function StudioPage() {
   const [generateScope, setGenerateScope] = useState<StyleId | "all">("all");
   const [progress, setProgress] = useState(0);
   const [elapsed, setElapsed] = useState(0);
-  const [comparePos, setComparePos] = useState(50);
   const [over, setOver] = useState(false);
   const [validationErr, setValidationErr] = useState<string | null>(null);
   /* Results IA (P1-8). The results view used to stack ~9 heavy panels in one
@@ -125,7 +141,7 @@ export default function StudioPage() {
      still reachable, now in one click. Panels stay mounted (hidden via CSS)
      so an in-progress colour pick or furniture placement survives a tab
      switch. */
-  const [resultTab, setResultTab] = useState<"result" | "understand" | "edit">("result");
+  const [resultTab, setResultTab] = useState<ResultTab>("result");
   const [demoRooms, setDemoRooms] = useState<DemoRoom[]>([]);
   // The renders exactly as generated, before any colour or furniture edit. Kept
   // so Save can say whether what it is storing is still the pipeline's own
@@ -152,8 +168,6 @@ export default function StudioPage() {
 
   const abortRef = useRef<AbortController | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-  const compareRef = useRef<HTMLDivElement>(null);
-  const dragging = useRef(false);
 
   // Reassuring elapsed timer during the ~1–2 min synchronous generation.
   useEffect(() => {
@@ -165,8 +179,11 @@ export default function StudioPage() {
     return () => clearInterval(id);
   }, [phase]);
 
-  // Eased faux-progress: no real progress events exist on /redesign, so the
-  // dissolve assembles asymptotically toward ~0.92, then snaps to 1 on resolve.
+  // Drives the particle dissolve ONLY — it is an animation curve, not a
+  // measurement. /redesign is a single synchronous call with no progress
+  // events, so there is nothing real to report as a percentage and none is
+  // shown: the UI reports elapsed time, which is measured, and an
+  // indeterminate ring, which promises nothing.
   useEffect(() => {
     if (phase !== "loading") return;
     const start = performance.now();
@@ -258,7 +275,6 @@ export default function StudioPage() {
     setQuotaBlocked(false);
     setResult(null);
     setResultTab("result");
-    setComparePos(50);
     setProgress(0);
 
     // Before the loading scene, so a refusal is immediate rather than a
@@ -325,7 +341,6 @@ export default function StudioPage() {
     }
     setErr(null);
     setResultTab("result");
-    setComparePos(50);
     setResult({
       original: `${base}/original.png`,
       lebanese: `${base}/lebanese.png`,
@@ -359,15 +374,6 @@ export default function StudioPage() {
     a.remove();
   }, []);
 
-  // compare-slider drag
-  const onCompareMove = useCallback((clientX: number) => {
-    const el = compareRef.current;
-    if (!el) return;
-    const rect = el.getBoundingClientRect();
-    const x = Math.max(0, Math.min(rect.width, clientX - rect.left));
-    setComparePos((x / rect.width) * 100);
-  }, []);
-
   const tc = copy.transform;
   const lc = copy.loading;
   const rc = copy.result;
@@ -388,11 +394,17 @@ export default function StudioPage() {
   const msgIdx = Math.min(lc.messages.length - 1, Math.floor(progress * lc.messages.length));
   const ringR = 90;
   const ringC = 2 * Math.PI * ringR;
-  const ringOffset = ringC * (1 - progress);
 
-  // "After" always shows right of the handle — .lbl.before/.lbl.after in
-  // cinema.css are pinned left/right in both languages, so the images must match.
-  const clipAfter = `inset(0 0 0 ${comparePos}%)`;
+  // What is actually being rendered this run — stated plainly, because "all
+  // three" genuinely takes about three times as long as one culture.
+  const scopeLabel =
+    generateScope === "all"
+      ? isArabic
+        ? "ثلاث لغات تصميم"
+        : "THREE DESIGN LANGUAGES"
+      : isArabic
+        ? `لغة تصميم واحدة · ${tc.styles[generateScope].name}`
+        : `ONE DESIGN LANGUAGE · ${tc.styles[generateScope].name.toUpperCase()}`;
 
   // The weekly allowance, as a line under the CTA. Only a plan the backend
   // actually reported produces one; when the accounts backend is unreachable
@@ -685,32 +697,50 @@ export default function StudioPage() {
             </div>
             <DustLayer count={26} seed={17} />
             <div className="core">
+              {/* Indeterminate by design. A percentage here would be invented:
+                  /redesign returns once, with no intermediate state to read. */}
               <div className="ring-wrap">
                 <svg viewBox="0 0 200 200">
                   <circle className="ring-bg" cx="100" cy="100" r={ringR} />
                   <circle
-                    className="ring-fg"
+                    className="ring-fg ring-indeterminate"
                     cx="100"
                     cy="100"
                     r={ringR}
-                    strokeDasharray={ringC}
-                    strokeDashoffset={ringOffset}
+                    strokeDasharray={`${(ringC * 0.16).toFixed(1)} ${ringC.toFixed(1)}`}
                   />
                 </svg>
                 <div className="ring-pct">
-                  <span className="pct-num">{Math.round(progress * 100)}</span>
-                  <span className="pct">%</span>
+                  <span className="pct-num mono">{mmss(elapsed)}</span>
+                  <span className="pct">{isArabic ? "منقضية" : "elapsed"}</span>
                 </div>
               </div>
               <div className="step-label">{lc.pretitle}</div>
               <h2 key={msgIdx}>{lc.messages[msgIdx]}</h2>
-              <div className="mono" style={{ marginTop: "var(--s-3)", opacity: 0.6 }}>
-                {mmss(elapsed)}
+              <div className="mono" style={{ marginTop: "var(--s-3)", opacity: 0.6, fontSize: "0.72rem", letterSpacing: "0.1em" }}>
+                {isArabic
+                  ? `${scopeLabel} · تستغرق عادةً من دقيقة إلى دقيقتين`
+                  : `${scopeLabel} · TYPICALLY 1–2 MINUTES`}
               </div>
             </div>
             <div className="footer-meta">{lc.meta}</div>
           </section>
         </div>
+      )}
+
+      {/* Inside DAR, during the real wait. Studio's animated percentage is
+          deliberately NOT passed as progress: /redesign is one synchronous
+          call with no stage telemetry, so the only honest inputs are the
+          upload preview, the requested scope and measured elapsed time. The
+          chapter loop is documentary pacing, not an estimate of completion. */}
+      {phase === "loading" && imagePreviewUrl && (
+        <section className="relative z-10 mx-auto max-w-5xl px-4 pb-16">
+          <GenerationStory
+            inputImage={imagePreviewUrl}
+            culture={generateScope}
+            status={{ state: "requesting", elapsedSeconds: elapsed }}
+          />
+        </section>
       )}
 
       {/* ---------- ERROR ---------- */}
@@ -763,6 +793,30 @@ export default function StudioPage() {
         // runRedesign), but fall back to the original so a null can never reach
         // an <img src> or the report/orbit/furniture panel.
         const featuredSrc = result[featured] ?? result.original;
+
+        // The narrative layer reads the same result the room above is showing.
+        // The adapter is the truth gate: it excludes placeholder artifacts,
+        // never substitutes demo regions, and returns null when the original
+        // or the selected output is missing — so the story tabs render an
+        // honest empty state rather than an invented one.
+        const storyData = createDesignStoryData(result, featured, {
+          generatedImage: featuredSrc,
+        });
+
+        // Only evidence the adapter already accepted as real is forwarded to
+        // the Inside DAR replay; absent artifacts stay absent.
+        const generationAssets: GenerationStoryAssets = {
+          ...(storyData?.understanding?.regions
+            ? { segmentationRegions: storyData.understanding.regions }
+            : {}),
+          ...(storyData?.understanding?.segmentationImage
+            ? { segmentationImage: storyData.understanding.segmentationImage }
+            : {}),
+          ...(storyData?.understanding?.depthImage
+            ? { depthImage: storyData.understanding.depthImage }
+            : {}),
+        };
+
         return (
         <>
           <div className="cinema">
@@ -788,32 +842,42 @@ export default function StudioPage() {
                 </div>
               </div>
 
-              {/* culture toggle for the reveal lead */}
+              {/* Design directions — not "Output 1/2/3". Each is a named
+                  cultural design language with the materials it is built from,
+                  so choosing one is an architectural decision rather than
+                  picking a numbered variant. Only directions that were actually
+                  generated appear: a single-culture run has exactly one. */}
               <div
-                style={{
-                  display: "flex",
-                  gap: "var(--s-3)",
-                  justifyContent: "center",
-                  flexWrap: "wrap",
-                  marginTop: "var(--s-5)",
-                }}
+                className="directions"
+                role="tablist"
+                aria-label={isArabic ? "الاتجاهات التصميمية" : "Design directions"}
               >
-                {STYLE_ORDER.map((id) => (
-                  <button
-                    key={id}
-                    onClick={() => setFeatured(id)}
-                    className="mono"
-                    style={{
-                      padding: "8px 18px",
-                      borderRadius: "var(--r-pill)",
-                      border: `1px solid ${featured === id ? "var(--brass)" : "var(--hairline-2)"}`,
-                      background: featured === id ? "var(--brass-wash)" : "transparent",
-                      color: featured === id ? "var(--brass-bright)" : "var(--fg-mute)",
-                    }}
-                  >
-                    {tc.styles[id].name}
-                  </button>
-                ))}
+                <div className="directions-label">
+                  {isArabic ? "الاتجاهات التصميمية" : "Design directions"}
+                </div>
+                <div className="directions-rail">
+                  {STYLE_ORDER.filter((id) => !!result[id]).map((id) => {
+                    const Motif = MotifTiles[STYLE_MOTIF[id] as keyof typeof MotifTiles];
+                    const active = featured === id;
+                    return (
+                      <button
+                        key={id}
+                        role="tab"
+                        aria-selected={active}
+                        onClick={() => setFeatured(id)}
+                        className={"direction " + (active ? "selected" : "")}
+                      >
+                        <span className="direction-motif" aria-hidden>
+                          {Motif ? <Motif /> : null}
+                        </span>
+                        <span className="direction-text">
+                          <span className="direction-name">{tc.styles[id].name}</span>
+                          <span className="direction-materials">{tc.styles[id].desc}</span>
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
 
               {/* Unmissable notice when the backend served LIGHT-mode stand-ins */}
@@ -843,35 +907,18 @@ export default function StudioPage() {
               )}
 
               <div style={{ padding: "var(--s-7) 0", position: "relative" }}>
-                <div
-                  className="compare"
-                  ref={compareRef}
-                  onMouseDown={(e) => {
-                    dragging.current = true;
-                    onCompareMove(e.clientX);
-                  }}
-                  onMouseMove={(e) => dragging.current && onCompareMove(e.clientX)}
-                  onMouseUp={() => (dragging.current = false)}
-                  onMouseLeave={() => (dragging.current = false)}
-                  onTouchStart={(e) => {
-                    dragging.current = true;
-                    onCompareMove(e.touches[0].clientX);
-                  }}
-                  onTouchMove={(e) => onCompareMove(e.touches[0].clientX)}
-                  onTouchEnd={() => (dragging.current = false)}
-                >
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={result.original} alt={rc.before} />
-                  <div className="after-wrap" style={{ clipPath: clipAfter }}>
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={featuredSrc} alt={rc.after} />
-                  </div>
-                  <span className="lbl before">{rc.before}</span>
-                  <span className="lbl after">{rc.after}</span>
-                  <div className="handle" style={{ left: `${comparePos}%` }}>
-                    <div className="knob">{"⇄"}</div>
-                  </div>
-                </div>
+                {/* Pointer-capture drag (continues outside the frame), arrow/
+                    Home/End keyboard control and a real ARIA slider role. The
+                    result is pinned to the right in both languages, matching
+                    .lbl.before/.lbl.after in cinema.css. */}
+                <BeforeAfterSlider
+                  beforeSrc={result.original}
+                  afterSrc={featuredSrc}
+                  beforeLabel={rc.before}
+                  afterLabel={rc.after}
+                  afterSide="right"
+                  className="compare max-w-none rounded-none"
+                />
               </div>
 
               <div className="actions">
@@ -894,14 +941,22 @@ export default function StudioPage() {
                 isArabic && "flex-row-reverse",
               )}
             >
-              <h2
-                className={cn(
-                  "text-[1.6rem] leading-none text-cream",
-                  isArabic ? "font-editorial-ar font-normal" : "font-editorial font-normal",
-                )}
-              >
-                {isArabic ? "كل البيوت الثلاثة" : "All three houses"}
-              </h2>
+              {/* Names the working area rather than its first tab. Below this
+                  sit Result / Understand / Edit — the room in full, why the
+                  room reads the way it does, and making it your own. */}
+              <div className={cn(isArabic && "text-right")}>
+                <div className="font-editorial-mono mb-1.5 text-[10px] uppercase tracking-[0.22em] text-[var(--dd-gold)]">
+                  {isArabic ? "الغرفة بالتفصيل" : "The room in detail"}
+                </div>
+                <h2
+                  className={cn(
+                    "text-[1.6rem] leading-none text-cream",
+                    isArabic ? "font-editorial-ar font-normal" : "font-editorial font-normal",
+                  )}
+                >
+                  {isArabic ? "افهمها، ثم اجعلها لك" : "Understand it, then make it yours"}
+                </h2>
+              </div>
               <div className={cn("flex items-center gap-4", isArabic && "flex-row-reverse")}>
                 {/* Save the CURRENT state: featuredSrc is replaced after every
                     furniture insertion, so pressing this after editing stores
@@ -958,12 +1013,15 @@ export default function StudioPage() {
               role="tablist"
               aria-label={isArabic ? "أقسام النتيجة" : "Result sections"}
               className={cn(
-                "mb-6 flex gap-6 border-b border-[var(--dd-border)]",
+                "mb-6 flex flex-wrap gap-6 border-b border-[var(--dd-border)]",
                 isArabic && "flex-row-reverse",
               )}
             >
               {([
                 { id: "result", ar: "النتيجة", en: "Result" },
+                { id: "story", ar: "حكاية التصميم", en: "Design Story" },
+                { id: "dna", ar: "الحمض الثقافي", en: "Culture DNA" },
+                { id: "inside", ar: "داخل دار", en: "Inside DAR" },
                 { id: "understand", ar: "افهم الغرفة", en: "Understand" },
                 { id: "edit", ar: "تعديل", en: "Edit" },
               ] as const).map((tab) => {
@@ -1063,10 +1121,102 @@ export default function StudioPage() {
               })}
             </div>
 
+            {/* ---- Narrative layer: Design Story / Culture DNA / Inside DAR ----
+                Mounted only while selected. GenerationStory runs a timed
+                chapter loop and DesignStory measures image ratios, so keeping
+                them mounted-but-hidden would animate and measure offscreen.
+
+                These three are editorial spreads authored against a 1480px
+                measure (see .root in DesignStory.module.css); the surrounding
+                max-w-5xl column collapses their chapter rails. This breaks
+                them out to their own width, clamped to the viewport so the
+                page itself never scrolls sideways.
+
+                Symmetric negative `margin-inline` rather than the usual
+                left-50%/-translate-x-50% trick: `left` resolves against the
+                inline start, so in RTL that trick throws the panel off the
+                side of the page. A logical margin is identical in both
+                directions. */}
+            <div
+              style={{
+                width: "min(1480px, calc(100vw - 2rem))",
+                marginInline: "calc((100% - min(1480px, calc(100vw - 2rem))) / 2)",
+              }}
+            >
+            {resultTab === "story" && (
+              <div id="studio-panel-story" role="tabpanel" aria-labelledby="studio-tab-story">
+                {storyData ? (
+                  <DesignStory
+                    data={storyData}
+                    slots={{
+                      // Withheld for a LIGHT-mode stand-in: there is no real
+                      // render to record. The pristine measurements come from
+                      // the adapter's measured-value gate, not raw response
+                      // fields, and `edited` keeps a colour/furniture edit from
+                      // being stored as untouched pipeline output.
+                      save: storyData.placeholder ? undefined : (
+                        <SaveDesignButton
+                          oldImage={result.original}
+                          newImage={featuredSrc}
+                          culture={featured}
+                          duration={
+                            storyData.measurements.find((m) => m.id === "duration")?.measured
+                              ? (storyData.measurements.find((m) => m.id === "duration")
+                                  ?.value as number)
+                              : null
+                          }
+                          ssim={
+                            storyData.measurements.find((m) => m.id === "pristine-ssim")?.measured
+                              ? (storyData.measurements.find((m) => m.id === "pristine-ssim")
+                                  ?.value as number)
+                              : null
+                          }
+                          edited={storyData.edited}
+                        />
+                      ),
+                      history: (
+                        <Link
+                          href="/history"
+                          className="font-editorial-mono text-[11px] uppercase tracking-wide text-cream-muted transition-colors hover:text-gold"
+                        >
+                          {isArabic ? "سجلّي" : "Design history"}
+                        </Link>
+                      ),
+                    }}
+                  />
+                ) : (
+                  <p className={cn("py-10 text-sm text-cream-muted", isArabic && "text-right")}>
+                    {isArabic
+                      ? "لا تتوفر حكاية لهذه النتيجة."
+                      : "No story is available for this result."}
+                  </p>
+                )}
+              </div>
+            )}
+
+            {resultTab === "dna" && (
+              <div id="studio-panel-dna" role="tabpanel" aria-labelledby="studio-tab-dna">
+                {/* The culture actually on screen — the DNA describes the image
+                    being shown, not the request scope. */}
+                <CultureDNA culture={featured} />
+              </div>
+            )}
+
+            {resultTab === "inside" && (
+              <div id="studio-panel-inside" role="tabpanel" aria-labelledby="studio-tab-inside">
+                <GenerationStory
+                  inputImage={storyData?.original ?? result.original}
+                  culture={featured}
+                  assets={generationAssets}
+                />
+              </div>
+            )}
+            </div>
+
             {/* Cultural elements + 2D layout. Visibility is driven by the tab
                 bar above, so the old Show/Hide button is gone — but nothing it
                 controlled was removed, only regrouped. */}
-            <div className={cn("mt-2", resultTab === "result" && "hidden")}>
+            <div className={cn("mt-2", !TOOL_TABS.includes(resultTab) && "hidden")}>
               <div className={cn("mb-4 flex items-center justify-between gap-3", isArabic && "flex-row-reverse")}>
                 <div className={cn(isArabic ? "text-right" : "text-left", resultTab !== "understand" && "hidden")}>
                   <h2
