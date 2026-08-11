@@ -495,3 +495,34 @@ html[lang="ar"] .dar-build .handoff-title { font-family: var(--f-display-ar); }
   .dar-build .minimap { display: none; }
   .dar-build .coach { display: none; }
 }
+
+/* ---------- conditioning evidence ----------
+   The proof that the render followed the design. Shown side by side because
+   the claim ("your layout survived") is only credible if the control images
+   and the result can be compared in one glance. */
+.dar-build .cond-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 8px;
+  margin-top: 8px;
+}
+.dar-build .cond-grid figure { margin: 0; }
+.dar-build .cond-grid img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  object-fit: cover;
+  border: 1px solid var(--hairline-2);
+  border-radius: 2px;
+  background: #000;
+}
+.dar-build .cond-grid figcaption {
+  margin-top: 4px;
+  font-family: var(--f-mono);
+  font-size: 0.53rem;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: var(--fg-mute);
+}
+.dar-build .cond-grid figcaption.warn { color: #e0a04a; }
+.dar-build .cond-grid figcaption.good { color: var(--brass); }

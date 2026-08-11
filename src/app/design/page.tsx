@@ -126,6 +126,7 @@ function BuildModeReady({
   const [viewNonce, setViewNonce] = useState<{ preset: ViewPreset; n: number } | null>(null);
   const [focusNonce, setFocusNonce] = useState<{ uid: string; n: number } | null>(null);
   const nonce = useRef(0);
+  const captureRef = useRef<((w: number, h: number) => ReturnType<NonNullable<Parameters<typeof HandoffPanel>[0]["capture"]>>) | null>(null);
 
   const { scene, selectedUid } = state;
   const accent = cultureAccent(scene.culture);
@@ -427,6 +428,9 @@ function BuildModeReady({
           viewNonce={viewNonce}
           focusNonce={focusNonce}
           showFound={showFound}
+          onReady={(api) => {
+            captureRef.current = api.capture;
+          }}
         />
 
         <PlanMinimap
@@ -525,7 +529,14 @@ function BuildModeReady({
           </div>
         )}
 
-        {handoff && <HandoffPanel scene={scene} isArabic={isArabic} onClose={() => setHandoff(false)} />}
+        {handoff && (
+          <HandoffPanel
+            scene={scene}
+            isArabic={isArabic}
+            onClose={() => setHandoff(false)}
+            capture={captureRef.current ?? undefined}
+          />
+        )}
       </div>
 
       {/* ---------- catalogue ---------- */}

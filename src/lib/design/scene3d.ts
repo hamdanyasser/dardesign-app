@@ -19,6 +19,7 @@
    ============================================================ */
 
 import * as THREE from "three";
+import { ADE20K_DOOR, ADE20K_FLOOR, ADE20K_WALL, ADE20K_WINDOW, ade20kHex } from "./ade20k";
 import { buildObjectMesh, colorOf, standardMaterial } from "./geometry";
 import { cultureAccent, getMaterial } from "./materials";
 import type { WallOpening } from "./roomModel";
@@ -167,6 +168,7 @@ export class DesignWorld {
     );
     plinth.position.y = -11;
     plinth.receiveShadow = true;
+    plinth.userData.isPlinth = true;
     this.shellGroup.add(plinth);
 
     // A hairline ring at the room's own footprint: a drawing on the model.
@@ -181,6 +183,7 @@ export class DesignWorld {
     );
     ring.rotation.x = -Math.PI / 2;
     ring.position.y = -7.6;
+    ring.userData.isPlinth = true;
     this.shellGroup.add(ring);
   }
 
@@ -207,6 +210,7 @@ export class DesignWorld {
     floor.position.y = -4;
     floor.receiveShadow = true;
     floor.userData.isFloor = true;
+    floor.userData.ade = ADE20K_FLOOR;
     this.floorMesh = floor;
     this.shellGroup.add(floor);
 
@@ -241,6 +245,7 @@ export class DesignWorld {
       mesh.position.set(...def.pos);
       mesh.receiveShadow = true;
       mesh.userData.wall = def.id;
+      mesh.userData.ade = ADE20K_WALL;
       this.shellGroup.add(mesh);
       const entry = { mesh, normal: def.n, id: def.id, attachments: [] as THREE.Mesh[] };
       this.wallMeshes.push(entry);
@@ -265,6 +270,7 @@ export class DesignWorld {
       );
       skirt.position.set(def.pos[0], skirtH / 2, def.pos[2]);
       skirt.receiveShadow = true;
+      skirt.userData.ade = ADE20K_WALL;
       this.shellGroup.add(skirt);
       entry.attachments.push(skirt);
     }
@@ -290,6 +296,7 @@ export class DesignWorld {
         rev.position.set((o.wall === "west" ? -1 : 1) * (w / 2 - 6), sill, -d / 2 + o.t * d);
       }
       (rev.material as THREE.Material).transparent = true;
+      rev.userData.ade = o.kind === "door" ? ADE20K_DOOR : ADE20K_WINDOW;
       this.shellGroup.add(rev);
       this.wallMeshes.find((x) => x.id === o.wall)?.attachments.push(rev);
     }
@@ -658,6 +665,238 @@ export class DesignWorld {
       }
       if (Math.abs(want - m.opacity) > 0.01) this.settleFrames = Math.max(this.settleFrames, 2);
     }
+  }
+
+  /* ---------------- conditioning capture ---------------- */
+
+  /** Render the designed scene into the two images the generation pipeline
+   *  already conditions on.
+   *
+   *  This is the whole trick behind "Render with DAR". backend/transform.py
+   *  runs SDXL with a dual ControlNet — Depth Anything depth plus an
+   *  ADE20K-palette OneFormer segmentation map — and normally derives both
+   *  from the user's photograph. Those two images ARE the layout signal. So
+   *  instead of describing the design in a prompt and hoping, we hand the
+   *  pipeline depth and segmentation rendered from the actual scene the user
+   *  built. Geometry, placement, orientation and viewpoint stop being
+   *  something the model has to infer and become something it is conditioned
+   *  on, because they are drawn into its control inputs.
+   *
+   *  Conventions are matched deliberately to the annotators being replaced:
+   *  depth is brighter-nearer (Depth Anything's output, and what DepthOrbit
+   *  already assumes), and segmentation uses the exact ADE20K-150 palette the
+   *  seg ControlNet was trained on — a near-miss colour is not a near-miss
+   *  class, it is a different class or none at all.
+   */
+  renderConditioning(width: number, height: number): {
+    depth: string;
+    seg: string;
+    beauty: string;
+    meta: { width: number; height: number; near: number; far: number; fov: number };
+  } {
+    const rt = new THREE.WebGLRenderTarget(width, height, {
+      minFilter: THREE.LinearFilter,
+      magFilter: THREE.LinearFilter,
+      format: THREE.RGBAFormat,
+    });
+
+    // The capture must use the user's current viewpoint at the generation
+    // aspect, not the on-screen aspect, or the render would be framed
+    // differently from the design that produced it.
+    const cam = this.camera.clone() as THREE.PerspectiveCamera;
+    cam.aspect = width / height;
+    cam.updateProjectionMatrix();
+
+    // Same angle the user chose, but pushed in until the room fills the frame.
+    // The on-screen view deliberately leaves the maquette floating on its
+    // plinth with air around it; captured as-is, ~40% of the conditioning was
+    // empty black, and unconstrained pixels are pixels SDXL invents. Keeping
+    // the azimuth and elevation preserves the viewpoint; only the distance
+    // changes, so the render frames the design the user is actually looking at.
+    const savedAspect = this.camera.aspect;
+    this.camera.aspect = cam.aspect;
+    this.camera.updateProjectionMatrix();
+    const radiusForCapture = this.fitRadius(this.sph.phi, this.sph.theta, 1.24);
+    this.camera.aspect = savedAspect;
+    this.camera.updateProjectionMatrix();
+
+    const sinPhi = Math.sin(this.sph.phi);
+    cam.position.set(
+      this.target.x + radiusForCapture * sinPhi * Math.cos(this.sph.theta),
+      this.target.y + radiusForCapture * Math.cos(this.sph.phi),
+      this.target.z + radiusForCapture * sinPhi * Math.sin(this.sph.theta),
+    );
+    cam.lookAt(this.target);
+    cam.updateMatrixWorld(true);
+
+    // Depth range tight around the room, so the 8-bit ramp is spent on the
+    // room rather than on empty space behind it.
+    const radius = Math.hypot(this.roomW, this.roomD, this.roomH) / 2;
+    const dist = radiusForCapture;
+    const near = Math.max(1, dist - radius);
+    const far = dist + radius;
+
+    const hidden: THREE.Object3D[] = [];
+    const hide = (o: THREE.Object3D) => {
+      if (o.visible) {
+        o.visible = false;
+        hidden.push(o);
+      }
+    };
+    // Editor furniture is not part of the room.
+    hide(this.helperGroup);
+    hide(this.guideGroup);
+    for (const c of this.shellGroup.children) {
+      if (c instanceof THREE.GridHelper) hide(c);
+      if (c.userData.isPlinth) hide(c);
+    }
+    // Found massing is deliberately KEPT: it is furniture physically present
+    // in the room, so it belongs in the layout the renderer is conditioned on
+    // even when the user has toggled its display off.
+    const restoredFound: THREE.Object3D[] = [];
+    this.objectIndex.forEach((mesh) => {
+      if (mesh.userData.origin === "found" && !mesh.visible) {
+        mesh.visible = true;
+        restoredFound.push(mesh);
+      }
+    });
+
+    // Walls the viewer is looking THROUGH must not come back as solid geometry.
+    // On screen cullWalls() fades the camera-facing walls to ~0.045 so you can
+    // see into the room; the conditioning passes replace every material with an
+    // opaque one, which would otherwise rebuild those walls as a solid slab
+    // directly in front of the lens — the room would be conditioned as a blank
+    // partition. Hiding them keeps the capture equal to the view that produced it.
+    for (const { mesh, attachments } of this.wallMeshes) {
+      const m = mesh.material as THREE.MeshStandardMaterial;
+      if (m.opacity < 0.5) {
+        hide(mesh);
+        for (const a of attachments) hide(a);
+      }
+    }
+
+    const prevTarget = this.renderer.getRenderTarget();
+    const prevBg = this.scene.background;
+    const prevTone = this.renderer.toneMapping;
+    const prevExposure = this.renderer.toneMappingExposure;
+    const prevEncoding = this.renderer.outputEncoding;
+
+    const readToDataUrl = (): string => {
+      const buf = new Uint8Array(width * height * 4);
+      this.renderer.readRenderTargetPixels(rt, 0, 0, width, height, buf);
+      const cv = document.createElement("canvas");
+      cv.width = width;
+      cv.height = height;
+      const ctx = cv.getContext("2d")!;
+      const img = ctx.createImageData(width, height);
+      // WebGL reads bottom-up; canvas ImageData is top-down.
+      const rowBytes = width * 4;
+      for (let y = 0; y < height; y++) {
+        const src = (height - 1 - y) * rowBytes;
+        img.data.set(buf.subarray(src, src + rowBytes), y * rowBytes);
+      }
+      ctx.putImageData(img, 0, 0);
+      return cv.toDataURL("image/png");
+    };
+
+    // ---- 1. beauty pass (the maquette itself, for the comparison) ----
+    this.renderer.setRenderTarget(rt);
+    this.renderer.setClearColor(0x0f0f14, 1);
+    this.renderer.clear();
+    this.renderer.render(this.scene, cam);
+    const beauty = readToDataUrl();
+
+    // Conditioning is DATA, not a picture. ACES tone mapping plus sRGB output
+    // is exactly right for the beauty pass above and exactly wrong here: it
+    // moved wall grey 120 to 129 and lamp yellow (224,255,8) to (187,189,40),
+    // and the seg ControlNet reads a shifted colour as a different class or no
+    // class at all. Depth wants its linear ramp intact for the same reason.
+    this.renderer.toneMapping = THREE.NoToneMapping;
+    this.renderer.toneMappingExposure = 1;
+    this.renderer.outputEncoding = THREE.LinearEncoding;
+
+    // ---- 2. depth pass ----
+    const depthMat = new THREE.ShaderMaterial({
+      uniforms: { uNear: { value: near }, uFar: { value: far } },
+      vertexShader: `
+        varying float vViewDepth;
+        void main() {
+          vec4 mv = modelViewMatrix * vec4(position, 1.0);
+          vViewDepth = -mv.z;
+          gl_Position = projectionMatrix * mv;
+        }`,
+      fragmentShader: `
+        uniform float uNear;
+        uniform float uFar;
+        varying float vViewDepth;
+        void main() {
+          float t = clamp((vViewDepth - uNear) / max(uFar - uNear, 0.0001), 0.0, 1.0);
+          float v = 1.0 - t;            // brighter = closer, matching Depth Anything
+          gl_FragColor = vec4(v, v, v, 1.0);
+        }`,
+    });
+    this.scene.overrideMaterial = depthMat;
+    // Black = infinitely far, so unpainted background reads as "not the room".
+    this.renderer.setClearColor(0x000000, 1);
+    this.renderer.clear();
+    this.renderer.render(this.scene, cam);
+    const depth = readToDataUrl();
+    this.scene.overrideMaterial = null;
+    depthMat.dispose();
+
+    // ---- 3. segmentation pass ----
+    // Per-object colour, so overrideMaterial cannot be used; swap and restore.
+    const swapped: Array<{ mesh: THREE.Mesh; mat: THREE.Material | THREE.Material[] }> = [];
+    const segMatCache = new Map<number, THREE.MeshBasicMaterial>();
+    const segMat = (classId: number) => {
+      let m = segMatCache.get(classId);
+      if (!m) {
+        m = new THREE.MeshBasicMaterial({ color: ade20kHex(classId), fog: false });
+        segMatCache.set(classId, m);
+      }
+      return m;
+    };
+    this.scene.traverse((o) => {
+      if (!(o instanceof THREE.Mesh) || !o.visible) return;
+      const cls = o.userData.ade;
+      if (typeof cls !== "number") return;
+      swapped.push({ mesh: o, mat: o.material });
+      o.material = segMat(cls);
+    });
+    // Anything without a class must not paint a random colour into the map.
+    const unclassified: THREE.Mesh[] = [];
+    this.scene.traverse((o) => {
+      if (o instanceof THREE.Mesh && o.visible && typeof o.userData.ade !== "number") {
+        o.visible = false;
+        unclassified.push(o);
+      }
+    });
+    this.renderer.setClearColor(0x000000, 1);
+    this.renderer.clear();
+    this.renderer.render(this.scene, cam);
+    const seg = readToDataUrl();
+
+    for (const u of unclassified) u.visible = true;
+    for (const s of swapped) s.mesh.material = s.mat;
+    segMatCache.forEach((m) => m.dispose());
+
+    // ---- restore ----
+    this.renderer.setRenderTarget(prevTarget);
+    this.renderer.toneMapping = prevTone;
+    this.renderer.toneMappingExposure = prevExposure;
+    this.renderer.outputEncoding = prevEncoding;
+    this.scene.background = prevBg;
+    for (const o of hidden) o.visible = true;
+    for (const o of restoredFound) o.visible = false;
+    rt.dispose();
+    this.markDirty();
+
+    return {
+      depth,
+      seg,
+      beauty,
+      meta: { width, height, near, far, fov: cam.fov },
+    };
   }
 
   /* ---------------- teardown ---------------- */

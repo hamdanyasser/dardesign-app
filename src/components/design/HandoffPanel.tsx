@@ -18,7 +18,8 @@
    the single most damaging thing this feature could do.
    ============================================================ */
 
-import { useMemo } from "react";
+import { useCallback, useMemo, useState } from "react";
+import { ApiError, renderEndpoint, renderScene, type SceneRenderResult } from "@/lib/api";
 import { catalogItem, CULTURE_LABEL } from "@/lib/design/catalog";
 import { getMaterial } from "@/lib/design/materials";
 import type { DesignScene } from "@/lib/design/types";
@@ -67,15 +68,68 @@ export function buildRenderPayload(scene: DesignScene): RenderPayload {
   };
 }
 
+export interface Conditioning {
+  depth: string;
+  seg: string;
+  beauty: string;
+  meta: { width: number; height: number };
+}
+
 export default function HandoffPanel({
   scene,
   isArabic,
   onClose,
+  capture,
 }: {
   scene: DesignScene;
   isArabic: boolean;
   onClose: () => void;
+  /** Renders the live 3D scene into ControlNet conditioning. Absent only if
+   *  the canvas has not mounted, in which case rendering is not offered. */
+  capture?: (w: number, h: number) => Conditioning;
 }) {
+  const [cond, setCond] = useState<Conditioning | null>(null);
+  const [rendering, setRendering] = useState(false);
+  const [result, setResult] = useState<SceneRenderResult | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [elapsed, setElapsed] = useState(0);
+
+  const culture = scene.culture === "all" ? "lebanese" : scene.culture;
+
+  const doRender = useCallback(async () => {
+    if (!capture) return;
+    setErr(null);
+    setResult(null);
+    // Capture first and show it immediately: the conditioning is real evidence
+    // and does not depend on the backend being reachable, so the user sees what
+    // is being preserved even if the render itself fails.
+    const c = capture(1024, 768);
+    setCond(c);
+    setRendering(true);
+    setElapsed(0);
+    const t0 = Date.now();
+    const tick = setInterval(() => setElapsed(Math.round((Date.now() - t0) / 1000)), 1000);
+    try {
+      const r = await renderScene(c.depth, c.seg, culture, {
+        room: "living room",
+      });
+      setResult(r);
+    } catch (e) {
+      const msg =
+        e instanceof ApiError
+          ? isArabic
+            ? e.message_ar
+            : e.message_en
+          : isArabic
+            ? `تعذّر الوصول إلى محرك العرض على ${renderEndpoint()}. عنوان النفق يتغيّر كل جلسة — أعد تعيينه عبر npm run dev:tunnel.`
+            : `Could not reach the renderer at ${renderEndpoint()}. The tunnel URL rotates each session — re-point it with npm run dev:tunnel.`;
+      setErr(msg);
+    } finally {
+      clearInterval(tick);
+      setRendering(false);
+    }
+  }, [capture, culture, isArabic]);
+
   const payload = useMemo(() => buildRenderPayload(scene), [scene]);
   const placed = scene.objects.filter((o) => o.origin === "catalog");
   const found = scene.objects.filter((o) => o.origin === "found");
@@ -175,23 +229,94 @@ export default function HandoffPanel({
           </div>
         </div>
 
-        {/* The seam, stated. */}
+        {/* ---- Render with DAR ---- */}
         <div className="handoff-truth">
-          <div className="insp-label">{isArabic ? "ما التالي" : "What happens next"}</div>
+          <div className="insp-label">{isArabic ? "العرض بواسطة دار" : "Render with DAR"}</div>
           <p>
             {isArabic
-              ? "هذا المشهد بيانات حقيقية بالسنتيمتر: موضع كل قطعة ودورانها وأبعادها وخامتها. هذا بالضبط ما يحتاجه محرّك العرض."
-              : "This scene is real metric data — every piece's position, rotation, footprint and material in centimetres. That is exactly what a renderer needs."}
+              ? "تُحوَّل غرفتك إلى صورتَي تحكّم — خريطة عمق وخريطة تقسيم دلالي — وهما بالضبط ما يشترطه محرّك التوليد. لذلك يُشتق التخطيط من تصميمك بدل أن يُستنتج من وصف نصّي."
+              : "Your room is rendered into the two control images the generator already conditions on — a depth map and a semantic segmentation map. Layout comes from your design as control signal, not from a sentence describing it."}
           </p>
-          <p>
-            <strong>
+
+          <div className="handoff-actions" style={{ marginTop: 12 }}>
+            <button className="tool active" onClick={doRender} disabled={rendering || !capture}>
+              {rendering
+                ? isArabic
+                  ? `جارٍ العرض… ${elapsed}s`
+                  : `Rendering… ${elapsed}s`
+                : isArabic
+                  ? "اعرض بواسطة دار"
+                  : "Render with DAR"}
+            </button>
+            {!capture && (
+              <span className="handoff-note">
+                {isArabic ? "المشهد غير جاهز بعد." : "The scene is not ready yet."}
+              </span>
+            )}
+          </div>
+
+          {err && (
+            <p style={{ color: "#ff8a72", fontSize: "0.76rem", marginTop: 8 }} role="alert">
+              {err}
+            </p>
+          )}
+
+          {cond && (
+            <>
+              <div className="insp-label" style={{ marginTop: 16 }}>
+                {isArabic ? "ما الذي يُحفَظ فعلاً" : "What is actually preserved"}
+              </div>
+              <div className="cond-grid">
+                <figure>
+                  <img src={cond.beauty} alt={isArabic ? "تصميمك" : "Your design"} />
+                  <figcaption>{isArabic ? "تصميمك" : "Your design"}</figcaption>
+                </figure>
+                <figure>
+                  <img src={cond.depth} alt={isArabic ? "خريطة العمق" : "Depth control"} />
+                  <figcaption>{isArabic ? "العمق · هندسة" : "Depth · geometry"}</figcaption>
+                </figure>
+                <figure>
+                  <img src={cond.seg} alt={isArabic ? "خريطة التقسيم" : "Segmentation control"} />
+                  <figcaption>{isArabic ? "التقسيم · هوية القطع" : "Segments · identity"}</figcaption>
+                </figure>
+                {result && (
+                  <figure>
+                    <img src={result.image} alt={isArabic ? "نتيجة دار" : "DAR render"} />
+                    <figcaption className={result.placeholder ? "warn" : "good"}>
+                      {result.placeholder
+                        ? isArabic
+                          ? "بديل — لا وحدة GPU"
+                          : "Stand-in — no GPU"
+                        : isArabic
+                          ? `عرض دار · ${result.durationS ?? "—"}s`
+                          : `DAR render · ${result.durationS ?? "—"}s`}
+                    </figcaption>
+                  </figure>
+                )}
+              </div>
+            </>
+          )}
+
+          {result?.placeholder && (
+            <p style={{ marginTop: 10 }}>
+              <strong>
+                {isArabic
+                  ? "هذه ليست نتيجة حقيقية."
+                  : "That last image is not a real render."}
+              </strong>{" "}
               {isArabic
-                ? "لا يستطيع دار حالياً إعادة عرض مشهد مركّب."
-                : "DAR cannot re-render a composed scene yet."}
-            </strong>{" "}
+                ? "الخادم المتصل يعمل بوضع DARDESIGN_LIGHT بلا وحدة GPU، فأعاد صورة بديلة. صورتا التحكّم إلى اليسار حقيقيتان ومأخوذتان من مشهدك."
+                : "The connected backend is running DARDESIGN_LIGHT with no GPU, so it returned a placeholder. The control images beside it are real, and were rendered from your scene."}
+            </p>
+          )}
+
+          <div className="insp-label" style={{ marginTop: 16 }}>
+            {isArabic ? "حدود هذا العرض" : "What this can and cannot hold"}
+          </div>
+          <p>
             {isArabic
-              ? "‏/redesign يأخذ صورة فوتوغرافية، لا مخطّطاً. لذلك يصدّر هذا الزر المخطّط بدل أن يدّعي عرضاً لم يحدث."
-              : "/redesign takes a photograph, not a layout — so this exports the layout rather than claiming a render that did not happen."}
+              ? "المحفوظ: مواضع القطع واتجاهاتها، هندسة الغرفة، ونقطة النظر — لأنها إشارة التحكّم نفسها. غير المضمون: مظهر كل قطعة على حدة؛ يخترع النموذج التفاصيل داخل الصورة الظلّية التي يتلقّاها، وتصل الخامات عبر النص فتوجّه ولا تُلزِم."
+              : "Held: placement, orientation, room geometry and viewpoint — they are the control signal itself. Not guaranteed: the appearance of any individual piece. The model invents surface and ornament inside the silhouette it is given, and material choices reach it through the prompt, so they steer rather than bind."}
           </p>
         </div>
 

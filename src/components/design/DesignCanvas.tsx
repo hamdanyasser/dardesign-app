@@ -53,6 +53,10 @@ export interface DesignCanvasProps {
    *  in the way once you start composing — so it is a control, not a fact
    *  of the scene, and hiding it never deletes anything. */
   showFound: boolean;
+  /** Hands the page a way to capture ControlNet conditioning from the live
+   *  scene. The world is owned here, but "Render with DAR" lives in the
+   *  handoff panel, so the capture has to cross that boundary. */
+  onReady?: (api: { capture: (w: number, h: number) => ReturnType<DesignWorld["renderConditioning"]> }) => void;
 }
 
 type Mode = "idle" | "orbit" | "pan" | "move";
@@ -73,6 +77,7 @@ export default function DesignCanvas({
   viewNonce,
   focusNonce,
   showFound,
+  onReady,
 }: DesignCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const worldRef = useRef<DesignWorld | null>(null);
@@ -98,6 +103,14 @@ export default function DesignCanvas({
     if (!canvas) return;
     const world = new DesignWorld(canvas);
     worldRef.current = world;
+    // Dev-only handle. The conditioning capture is the one part of Build Mode
+    // whose correctness cannot be judged from the UI — a wrong depth ramp or
+    // an off-palette segmentation colour looks fine on screen and silently
+    // ruins the render. Being able to pull the raw maps out in the console is
+    // how that gets checked.
+    if (process.env.NODE_ENV === "development") {
+      (window as unknown as { __darWorld?: DesignWorld }).__darWorld = world;
+    }
     const parent = canvas.parentElement!;
     const ro = new ResizeObserver(() => {
       const r = parent.getBoundingClientRect();
@@ -107,6 +120,7 @@ export default function DesignCanvas({
     const r0 = parent.getBoundingClientRect();
     world.resize(Math.max(1, r0.width), Math.max(1, r0.height));
     world.frameRoom();
+    onReady?.({ capture: (w, h) => world.renderConditioning(w, h) });
     return () => {
       ro.disconnect();
       world.dispose();

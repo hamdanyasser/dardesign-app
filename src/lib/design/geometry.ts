@@ -17,6 +17,7 @@
    ============================================================ */
 
 import * as THREE from "three";
+import { CATEGORY_TO_ADE20K } from "./ade20k";
 import { getMaterial } from "./materials";
 import type { PlacedObject } from "./types";
 
@@ -284,6 +285,15 @@ export function buildObjectMesh(o: PlacedObject): THREE.Group {
   g.rotation.y = (o.rotationDeg * Math.PI) / 180;
   g.userData.uid = o.uid;
   g.userData.origin = o.origin;
+  // The ADE20K class this piece will be painted as when the scene is
+  // rendered into seg-ControlNet conditioning. Unmapped categories fall back
+  // to the generic table class rather than going unpainted, because a hole in
+  // the segmentation map reads to the model as "no object here" — which is a
+  // worse lie than a slightly wrong class.
+  const ade = CATEGORY_TO_ADE20K[o.category] ?? CATEGORY_TO_ADE20K.table;
+  g.traverse((c) => {
+    c.userData.ade = ade;
+  });
   g.traverse((c) => {
     c.userData.uid = o.uid;
   });

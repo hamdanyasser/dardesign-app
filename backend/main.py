@@ -159,6 +159,7 @@ from .transform import (
     StylePack,
     compute_depth_seg,
     fit_size,
+    render_scene,
     transform_room,
 )
 from .ttl_cleanup import PRIVACY_NOTICE, start_background_sweeper
@@ -1842,6 +1843,91 @@ async def audit_trail(limit: int = 50, token: str | None = None) -> JSONResponse
             },
         )
     return JSONResponse(read_events(max(1, min(500, limit))))
+
+
+
+# ----------------------------------------------------------------------------
+# Build Mode -> render
+# ----------------------------------------------------------------------------
+@app.post("/render-scene")
+async def render_scene_endpoint(
+    depth: UploadFile,
+    seg: UploadFile,
+    style: str = Form(...),
+    room: str = Form("living room"),
+) -> JSONResponse:
+    """Render a Build Mode scene photorealistically.
+
+    The client renders its 3D scene into the two images this pipeline already
+    conditions on -- a depth map and an ADE20K-palette segmentation map -- and
+    posts them here. They replace the annotator output normally derived from
+    the user's photograph, so the layout SDXL is conditioned on is the layout
+    the user built: placement, orientation, room geometry and viewpoint come
+    across as control signal rather than as a description in a prompt.
+
+    Everything else is the ordinary cultural path (prompt builder, per-culture
+    LoRA, sweep-winner ControlNet weights), so this shares the behaviour of
+    /redesign rather than forking the generator.
+    """
+    if style not in StylePack:
+        _raise(ERR_BAD_STYLE)
+
+    from PIL import Image
+
+    try:
+        depth_img = Image.open(io.BytesIO(await depth.read())).convert("RGB")
+        seg_img = Image.open(io.BytesIO(await seg.read())).convert("RGB")
+    except Exception:
+        _raise(ERR_BAD_IMAGE_DATA)
+
+    if depth_img.size != seg_img.size:
+        seg_img = seg_img.resize(depth_img.size)
+
+    job = jobs.create(input_path="")
+    jobs.transition(job.id, JobStatus.running, style=style)
+    out_path = UPLOAD_DIR / f"{job.id}_scene_{style}.png"
+    started = time.monotonic()
+
+    try:
+        async with _GEN_LOCK:
+            result = await asyncio.to_thread(
+                render_scene,
+                depth_image=depth_img,
+                seg_image=seg_img,
+                style=style,
+                out_path=out_path,
+                seed=int(job.id[:8], 16),
+                room=room,
+            )
+    except PipelineError as e:
+        jobs.transition(
+            job.id, JobStatus.error,
+            error_code=ERR_PIPELINE.code, error_en=e.message_en, error_ar=e.message_ar,
+        )
+        logger.exception("render-scene job %s pipeline error", job.id)
+        log_event(
+            "render_scene", job_id=job.id, style=style, ok=False,
+            error=e.message_en, duration_s=round(time.monotonic() - started, 2),
+            light=_light_mode(),
+        )
+        _raise(ERR_PIPELINE, detail_en=e.message_en, detail_ar=e.message_ar)
+
+    duration = round(time.monotonic() - started, 2)
+    jobs.transition(job.id, JobStatus.done)
+    log_event(
+        "render_scene", job_id=job.id, style=style, ok=True,
+        duration_s=duration, light=_light_mode(),
+    )
+    return JSONResponse(
+        {
+            "job_id": job.id,
+            "style": style,
+            "image": _png_data_url(Path(result)),
+            "duration_s": duration,
+            # The client must be able to say plainly that this is a stand-in.
+            "placeholder": _light_mode(),
+        }
+    )
 
 
 # Cleanup helper used by tests; harmless in production.
