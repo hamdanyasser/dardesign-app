@@ -35,6 +35,15 @@ src/
 │   │   ├── DarCinema.tsx         # 5-scene scrollytelling: intro bloom → threshold tunnel (scroll 3D) → 3D scan → souls carousel → orbit room → provenance
 │   │   └── dar-cinema.css        # ~180 lines, scoped under .dar-cinema (warm charcoal/gold v2 tokens, Reem Kufi + Tajawal, dark/light toggle)
 │   ├── cinema/                  # Shared cinematic chrome for /studio + error + 404 only (CinemaChrome, ArchCanvas, DissolveCanvas, DustLayer, copy, hooks, cinema.css)
+│   ├── design/                  # Build Mode UI (see "Build Mode" below)
+│   │   ├── DesignCanvas.tsx      # Pointer/key gestures → store actions; owns no scene logic
+│   │   ├── CatalogDock.tsx       # Bottom rail; cut-out PNGs live HERE only, never in the 3D scene
+│   │   ├── Inspector.tsx         # Object + room panels (dimensions, rotation, material, provenance)
+│   │   ├── HandoffPanel.tsx      # "Finish" → conditioning evidence + Render with DAR
+│   │   ├── PlanMinimap.tsx       # SVG plan view, click-to-select
+│   │   ├── SourceCard.tsx        # Corner thumbnail: the DAR render / photo you are designing from
+│   │   ├── EnterBuildMode.tsx    # The doorway from Studio; writes the sessionStorage handoff
+│   │   └── design.css            # Scoped under .dar-build, reuses the cinema token surface
 │   ├── story/                   # Narrative layer for /studio results + wait (see "Narrative layer" below)
 │   │   ├── DesignStory.tsx       # 8-chapter editorial reading of one finished result
 │   │   ├── CultureDNA.tsx        # Ontology vocabulary for one culture, or all three side by side
@@ -57,7 +66,18 @@ src/
 │   ├── ThemeLanguageContext.tsx  # Language (EN/AR), theme (dark/light), all translations
 │   └── ImageContext.tsx          # Cross-page state: uploaded image + selected style + jobId
 └── lib/
-    ├── api.ts                   # Typed backend client — redesignRoom/restyleRoom, colour + furniture, auth, history, subscription/usage, admin. (uploadImage/startTransform/pollStatus are the retired async flow, still exported)
+    ├── design/                  # Build Mode model — no React, no THREE.* in the scene object
+    │   ├── types.ts              # DesignScene / PlacedObject / RoomShell. Centimetres, serializable
+    │   ├── store.ts              # Reducer + snapshot undo/redo + localStorage persistence
+    │   ├── roomModel.ts          # RedesignResult → shell + "found" massing (the DAR advantage)
+    │   ├── placement.ts          # Oriented-rect SAT collision, snapping, two-tier verdict
+    │   ├── catalog.ts            # Reads ontology/furniture.json — no second copy of dimensions
+    │   ├── materials.ts          # Palette sourced from ontology.json's own color_palette
+    │   ├── geometry.ts           # Procedural furniture at real cm — never billboarded PNGs
+    │   ├── scene3d.ts            # DesignWorld: renderer, camera rig, wall culling, conditioning capture
+    │   ├── handoff.ts            # The sessionStorage key, alone, so /design's bundle stays out of Studio
+    │   └── ade20k.ts             # GENERATED from the backend palette; do not hand-edit
+    ├── api.ts                   # Typed backend client — redesignRoom/restyleRoom, renderScene, colour + furniture, auth, history, subscription/usage, admin. (uploadImage/startTransform/pollStatus are the retired async flow, still exported)
     └── utils.ts                 # cn() utility (clsx + tailwind-merge)
 ```
 
@@ -85,6 +105,7 @@ src/
 |-------|---------|
 | `/` | **DarCinema** — cinematic 5-scene RTL-Arabic scrollytelling (the default design, `src/components/dar/`). Header dark/light toggle + studio CTA. Door CTA → `/studio`. |
 | `/studio` | **The product.** Upload → `/redesign` → reveal wipe + six result tabs (Result · Design Story · Culture DNA · Inside DAR · Understand · Edit). `?demo=1` adds the Defense Mode strip of pre-rendered rooms. |
+| `/design` | **DAR Build Mode** — metric 3D room designer + "Render with DAR". Entered from a Studio result; the scene crosses in `sessionStorage`. See "Build Mode" below. |
 | `/history` · `/others` | Saved designs; other users' saved work + ratings |
 | `/subscription` | Both plans, current weekly usage, subscribe/unsubscribe |
 | `/login` · `/register` | Auth (A1 underline-only inputs) |
@@ -356,6 +377,38 @@ Rules that are easy to violate:
 **Layout note.** The `.module.css` files are authored to a `max-width: 1480px` measure, which the surrounding `max-w-5xl` results column would collapse (the chapter rail labels collide). `/studio` breaks the three panels out with symmetric negative `margin-inline`, clamped to `min(1480px, calc(100vw - 2rem))`. Use logical margins here, **not** the usual `left-1/2` + `-translate-x-1/2` trick: `left` resolves against the inline start, so in RTL that throws the panel hundreds of pixels off the side of the page.
 
 Full integration contract, including the `/restyle` provenance path and the explicitly unsupported list: [src/components/story/README.md](src/components/story/README.md).
+
+---
+
+## Build Mode + Render with DAR (`/design`)
+
+The loop: photo → `/redesign` → **Design it yourself** → move/add furniture, change materials → **Render with DAR** → a photoreal result conditioned on the composed scene.
+
+**The room arrives already understood — that is the whole point.** Build Mode does not open on an empty grid. `deriveRoom()` backs a floor area out of `room_analysis` (`free_floor_m2 / free_floor_of_floor`) and reconstructs `object_map` footprints as **locked `found` massing**, so you continue designing *your* room. `shellSource` is `measured` / `estimated` / `default` and the header chip says which — a default room is never presented as a measurement.
+
+- **Units are centimetres everywhere**, Y up, floor centred on the origin. A `DesignScene` is a plain serializable object: no class instances, no `THREE.*`. That is what makes persistence, undo/redo and the render hand-off the same problem.
+- **Undo/redo is snapshot-based with gesture coalescing** (`beginGesture`/`endGesture`), so a 200-frame drag is one history entry. Scenes persist to `localStorage` keyed by job id.
+- **Placement has two tiers, and conflating them made the editor feel broken.** *Blocking* = physics the user cannot mean (out of bounds; inside a piece they placed). *Advisory* = judgement (standing a sofa where the photo found the old one; `must_touch_wall`). Advisories are stated in amber and **never refuse the drop** — replacing existing furniture is the most likely act of redesign. Collision is oriented-rectangle SAT, so a sofa rotated into a corner is judged correctly.
+- **Found objects are locked** by default: they describe the room as it is, so moving one silently turns a measurement into a fiction. The `N found` chip is also the layer toggle; hiding never changes collision.
+- **Furniture is procedural geometry at real ontology dimensions.** The cut-out PNGs appear in the catalogue rail and nowhere else — a billboarded photo among lit volumes reads as a sticker the moment the camera moves. The look is a deliberate architect's maquette, which also means DAR never implies it rendered something it did not.
+
+### Render with DAR
+
+**The conditioning strategy came from reading the pipeline, not from inventing one.** `backend/transform.py` already runs SDXL with a **dual ControlNet — Depth Anything depth + ADE20K-palette OneFormer segmentation** — normally derived from the photograph. Those two images *are* the layout signal, so Build Mode renders depth and segmentation **from the 3D scene** and substitutes them. Layout stops being something the model infers from a sentence and becomes something it is conditioned on.
+
+- `scene3d.renderConditioning(w, h)` captures three offscreen passes: beauty (for the evidence strip), linear depth, and flat ADE20K segmentation.
+- **`src/lib/design/ade20k.ts` is generated from the backend's own palette and class table.** The seg ControlNet only understands those exact colours, so a hand-transcription slip would degrade conditioning *silently* rather than erroring. Regenerate it rather than editing it.
+- Three bugs that only surfaced by **measuring the captured pixels**, not looking at them: ACES tone mapping shifted the palette (wall `120`→`129`, lamp `224,255,8`→`187,189,40`) so both conditioning passes force `NoToneMapping` + `LinearEncoding`; the camera-facing walls, faded on screen, rendered **opaque** in capture and walled off the room; and the maquette framing left ~42% of the frame empty, i.e. 42% of pixels SDXL would invent (now ~16%).
+- **`POST /render-scene`** takes `depth` + `seg` + `style` and reuses the ordinary cultural path — prompt builder, per-culture LoRA, sweep-winner ControlNet weights. `_generate()` gained one optional `control_override`; `None` behaves exactly as before, so **the `/redesign` path is byte-for-byte unchanged**. No model, notebook or Colab change was needed or made.
+- **`"all"` collapses to Lebanese** for rendering — the generator takes one culture.
+
+**Honesty contract (load-bearing).** The panel shows the actual conditioning images as evidence, and states the limit: *held* — placement, orientation, geometry, viewpoint, because they are the control signal; *not held* — the appearance of any individual piece, because the model invents surface and ornament inside the silhouette, and materials reach it through the prompt so they steer rather than bind. A LIGHT backend returns `placeholder: true` and the UI says **"That last image is not a real render."** There is no fake render button.
+
+**Verified without a GPU** (instrumented, not assumed): `control_override` is passed; depth and seg arrive at full size with correct ADE20K classes; `use_lora=True` with the selected culture; and **`_prepare_conditioning` is called 0 times — no silent fallback to photo-derived annotators.** Segmentation output is pixel-exact against the backend palette.
+
+**Not yet verified: a real GPU render.** As of 2026-08-11 no GPU backend was reachable (tunnel DNS did not resolve; the dev machine has no CUDA device), so the end-to-end quality of the final image is **unmeasured**. Do not claim layout preservation quality until that runs.
+
+**Known weakness, highest impact first.** The capture camera is a *doll's house* — an open-topped box seen from outside and above. SDXL and both ControlNets were trained on interior photographs taken from inside rooms; we hand them a viewpoint no camera could occupy. An eye-level interior capture camera is the strongest next change. Second: coarse `found` footprints (a blob read as a 240cm cabinet conditions a 240cm cabinet) — worth letting users exclude found objects from conditioning.
 
 ---
 

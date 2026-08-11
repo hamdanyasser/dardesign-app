@@ -3,19 +3,24 @@
 /* ============================================================
    The way out of Build Mode.
 
-   Build Mode's whole premise is that the AI render is the START of a
-   design, not the end — so it needs a credible ending. This panel is
-   that ending, and it is deliberately honest about where the seam is:
+   Build Mode's premise is that the AI render is the START of a design,
+   not the end, so it needs a credible ending. This panel is that ending:
+   it renders the composed scene into the two ControlNet images the
+   generator already conditions on and posts them to /render-scene.
 
-     • What IS real: the scene. Metric, structured, serializable, with
-       every piece's identity, position, rotation, footprint and
-       material. That file is exactly what a render endpoint needs.
-     • What is NOT real yet: DAR cannot re-render a composed scene.
-       /redesign takes a photograph, not a layout.
+   The evidence strip is the argument. Showing the depth and segmentation
+   maps beside the result is what turns "the AI respected my layout" from
+   a claim into something the viewer can check — those maps ARE the
+   layout signal, so a sofa's silhouette visible in the seg map and again
+   in the render is proof rather than marketing.
 
-   So the panel exports the payload and says plainly that the renderer
-   is not wired. Showing a "Render" button that faked a result would be
-   the single most damaging thing this feature could do.
+   Two rules this file exists to keep:
+     • The conditioning is captured and shown BEFORE the request, so the
+       evidence survives a backend that is down.
+     • A placeholder result is labelled as one. A LIGHT backend returns
+       placeholder:true and the copy says the image is not a real render.
+       Passing a stand-in off as output would be the single most damaging
+       thing this feature could do.
    ============================================================ */
 
 import { useCallback, useMemo, useState } from "react";
