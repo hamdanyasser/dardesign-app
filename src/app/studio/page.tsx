@@ -27,6 +27,7 @@ import CulturalNarration from "@/components/CulturalNarration";
 import DepthOrbit from "@/components/DepthOrbit";
 import FurniturePlacement from "@/components/FurniturePlacement";
 import BeforeAfterSlider from "@/components/before-after-slider";
+import EnterBuildMode from "@/components/design/EnterBuildMode";
 import {
   CultureDNA,
   DesignStory,
@@ -922,6 +923,11 @@ export default function StudioPage() {
               </div>
 
               <div className="actions">
+                {/* The room DAR generated is the start of the design, not the
+                    end of it. Build Mode carries the measured shell and the
+                    projected furniture across, so this is a continuation
+                    rather than a new document. */}
+                <EnterBuildMode result={result} culture={featured} />
                 <button className="btn" onClick={() => downloadTile(featuredSrc, featured)}>
                   <span>{rc.download}</span>
                   <span className="arrow">↓</span>
@@ -1182,6 +1188,10 @@ export default function StudioPage() {
                           {isArabic ? "سجلّي" : "Design history"}
                         </Link>
                       ),
+                      // Chapter 06 is "Design it yourself". The story package
+                      // deliberately rendered an em dash here until a real
+                      // destination existed rather than inventing a CTA.
+                      designer: <EnterBuildMode result={result} culture={featured} variant="link" />,
                     }}
                   />
                 ) : (

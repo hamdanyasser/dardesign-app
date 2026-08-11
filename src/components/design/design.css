@@ -1,0 +1,497 @@
+/* ============================================================
+   DAR Build Mode — chrome
+   Scoped under .dar-build. Uses the app's existing token surface
+   (--brass / --fg / --hairline / --surface), so light, dark and RTL all
+   follow the global toggles with no per-mode markup.
+
+   Rule the whole layout obeys: the ROOM is the page. Every panel is a
+   thin instrument docked at an edge, none of them is a card, and none
+   of them may sit over the middle of the model.
+   ============================================================ */
+
+.dar-build {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  background:
+    radial-gradient(120% 90% at 50% 0%, color-mix(in srgb, var(--brass) 7%, transparent), transparent 60%),
+    var(--bg);
+  color: var(--fg);
+  overflow: hidden;
+  font-family: var(--f-ui);
+}
+html[lang="ar"] .dar-build { font-family: var(--f-ui-ar); }
+
+/* ---------- stage ---------- */
+.dar-build .stage { position: relative; min-height: 0; }
+.dar-build .stage canvas { display: block; width: 100%; height: 100%; }
+
+/* Vignette so the model sits in a space rather than on a flat panel.
+   Pointer-events off — it must never eat a drag. */
+.dar-build .stage::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(96% 96% at 50% 48%, transparent 68%, color-mix(in srgb, var(--ink) 30%, transparent));
+}
+html[data-theme="light"] .dar-build .stage::after {
+  background: radial-gradient(78% 78% at 50% 46%, transparent 58%, rgba(120, 100, 60, 0.13));
+}
+
+/* ---------- top bar ---------- */
+.dar-build .topbar {
+  display: flex;
+  align-items: center;
+  gap: var(--s-4, 16px);
+  padding: 10px 18px;
+  border-bottom: 1px solid var(--hairline);
+  background: color-mix(in srgb, var(--bg) 78%, transparent);
+  backdrop-filter: blur(14px);
+  z-index: 20;
+}
+.dar-build .brandline {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
+}
+.dar-build .brandline .mark {
+  font-family: var(--f-display);
+  font-size: 1.05rem;
+  letter-spacing: 0.02em;
+  color: var(--fg);
+  white-space: nowrap;
+}
+html[lang="ar"] .dar-build .brandline .mark { font-family: var(--f-display-ar); }
+.dar-build .eyebrow {
+  font-family: var(--f-mono);
+  font-size: 0.58rem;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: var(--brass);
+  white-space: nowrap;
+}
+
+/* Provenance chip — says where the room's dimensions came from. Never
+   decorative: "measured" and "default" are different claims. */
+.dar-build .chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 4px 10px;
+  border: 1px solid var(--hairline-2);
+  border-radius: 2px;
+  font-family: var(--f-mono);
+  font-size: 0.58rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--fg-mute);
+  white-space: nowrap;
+}
+.dar-build .chip .dot { width: 5px; height: 5px; border-radius: 50%; background: var(--fg-faint); }
+.dar-build .chip.measured { color: var(--brass); border-color: color-mix(in srgb, var(--brass) 40%, transparent); }
+.dar-build .chip.measured .dot { background: var(--brass); }
+.dar-build .chip.warn { color: #e0a04a; border-color: rgba(224, 160, 74, 0.4); }
+.dar-build .chip.warn .dot { background: #e0a04a; }
+
+.dar-build .spacer { flex: 1 1 auto; }
+
+/* ---------- buttons ---------- */
+.dar-build .tool {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  height: 30px;
+  min-width: 30px;
+  padding: 0 10px;
+  border: 1px solid var(--hairline-2);
+  border-radius: 2px;
+  background: transparent;
+  color: var(--fg-soft);
+  font-family: var(--f-mono);
+  font-size: 0.6rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: color 0.18s, border-color 0.18s, background 0.18s;
+}
+.dar-build .tool:hover:not(:disabled) { color: var(--brass); border-color: var(--brass); }
+.dar-build .tool:disabled { opacity: 0.3; cursor: not-allowed; }
+.dar-build .tool.active { color: var(--on-brass); background: var(--brass); border-color: var(--brass); }
+.dar-build .tool.danger:hover:not(:disabled) { color: #e05c48; border-color: #e05c48; }
+.dar-build .toolgroup { display: flex; gap: 0; }
+.dar-build .toolgroup .tool { border-radius: 0; margin-inline-start: -1px; }
+.dar-build .toolgroup .tool:first-child { border-start-start-radius: 2px; border-end-start-radius: 2px; margin-inline-start: 0; }
+.dar-build .toolgroup .tool:last-child { border-start-end-radius: 2px; border-end-end-radius: 2px; }
+
+/* ---------- catalogue dock ---------- */
+.dar-build .dock {
+  border-top: 1px solid var(--hairline);
+  background: color-mix(in srgb, var(--bg) 82%, transparent);
+  backdrop-filter: blur(16px);
+  z-index: 20;
+  transition: transform 0.36s var(--ease-cinema, cubic-bezier(0.16, 1, 0.3, 1));
+}
+.dar-build .dock.collapsed { transform: translateY(calc(100% - 38px)); }
+.dar-build .dock-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  height: 38px;
+  padding: 0 18px;
+  cursor: pointer;
+  user-select: none;
+}
+.dar-build .dock-title {
+  font-family: var(--f-mono);
+  font-size: 0.6rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--fg-mute);
+}
+.dar-build .culture-tabs { display: flex; gap: 2px; }
+.dar-build .culture-tab {
+  padding: 3px 10px;
+  border: 0;
+  background: transparent;
+  color: var(--fg-mute);
+  font-family: var(--f-mono);
+  font-size: 0.58rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  cursor: pointer;
+  border-bottom: 1px solid transparent;
+  transition: color 0.18s, border-color 0.18s;
+}
+.dar-build .culture-tab:hover { color: var(--fg-soft); }
+.dar-build .culture-tab[aria-pressed="true"] { color: var(--brass); border-bottom-color: var(--brass); }
+
+.dar-build .rail {
+  display: flex;
+  gap: 10px;
+  padding: 4px 18px 16px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+}
+.dar-build .rail::-webkit-scrollbar { height: 6px; }
+.dar-build .rail::-webkit-scrollbar-thumb { background: var(--hairline-2); border-radius: 3px; }
+
+.dar-build .card {
+  position: relative;
+  flex: 0 0 auto;
+  width: 132px;
+  border: 1px solid var(--hairline);
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--surface) 60%, transparent);
+  cursor: grab;
+  overflow: hidden;
+  text-align: start;
+  padding: 0;
+  color: inherit;
+  transition: border-color 0.2s, transform 0.2s var(--ease-out, ease), background 0.2s;
+}
+.dar-build .card:hover { border-color: var(--brass); transform: translateY(-3px); }
+.dar-build .card:active { cursor: grabbing; }
+.dar-build .card:focus-visible { outline: 2px solid var(--brass); outline-offset: 2px; }
+.dar-build .card.dragging { opacity: 0.35; }
+.dar-build .card figure { margin: 0; height: 78px; display: grid; place-items: center; padding: 6px; }
+.dar-build .card img { max-width: 100%; max-height: 100%; object-fit: contain; pointer-events: none; }
+.dar-build .card figcaption { border-top: 1px solid var(--hairline); padding: 6px 8px 7px; }
+.dar-build .card .nm {
+  display: block;
+  font-size: 0.68rem;
+  line-height: 1.25;
+  color: var(--fg-soft);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.dar-build .card .dim {
+  display: block;
+  margin-top: 2px;
+  font-family: var(--f-mono);
+  font-size: 0.54rem;
+  letter-spacing: 0.08em;
+  color: var(--fg-faint);
+}
+/* Culture stripe: the design language is legible without a flag or a label. */
+.dar-build .card .stripe { position: absolute; inset-block-start: 0; inset-inline-start: 0; width: 3px; height: 78px; }
+
+/* ---------- inspector ---------- */
+.dar-build .inspector {
+  position: absolute;
+  inset-block-start: 14px;
+  inset-inline-end: 14px;
+  width: 258px;
+  max-height: calc(100% - 28px);
+  overflow-y: auto;
+  border: 1px solid var(--hairline-2);
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--bg) 88%, transparent);
+  backdrop-filter: blur(18px);
+  padding: 14px;
+  z-index: 15;
+  animation: dar-slide-in 0.28s var(--ease-cinema, cubic-bezier(0.16, 1, 0.3, 1));
+}
+@keyframes dar-slide-in {
+  from { opacity: 0; transform: translateX(14px); }
+  to { opacity: 1; transform: none; }
+}
+html[dir="rtl"] .dar-build .inspector { animation-name: dar-slide-in-rtl; }
+@keyframes dar-slide-in-rtl {
+  from { opacity: 0; transform: translateX(-14px); }
+  to { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .dar-build .inspector { animation: none; }
+  .dar-build .dock { transition: none; }
+  .dar-build .card { transition: none; }
+}
+
+.dar-build .insp-head { display: flex; align-items: flex-start; gap: 8px; margin-bottom: 10px; }
+.dar-build .insp-title { font-family: var(--f-display); font-size: 1.02rem; line-height: 1.2; color: var(--fg); }
+html[lang="ar"] .dar-build .insp-title { font-family: var(--f-display-ar); }
+.dar-build .insp-sub {
+  font-family: var(--f-mono);
+  font-size: 0.55rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--fg-mute);
+  margin-top: 3px;
+}
+.dar-build .insp-section { border-top: 1px solid var(--hairline); padding-top: 10px; margin-top: 12px; }
+.dar-build .insp-label {
+  font-family: var(--f-mono);
+  font-size: 0.53rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--fg-mute);
+  margin-bottom: 7px;
+}
+.dar-build .readout { display: flex; justify-content: space-between; gap: 8px; padding: 3px 0; font-size: 0.72rem; }
+.dar-build .readout dt { color: var(--fg-mute); }
+.dar-build .readout dd { margin: 0; font-family: var(--f-mono); font-size: 0.68rem; color: var(--fg-soft); }
+
+.dar-build .swatches { display: flex; flex-wrap: wrap; gap: 6px; }
+.dar-build .swatch {
+  width: 26px;
+  height: 26px;
+  border-radius: 2px;
+  border: 1px solid var(--hairline-2);
+  cursor: pointer;
+  padding: 0;
+  transition: transform 0.16s, border-color 0.16s;
+}
+.dar-build .swatch:hover { transform: scale(1.1); }
+.dar-build .swatch[aria-pressed="true"] { border-color: var(--brass); box-shadow: 0 0 0 2px color-mix(in srgb, var(--brass) 40%, transparent); }
+
+.dar-build .rotrow { display: flex; align-items: center; gap: 8px; }
+.dar-build input[type="range"] { flex: 1; accent-color: var(--brass); }
+
+/* ---------- validity toast ---------- */
+.dar-build .verdict {
+  position: absolute;
+  inset-block-end: 18px;
+  inset-inline-start: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 7px 14px;
+  border-radius: 2px;
+  border: 1px solid;
+  font-family: var(--f-mono);
+  font-size: 0.6rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  pointer-events: none;
+  z-index: 16;
+  animation: dar-fade 0.16s ease-out;
+}
+html[dir="rtl"] .dar-build .verdict { transform: translateX(50%); }
+@keyframes dar-fade { from { opacity: 0; } to { opacity: 1; } }
+.dar-build .verdict.bad { color: #ff8a72; border-color: rgba(224, 92, 72, 0.55); background: rgba(60, 18, 12, 0.78); }
+.dar-build .verdict.good { color: #7fd6a6; border-color: rgba(95, 191, 138, 0.45); background: rgba(12, 40, 26, 0.72); }
+/* Advisory: a judgement, not a refusal. Amber reads as "look at this",
+   where red reads as "you cannot" — the drop still succeeds. */
+.dar-build .verdict.note { color: #e8bb72; border-color: rgba(224, 170, 74, 0.42); background: rgba(48, 34, 10, 0.74); }
+
+/* ---------- empty-state coach ---------- */
+/* Sits beside the source card, not on top of it — both live bottom-start. */
+.dar-build .coach {
+  position: absolute;
+  inset-block-end: 22px;
+  inset-inline-start: 200px;
+  max-width: 290px;
+  pointer-events: none;
+  z-index: 14;
+  animation: dar-fade 0.5s ease-out both;
+}
+@media (max-width: 980px) { .dar-build .coach { inset-inline-start: 20px; } }
+.dar-build .coach p {
+  font-size: 0.76rem;
+  line-height: 1.5;
+  color: var(--fg-mute);
+  margin: 0;
+}
+.dar-build .coach kbd {
+  font-family: var(--f-mono);
+  font-size: 0.6rem;
+  padding: 1px 5px;
+  border: 1px solid var(--hairline-2);
+  border-radius: 2px;
+  color: var(--fg-soft);
+}
+
+/* ---------- source card ---------- */
+.dar-build .sourcecard {
+  position: absolute;
+  inset-block-end: 16px;
+  inset-inline-start: 14px;
+  z-index: 15;
+  width: 168px;
+}
+.dar-build .sourcecard button {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 1px solid var(--hairline-2);
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--bg) 80%, transparent);
+  backdrop-filter: blur(12px);
+  cursor: pointer;
+  overflow: hidden;
+  text-align: start;
+  transition: border-color 0.2s;
+}
+.dar-build .sourcecard button:hover:not(:disabled) { border-color: var(--brass); }
+.dar-build .sourcecard button:disabled { cursor: default; }
+.dar-build .sourcecard img { display: block; width: 100%; aspect-ratio: 4 / 3; object-fit: cover; }
+.dar-build .sc-label {
+  display: block;
+  border-top: 1px solid var(--hairline);
+  padding: 5px 7px 6px;
+  font-family: var(--f-mono);
+  font-size: 0.53rem;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+  color: var(--fg-soft);
+}
+.dar-build .sc-label em { color: var(--fg-faint); font-style: normal; }
+.dar-build .sc-note {
+  margin: 5px 2px 0;
+  font-size: 0.63rem;
+  line-height: 1.35;
+  color: var(--fg-faint);
+}
+@media (max-width: 980px) { .dar-build .sourcecard { display: none; } }
+
+/* ---------- handoff ---------- */
+.dar-build .handoff-scrim {
+  position: absolute;
+  inset: 0;
+  z-index: 40;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: color-mix(in srgb, var(--ink) 72%, transparent);
+  backdrop-filter: blur(6px);
+  animation: dar-fade 0.2s ease-out;
+}
+.dar-build .handoff {
+  width: min(720px, 100%);
+  max-height: 100%;
+  overflow-y: auto;
+  border: 1px solid var(--hairline-2);
+  border-radius: 2px;
+  background: var(--bg);
+  padding: 22px 24px 20px;
+}
+.dar-build .handoff-head { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 16px; }
+.dar-build .handoff-head > div:first-child { flex: 1; }
+.dar-build .handoff-title {
+  font-family: var(--f-display);
+  font-size: 1.55rem;
+  line-height: 1.15;
+  margin: 4px 0 0;
+  color: var(--fg);
+}
+html[lang="ar"] .dar-build .handoff-title { font-family: var(--f-display-ar); }
+.dar-build .handoff-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 22px;
+  border-top: 1px solid var(--hairline);
+  padding-top: 14px;
+}
+@media (max-width: 620px) { .dar-build .handoff-grid { grid-template-columns: 1fr; } }
+.dar-build .handoff-stats { margin: 0; }
+.dar-build .handoff-mats { list-style: none; margin: 0; padding: 0; display: grid; gap: 5px; }
+.dar-build .handoff-mats li { display: flex; align-items: center; gap: 8px; font-size: 0.74rem; color: var(--fg-soft); }
+.dar-build .handoff-mats .sw { width: 14px; height: 14px; border-radius: 2px; border: 1px solid var(--hairline-2); flex: 0 0 auto; }
+.dar-build .handoff-mats .ct { margin-inline-start: auto; font-family: var(--f-mono); font-size: 0.6rem; color: var(--fg-faint); }
+.dar-build .handoff-note { font-size: 0.74rem; color: var(--fg-mute); margin: 0; }
+.dar-build .handoff-truth {
+  border-top: 1px solid var(--hairline);
+  margin-top: 16px;
+  padding-top: 14px;
+}
+.dar-build .handoff-truth p { font-size: 0.78rem; line-height: 1.55; color: var(--fg-mute); margin: 0 0 7px; }
+.dar-build .handoff-truth strong { color: var(--fg-soft); font-weight: 600; }
+.dar-build .handoff-payload { margin-top: 14px; border-top: 1px solid var(--hairline); padding-top: 12px; }
+.dar-build .handoff-payload summary {
+  cursor: pointer;
+  font-family: var(--f-mono);
+  font-size: 0.58rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--fg-mute);
+}
+.dar-build .handoff-payload summary:hover { color: var(--brass); }
+.dar-build .handoff-payload pre {
+  margin: 10px 0 0;
+  max-height: 190px;
+  overflow: auto;
+  padding: 10px;
+  border: 1px solid var(--hairline);
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--surface) 50%, transparent);
+  font-family: var(--f-mono);
+  font-size: 0.62rem;
+  line-height: 1.5;
+  color: var(--fg-mute);
+  direction: ltr;
+  text-align: left;
+}
+.dar-build .handoff-actions { display: flex; gap: 8px; margin-top: 16px; flex-wrap: wrap; }
+
+/* ---------- plan minimap ---------- */
+.dar-build .minimap {
+  position: absolute;
+  inset-block-start: 14px;
+  inset-inline-start: 14px;
+  z-index: 15;
+  border: 1px solid var(--hairline-2);
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--bg) 84%, transparent);
+  backdrop-filter: blur(12px);
+  padding: 8px;
+}
+.dar-build .minimap-title {
+  font-family: var(--f-mono);
+  font-size: 0.5rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--fg-mute);
+  margin-bottom: 5px;
+}
+
+@media (max-width: 860px) {
+  .dar-build .inspector { inset-block-start: auto; inset-block-end: 14px; width: calc(100% - 28px); max-height: 46%; }
+  .dar-build .minimap { display: none; }
+  .dar-build .coach { display: none; }
+}
