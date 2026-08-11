@@ -37,6 +37,10 @@ interface Props {
   /** True once colour control or furniture placement has changed the render.
    *  The design is saved either way; it just isn't evaluated as pipeline output. */
   edited?: boolean;
+  /** True when the render is a DARDESIGN_LIGHT placeholder. Saved like any
+   *  other design, but a tint produced in milliseconds must never land in the
+   *  dashboard's generation time or SSIM. */
+  light?: boolean;
 }
 
 export default function SaveDesignButton({
@@ -47,6 +51,7 @@ export default function SaveDesignButton({
   duration = null,
   ssim = null,
   edited = false,
+  light = false,
 }: Props) {
   const { isArabic } = useThemeLanguage();
   const { user, loading } = useAuth();
@@ -80,7 +85,9 @@ export default function SaveDesignButton({
     setSaving(true);
     setError(null);
     try {
-      const entry = await saveToHistory(oldImage, newImage, { culture, intensity, duration, ssim, edited });
+      const entry = await saveToHistory(oldImage, newImage, {
+        culture, intensity, duration, ssim, edited, light,
+      });
       setSaved(true);
       setSavedId(entry.id);
     } catch (e) {

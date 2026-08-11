@@ -114,6 +114,10 @@ async function safeFetch(input: RequestInfo, init?: RequestInit): Promise<Respon
   try {
     return await fetch(input, init);
   } catch (e) {
+    // A caller that abandoned its own request has not lost the server. Wrapping
+    // this as "cannot reach server" would put a red banner on the screen every
+    // time a filter was changed twice in a row.
+    if (e instanceof DOMException && e.name === "AbortError") throw e;
     // Network / CORS / tunnel-down: surface as a typed error
     throw new ApiError(
       {
@@ -1028,6 +1032,11 @@ export async function saveToHistory(
     /** True when colour control or furniture placement changed the render.
      *  Such a design is still saved, but left out of the evaluation metrics. */
     edited?: boolean;
+    /** True when /redesign answered `placeholder: true` — a DARDESIGN_LIGHT
+     *  tint rather than a render. Saved like any other design, but kept out of
+     *  generation timing and model metrics: it took milliseconds and no model
+     *  was involved. */
+    light?: boolean;
   } = {},
 ): Promise<HistoryEntry> {
   const res = await safeFetch(`${DATA_API_URL}/api/history`, {
@@ -1041,6 +1050,7 @@ export async function saveToHistory(
       duration: meta.duration ?? null,
       ssim: meta.ssim ?? null,
       edited: !!meta.edited,
+      light: !!meta.light,
     }),
     ...WITH_CREDENTIALS,
   });
@@ -1113,10 +1123,19 @@ export interface EvaluationCultureRow {
   averageRoomPreservation: number | null;
 }
 
-/** Rooms generated and their timings, computed over the history table. */
+/** Rooms generated and their timings, computed over the history table.
+ *
+ *  Two populations, and the response names both: `roomsGenerated` is everything
+ *  the filters matched, while every average below is taken over
+ *  `evaluableDesigns` — the pipeline's own unedited, non-placeholder output. */
 export interface GenerationStats {
-  /** Number of history rows — one saved design is one generated room. */
+  /** Every saved design inside the filters, edits and placeholders included. */
   roomsGenerated: number;
+  /** The corpus the averages below are drawn from. */
+  evaluableDesigns: number;
+  /** Held back from the averages, and why — so the arithmetic closes on screen. */
+  editedExcluded: number;
+  lightExcluded: number;
   /** Sum of durations divided by the rows that have one. Null when none do. */
   averageSeconds: number | null;
   totalSeconds: number | null;
@@ -1135,14 +1154,62 @@ export interface GenerationStats {
   clipSampleSize: number;
 }
 
-/** Intended culture vs CLIP's prediction, over saved designs. */
+/** How many of the filtered designs carry each measurement. */
+export interface EvaluationCoverage {
+  total: number;
+  ssim: number;
+  lpips: number;
+  clip: number;
+  predicted: number;
+  timed: number;
+  rated: number;
+}
+
+/** Intended culture vs CLIP's zero-shot prediction, over saved designs. */
 export interface CultureConfusion {
   /** matrix[intended][predicted] = count */
   matrix: Record<string, Record<string, number>>;
+  /** Designs generated as each culture — the denominator for each row's %. */
+  rowTotals: Record<string, number>;
   total: number;
   correct: number;
   /** Null when nothing has been classified — never 0, which is a real result. */
   accuracy: number | null;
+}
+
+/** Mean and sample size for one metric. The n travels with the value so the two
+ *  can never be printed from different populations. */
+export interface MetricSummary {
+  mean: number | null;
+  n: number;
+}
+
+/** One arm of the offline corpus — the trained pipeline, or base SDXL. */
+export interface AutomaticSet {
+  set: "lora" | "baseline" | string;
+  label_en: string;
+  label_ar: string;
+  images: number;
+  overall: Record<string, MetricSummary>;
+  byCulture: Array<{ culture: string; samples: number } & Record<string, number | string | null>>;
+  recognition: CultureConfusion;
+}
+
+export interface Ablation {
+  available: boolean;
+  reason_en?: string;
+  reason_ar?: string;
+  hint?: string;
+  rows: Array<{
+    metric: string;
+    lora: MetricSummary;
+    baseline: MetricSummary;
+    delta: number | null;
+  }>;
+  recognition?: { lora: CultureConfusion; baseline: CultureConfusion };
+  /** False when the two arms did not cover the same rooms — an uncontrolled
+   *  comparison, reported rather than quietly averaged. */
+  sameCorpus?: boolean;
 }
 
 /** SSIM / LPIPS / CLIP from eval/run_metrics.py, when it has been run. */
@@ -1152,9 +1219,15 @@ export interface AutomaticMetrics {
   reason_ar?: string;
   hint?: string;
   path?: string;
+  culture?: string | null;
+  /** The corpus carries no timestamps, so the date filter cannot apply to it. */
+  dateFilterable?: boolean;
   metrics: string[];
   images?: number;
   byCulture: Array<{ culture: string; samples: number } & Record<string, number | string | null>>;
+  recognition?: CultureConfusion;
+  sets: AutomaticSet[];
+  ablation: Ablation;
 }
 
 export interface EvaluationReport {
@@ -1166,12 +1239,28 @@ export interface EvaluationReport {
   byCulture: EvaluationCultureRow[];
   recent: Feedback[];
   generation: GenerationStats;
+  coverage: EvaluationCoverage;
   confusion: CultureConfusion;
   automatic: AutomaticMetrics;
 }
 
+/** Every dashboard figure for one set of filters, in one call.
+ *
+ *  The filters go to the backend rather than being applied to the response:
+ *  an average cannot be filtered after it has been taken, so narrowing here
+ *  would leave a global mean sitting under a per-culture heading.
+ *
+ *  `signal` lets the page drop a superseded request. Switching culture three
+ *  times fires three fetches, and without it the slowest — not the latest —
+ *  decides what is on screen. */
 export async function fetchEvaluation(
-  opts: { culture?: string; since?: number; until?: number; limit?: number } = {},
+  opts: {
+    culture?: string;
+    since?: number;
+    until?: number;
+    limit?: number;
+    signal?: AbortSignal;
+  } = {},
 ): Promise<EvaluationReport> {
   const qs = new URLSearchParams();
   if (opts.culture) qs.set("culture", opts.culture);
@@ -1180,6 +1269,7 @@ export async function fetchEvaluation(
   if (opts.limit != null) qs.set("limit", String(opts.limit));
   const res = await safeFetch(`${DATA_API_URL}/api/admin/evaluation?${qs}`, {
     headers: COMMON_HEADERS,
+    signal: opts.signal,
     ...WITH_CREDENTIALS,
   });
   return (await unwrap(res)) as EvaluationReport;

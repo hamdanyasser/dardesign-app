@@ -147,6 +147,7 @@ from .projection import (
 from .recolor_api import clear_undo as clear_color_undo, router as color_router
 from .evaluation import (
     automatic_metrics as eval_automatic_metrics,
+    coverage_report as eval_coverage_report,
     generation_report as eval_generation_report,
     overall_rating as eval_overall_rating,
 )
@@ -908,6 +909,13 @@ class SaveHistoryRequest(BaseModel):
     # saving. Still a real design; just no longer the pipeline's own output, so
     # it is left out of the evaluation metrics.
     edited: bool = False
+    # True when /redesign answered `placeholder: true` — a DARDESIGN_LIGHT tint,
+    # not a render. Reported by the client rather than read from this process's
+    # own env because the renderer and the accounts backend can be different
+    # hosts: this one may have no GPU and no idea the other was in LIGHT mode.
+    # Same trust model as `duration` and `edited`, and the cost of a wrong value
+    # is a dashboard row, never a permission.
+    light: bool = False
 
 
 def _current_user(session: str | None):
@@ -1086,10 +1094,12 @@ async def history_save(
     entry_id = db.add_history(
         user["Id"], old_url, new_url, culture=culture, intensity=intensity,
         duration=duration, ssim=ssim, is_edited=bool(req.edited),
+        is_light=bool(req.light),
     )
     # Only the pipeline's own output is evaluated: a recoloured or furnished
-    # render would score the edit, not the generation.
-    if not req.edited:
+    # render would score the edit, not the generation, and a LIGHT placeholder
+    # would have LPIPS and CLIP measured against a tint.
+    if not req.edited and not req.light:
         background.add_task(_evaluate_saved_design, entry_id, old_url, new_url)
     log_event("history_save", user_id=user["Id"], entry_id=entry_id, culture=culture, ok=True)
     return JSONResponse({
@@ -1102,6 +1112,7 @@ async def history_save(
         "duration": duration,
         "ssim": ssim,
         "isEdited": bool(req.edited),
+        "isLight": bool(req.light),
     })
 
 
@@ -1477,7 +1488,9 @@ async def admin_feedback(
     limit = max(1, min(200, limit))
     return JSONResponse({
         "stats": db.feedback_stats(culture, since, until),
-        "byCulture": db.feedback_by_culture(since, until),
+        # Same culture as the stats beside it: a breakdown that ignored the
+        # filter would chart three cultures next to a total for one.
+        "byCulture": db.feedback_by_culture(culture, since, until),
         "recent": db.list_feedback(culture, since, until, limit),
         "cultures": list(StylePack),
     })
@@ -1514,18 +1527,25 @@ async def admin_evaluation(
         # Derived, not stored — the form has no "overall" field. Named so on the
         # card, so it can't be read as something a user typed.
         "averageOverall": eval_overall_rating(stats),
-        "byCulture": db.feedback_by_culture(since, until),
+        "byCulture": db.feedback_by_culture(culture, since, until),
         "recent": db.list_feedback(culture, since, until, limit),
-        # Date-filtered when it comes from the database; the audit-log fallback
-        # cannot be, and says so via `filtered`. Never culture-filtered: renders
-        # are not the same population as ratings, and one render covers up to
-        # three cultures, so a culture filter would change a number it has no
-        # bearing on.
-        "generation": eval_generation_report(since, until),
+        # Every section below takes the same three filters, applied in SQL. They
+        # used to take only the dates, so choosing a culture narrowed the ratings
+        # and left the generation, model and confusion figures global — three
+        # different populations printed on one page as though they matched.
+        # A saved design is one generated room, and its Culture is the culture it
+        # was generated as, so the filter is exact rather than approximate.
+        "generation": eval_generation_report(culture, since, until),
+        # How many of those designs actually carry each measurement — the
+        # denominators behind the averages above.
+        "coverage": eval_coverage_report(culture, since, until),
         # Intended culture vs CLIP's prediction, read live from history so a
         # deleted design disappears from it immediately.
-        "confusion": db.culture_confusion(since, until),
-        "automatic": eval_automatic_metrics(),
+        "confusion": db.culture_confusion(culture, since, until),
+        # The offline LoRA-vs-baseline corpus. Culture-filterable; it carries no
+        # timestamps, so it reports that the date filter cannot apply to it
+        # rather than pretending it did.
+        "automatic": eval_automatic_metrics(culture=culture),
     })
 
 

@@ -982,6 +982,10 @@ export default function StudioPage() {
                   // Colour control and furniture placement replace this image;
                   // when they have, it is no longer what the pipeline produced.
                   edited={!!pristine[featured] && pristine[featured] !== featuredSrc}
+                  // Preview mode: a tint, not a render. Still worth saving, but
+                  // its millisecond "generation time" must not reach the
+                  // evaluation dashboard's averages.
+                  light={isPlaceholder}
                 />
                 <RoomReport
                   beforeSrc={result.original}

@@ -165,8 +165,14 @@ def test_edited_designs_are_saved_but_not_queued_for_evaluation() -> None:
             rows = (await c.get("/api/history")).json()
             assert len(rows) == 1 and rows[0]["isEdited"] is True
             # Still a room the user generated...
-            assert db.history_generation_stats()["roomsGenerated"] == 1
-            # ...but never offered to the measurement pass.
+            stats = db.history_generation_stats()
+            assert stats["roomsGenerated"] == 1
+            # ...but not part of the corpus any model figure is averaged over,
+            # and the count of what was held back is reported rather than left
+            # for the reader to infer from a gap between two numbers.
+            assert stats["evaluableDesigns"] == 0
+            assert stats["editedExcluded"] == 1
+            # ...and never offered to the measurement pass.
             assert all(r["id"] != eid for r in db.history_needing_evaluation())
     asyncio.run(_go())
 

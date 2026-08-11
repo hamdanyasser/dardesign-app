@@ -111,3 +111,6 @@ backend/dardesign.db-shm
 # keeps every version forever. Keep them on disk or in Drive, not in history.
 *.mp4
 *.mov
+
+# throwaway databases and corpora from scripts/seed_eval_demo.py
+.tmp/

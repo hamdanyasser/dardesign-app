@@ -83,13 +83,18 @@ export function ScoreBars({
             </div>
             <span
               className={cn(
-                "font-editorial-mono w-24 shrink-0 text-[11px]",
+                // A3 mono for the metric value; min-width rather than a fixed
+                // width because the sample-size note now sits inline beside it
+                // and w-24 clipped "4.50 · n=8".
+                "font-editorial-mono min-w-[6.5rem] shrink-0 whitespace-nowrap text-[11px]",
                 b.value == null ? "text-cream-muted" : "text-cream-soft",
                 isArabic ? "text-left" : "text-right",
               )}
               dir="ltr"
             >
               {b.value == null ? emptyLabel : b.value.toFixed(2)}
+              {/* The sample size travels with the value, never on its own line:
+                  4.50 and 4.50 from one rating must not look alike. */}
               {b.note && <span className="ms-1 text-cream-muted">{b.note}</span>}
             </span>
           </div>
@@ -106,6 +111,7 @@ export function MetricComparison({
   title,
   cultures,
   values,
+  notes,
   isArabic = false,
   max = 5,
   noDataLabel,
@@ -113,6 +119,9 @@ export function MetricComparison({
   title: string;
   cultures: string[];
   values: Record<string, number | null>;
+  /** Per-culture suffix, e.g. "/ 5 · n=8". Printed beside the value so a score
+   *  is never read without the number of opinions behind it. */
+  notes?: Record<string, string>;
   isArabic?: boolean;
   max?: number;
   noDataLabel: string;
@@ -129,14 +138,19 @@ export function MetricComparison({
         {title}
       </h4>
       {anyData ? (
+        // Every culture stays on the axis even with nothing to show, so the
+        // rows line up across the three panels and a gap reads as "no data"
+        // rather than as a culture that was left out.
         <ScoreBars
           isArabic={isArabic}
           max={max}
+          emptyLabel={noDataLabel}
           bars={cultures.map((c) => ({
             key: c,
             label: isArabic ? CULTURE_LABEL[c]?.ar ?? c : CULTURE_LABEL[c]?.en ?? c,
             value: values[c] ?? null,
             color: CULTURE_COLOR[c],
+            note: notes?.[c],
           }))}
         />
       ) : (
