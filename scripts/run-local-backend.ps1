@@ -13,6 +13,7 @@
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
 $secretFile = Join-Path $root ".dardesign-secret"
+$venvPython = Join-Path $root ".venv\Scripts\python.exe"
 
 if (-not (Test-Path $secretFile)) {
     $bytes = New-Object byte[] 32
@@ -51,4 +52,8 @@ Write-Host "renders        : NOT served here - they come from NEXT_PUBLIC_API_UR
 Write-Host ""
 
 Set-Location $root
-python -m uvicorn backend.main:app --port 8000
+if (Test-Path $venvPython) {
+    & $venvPython -m uvicorn backend.main:app --port 8000
+} else {
+    python -m uvicorn backend.main:app --port 8000
+}

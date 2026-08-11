@@ -14,13 +14,14 @@
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Download, RotateCcw } from "lucide-react";
-import CinemaChrome from "@/components/cinema/CinemaChrome";
 import ArchCanvas from "@/components/cinema/ArchCanvas";
 import DissolveCanvas from "@/components/cinema/DissolveCanvas";
 import DustLayer from "@/components/cinema/DustLayer";
 import { MotifTiles } from "@/components/cinema/svg/MotifTiles";
 import { useCinemaCopy } from "@/components/cinema/copy";
-import CulturalElementHighlighter, { DEMO_REGIONS } from "@/components/CulturalElementHighlighter";
+import CulturalElementHighlighter, {
+  DEMO_REGIONS,
+} from "@/components/CulturalElementHighlighter";
 import RoomMap2D, { DEMO_MAP } from "@/components/RoomMap2D";
 import ColorControl from "@/components/ColorControl";
 import CulturalNarration from "@/components/CulturalNarration";
@@ -178,26 +179,38 @@ export default function StudioPage() {
       setValidationErr(null);
       if (!f) return;
       if (!f.type.startsWith("image/")) {
-        setValidationErr(isArabic ? "يجب أن يكون الملف صورة" : "The file must be an image");
+        setValidationErr(
+          isArabic ? "يجب أن يكون الملف صورة" : "The file must be an image",
+        );
         return;
       }
       if (f.size > 10 * 1024 * 1024) {
-        setValidationErr(isArabic ? "يجب أن يكون الحجم أقل من 10 ميغابايت" : "File must be under 10MB");
+        setValidationErr(
+          isArabic
+            ? "يجب أن يكون الحجم أقل من 10 ميغابايت"
+            : "File must be under 10MB",
+        );
         return;
       }
       try {
         const { w, h } = await readDimensions(f);
         if (w < 256 || h < 256) {
-          setValidationErr(isArabic ? "الصورة صغيرة جدًا (256×256 على الأقل)" : "Image too small (256×256 minimum)");
+          setValidationErr(
+            isArabic
+              ? "الصورة صغيرة جدًا (256×256 على الأقل)"
+              : "Image too small (256×256 minimum)",
+          );
           return;
         }
       } catch {
-        setValidationErr(isArabic ? "تعذّر قراءة الصورة" : "Could not read the image");
+        setValidationErr(
+          isArabic ? "تعذّر قراءة الصورة" : "Could not read the image",
+        );
         return;
       }
       setImage(f);
     },
-    [isArabic, setImage]
+    [isArabic, setImage],
   );
 
   // What the account may still do. Refreshed after every generation, because the
@@ -233,7 +246,10 @@ export default function StudioPage() {
       setPlan((prev) => (prev ? { ...prev, ...usage } : prev));
       return null;
     } catch (e) {
-      if (e instanceof ApiError && (e.code === "quota_exceeded" || e.code === "not_authenticated")) {
+      if (
+        e instanceof ApiError &&
+        (e.code === "quota_exceeded" || e.code === "not_authenticated")
+      ) {
         return e;
       }
       return null;
@@ -278,13 +294,17 @@ export default function StudioPage() {
         Object.fromEntries(
           (r.styles ?? [])
             .map((k) => [k, r[k]] as const)
-            .filter((pair): pair is readonly [StyleId, string] => typeof pair[1] === "string"),
+            .filter(
+              (pair): pair is readonly [StyleId, string] =>
+                typeof pair[1] === "string",
+            ),
         ),
       );
       // The featured tile must be one that actually exists, or every consumer of
       // result[featured] (slider, download, report, 3D orbit, furniture panel)
       // would read undefined.
-      if (r.styles?.length && !r.styles.includes(featured)) setFeatured(r.styles[0]);
+      if (r.styles?.length && !r.styles.includes(featured))
+        setFeatured(r.styles[0]);
       setProgress(1);
       DarAudio.chime();
       // brief hold so the assembled arch is felt before the reveal
@@ -307,10 +327,15 @@ export default function StudioPage() {
   // works with the backend completely offline.
   const loadDemoRoom = useCallback(async (room: DemoRoom) => {
     const base = `/demo/${room.id}`;
-    let meta: { object_map?: RedesignResult["object_map"]; seg_regions?: RedesignResult["seg_regions"] } = {};
+    let meta: {
+      object_map?: RedesignResult["object_map"];
+      seg_regions?: RedesignResult["seg_regions"];
+    } = {};
     if (room.has_meta) {
       try {
-        meta = await fetch(`${base}/meta.json`).then((r) => (r.ok ? r.json() : {}));
+        meta = await fetch(`${base}/meta.json`).then((r) =>
+          r.ok ? r.json() : {},
+        );
       } catch {
         /* images alone still make the demo */
       }
@@ -368,16 +393,28 @@ export default function StudioPage() {
   // on-image highlighter regions, and a depth PNG for the 3D orbit. Fall
   // back to the illustrative demo data for older backends that omit them.
   const backendMap = result?.object_map;
-  const mapObjects = backendMap?.objects?.length ? backendMap.objects : DEMO_MAP;
+  const mapObjects = backendMap?.objects?.length
+    ? backendMap.objects
+    : DEMO_MAP;
   const hasRealMap = !!backendMap?.objects?.length && !backendMap.placeholder;
   const backendRegions = result?.seg_regions;
-  const highlightRegions = backendRegions?.regions?.length ? backendRegions.regions : DEMO_REGIONS;
-  const hasRealRegions = !!backendRegions?.regions?.length && !backendRegions.placeholder;
+  const highlightRegions = backendRegions?.regions?.length
+    ? backendRegions.regions
+    : DEMO_REGIONS;
+  const hasRealRegions =
+    !!backendRegions?.regions?.length && !backendRegions.placeholder;
   // LIGHT-mode stand-ins, not real renders. Top-level flag on new backends;
   // envelope flags cover older ones.
-  const isPlaceholder = !!(result?.placeholder || backendMap?.placeholder || backendRegions?.placeholder);
+  const isPlaceholder = !!(
+    result?.placeholder ||
+    backendMap?.placeholder ||
+    backendRegions?.placeholder
+  );
 
-  const msgIdx = Math.min(lc.messages.length - 1, Math.floor(progress * lc.messages.length));
+  const msgIdx = Math.min(
+    lc.messages.length - 1,
+    Math.floor(progress * lc.messages.length),
+  );
   const ringR = 90;
   const ringC = 2 * Math.PI * ringR;
   const ringOffset = ringC * (1 - progress);
@@ -390,17 +427,29 @@ export default function StudioPage() {
   // actually reported produces one; when the accounts backend is unreachable
   // the hint is simply absent rather than guessed at.
   const outOfDesigns = !!plan && !plan.isSubscribed && plan.remaining === 0;
-  const allowance: { text: string; link?: { href: string; label: string } } | null = authLoading
+  const allowance: {
+    text: string;
+    link?: { href: string; label: string };
+  } | null = authLoading
     ? null
     : !user
       ? {
-          text: isArabic ? "سجّل الدخول لبدء التصميم." : "Sign in to start designing.",
-          link: { href: "/login", label: isArabic ? "تسجيل الدخول" : "Sign in" },
+          text: isArabic
+            ? "سجّل الدخول لبدء التصميم."
+            : "Sign in to start designing.",
+          link: {
+            href: "/login",
+            label: isArabic ? "تسجيل الدخول" : "Sign in",
+          },
         }
       : !plan
         ? null
         : plan.isSubscribed
-          ? { text: isArabic ? "الخطة الاحترافية — تصاميم غير محدودة." : "Pro plan — unlimited designs." }
+          ? {
+              text: isArabic
+                ? "الخطة الاحترافية — تصاميم غير محدودة."
+                : "Pro plan — unlimited designs.",
+            }
           : {
               text: isArabic
                 ? `تبقّى ${plan.remaining} من ${plan.limit} تصاميم مجانية هذا الأسبوع.`
@@ -412,14 +461,10 @@ export default function StudioPage() {
             };
 
   return (
-    <main className="relative min-h-screen" style={{ background: "var(--ink)" }}>
-      <div className="cinema">
-        <CinemaChrome onNavHome={startOver} />
-      </div>
-
+    <main className="app-page relative min-h-screen">
       {/* ---------- IDLE: cinematic upload + featured-style picker ---------- */}
       {phase === "idle" && (
-        <div className="cinema">
+        <div className="cinema studio-workspace">
           <section className="transform-scene">
             <div className="ambient-3d">
               <ArchCanvas
@@ -430,7 +475,12 @@ export default function StudioPage() {
                   enableMashrabiya: true,
                   ambient: 0.4,
                   angle: -0.18,
-                  archColor: DISSOLVE_COLOR[featured] === 0xd4af37 ? 0xd4af37 : featured === "moroccan" ? 0x1f4287 : 0xc9a876,
+                  archColor:
+                    DISSOLVE_COLOR[featured] === 0xd4af37
+                      ? 0xd4af37
+                      : featured === "moroccan"
+                        ? 0x1f4287
+                        : 0xc9a876,
                   fogNear: 2,
                   fogFar: 12,
                 }}
@@ -444,7 +494,10 @@ export default function StudioPage() {
                 <div className="eyebrow">{tc.eyebrow}</div>
                 <h1>
                   {tc.title.map((w, i) => (
-                    <span key={i} className={i === tc.italicIdx ? "italic" : ""}>
+                    <span
+                      key={i}
+                      className={i === tc.italicIdx ? "italic" : ""}
+                    >
                       {w}
                       {i < tc.title.length - 1 ? " " : ""}
                     </span>
@@ -469,7 +522,12 @@ export default function StudioPage() {
                 >
                   <div
                     className="mono"
-                    style={{ fontSize: "0.7rem", letterSpacing: "0.12em", color: "var(--brass-bright)", marginBottom: 10 }}
+                    style={{
+                      fontSize: "0.7rem",
+                      letterSpacing: "0.12em",
+                      color: "var(--brass-bright)",
+                      marginBottom: 10,
+                    }}
                   >
                     {isArabic
                       ? "وضع العرض الآمن — غرف جاهزة بدون خادم · DEFENSE MODE"
@@ -493,11 +551,21 @@ export default function StudioPage() {
                         <img
                           src={`/demo/${room.id}/original.png`}
                           alt={isArabic ? room.label_ar : room.label_en}
-                          style={{ width: "100%", aspectRatio: "4/3", objectFit: "cover", display: "block" }}
+                          style={{
+                            width: "100%",
+                            aspectRatio: "4/3",
+                            objectFit: "cover",
+                            display: "block",
+                          }}
                         />
                         <span
                           className={isArabic ? "font-arabic" : "font-ui"}
-                          style={{ display: "block", padding: "6px 4px", fontSize: "0.72rem", color: "var(--fg-mute)" }}
+                          style={{
+                            display: "block",
+                            padding: "6px 4px",
+                            fontSize: "0.72rem",
+                            color: "var(--fg-mute)",
+                          }}
                         >
                           {isArabic ? room.label_ar : room.label_en}
                         </span>
@@ -537,8 +605,19 @@ export default function StudioPage() {
                   {!imagePreviewUrl && (
                     <div>
                       <div className="icon">
-                        <svg viewBox="0 0 96 96" fill="none" stroke="currentColor" strokeWidth="1.2">
-                          <rect x="14" y="22" width="68" height="50" stroke="currentColor" />
+                        <svg
+                          viewBox="0 0 96 96"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="1.2"
+                        >
+                          <rect
+                            x="14"
+                            y="22"
+                            width="68"
+                            height="50"
+                            stroke="currentColor"
+                          />
                           <circle cx="48" cy="47" r="14" />
                           <circle cx="48" cy="47" r="6" />
                           <path d="M30 22 L36 14 L60 14 L66 22" />
@@ -548,20 +627,32 @@ export default function StudioPage() {
                       <h3 className="prompt">{tc.dropPrompt}</h3>
                       <div className="sub">{tc.dropClick}</div>
                       <div className="formats">{tc.formats}</div>
-                      <div className="formats" style={{ marginTop: 6, opacity: 0.75 }}>
+                      <div
+                        className="formats"
+                        style={{ marginTop: 6, opacity: 0.75 }}
+                      >
                         {isArabic
                           ? "صورك تُحذف تلقائيًا بعد ٢٤ ساعة ما لم تحفظها."
                           : "Your photos are automatically deleted after 24 hours unless you save them."}
                       </div>
                       {validationErr && (
-                        <div style={{ marginTop: "var(--s-4)", color: "var(--error)", fontSize: "0.85rem" }}>
+                        <div
+                          style={{
+                            marginTop: "var(--s-4)",
+                            color: "var(--error)",
+                            fontSize: "0.85rem",
+                          }}
+                        >
                           {validationErr}
                         </div>
                       )}
                     </div>
                   )}
                   {imagePreviewUrl && (
-                    <div className="preview" style={{ backgroundImage: `url(${imagePreviewUrl})` }}>
+                    <div
+                      className="preview"
+                      style={{ backgroundImage: `url(${imagePreviewUrl})` }}
+                    >
                       <div className="scrim" />
                       <button
                         className="remove"
@@ -585,11 +676,15 @@ export default function StudioPage() {
                 <div className="styles-picker">
                   <div className="label">{tc.pickLabel}</div>
                   {STYLE_ORDER.map((id) => {
-                    const Motif = MotifTiles[STYLE_MOTIF[id] as keyof typeof MotifTiles];
+                    const Motif =
+                      MotifTiles[STYLE_MOTIF[id] as keyof typeof MotifTiles];
                     return (
                       <button
                         key={id}
-                        className={"style-card " + (generateScope === id ? "selected" : "")}
+                        className={
+                          "style-card " +
+                          (generateScope === id ? "selected" : "")
+                        }
                         onClick={() => {
                           setGenerateScope(id);
                           setFeatured(id);
@@ -600,25 +695,34 @@ export default function StudioPage() {
                           <h3 className="name">{tc.styles[id].name}</h3>
                           <p className="desc">{tc.styles[id].desc}</p>
                         </div>
-                        <div className="check">{generateScope === id ? "✓" : ""}</div>
+                        <div className="check">
+                          {generateScope === id ? "✓" : ""}
+                        </div>
                       </button>
                     );
                   })}
 
                   <button
-                    className={"style-card " + (generateScope === "all" ? "selected" : "")}
+                    className={
+                      "style-card " +
+                      (generateScope === "all" ? "selected" : "")
+                    }
                     onClick={() => setGenerateScope("all")}
                   >
                     <div className="motif" />
                     <div>
-                      <h3 className="name">{isArabic ? "الثلاثة معاً" : "All three"}</h3>
+                      <h3 className="name">
+                        {isArabic ? "الثلاثة معاً" : "All three"}
+                      </h3>
                       <p className="desc">
                         {isArabic
                           ? "يولّد الثقافات الثلاث للمقارنة — أبطأ بثلاث مرات"
                           : "Generate all three cultures to compare — about 3x slower"}
                       </p>
                     </div>
-                    <div className="check">{generateScope === "all" ? "✓" : ""}</div>
+                    <div className="check">
+                      {generateScope === "all" ? "✓" : ""}
+                    </div>
                   </button>
 
                   <div className="transform-cta">
@@ -632,16 +736,27 @@ export default function StudioPage() {
                           : {}
                       }
                     >
-                      <span>{imageFile ? tc.ctaReady : tc.ctaWaitingImage}</span>
+                      <span>
+                        {imageFile ? tc.ctaReady : tc.ctaWaitingImage}
+                      </span>
                       <span className="arrow">→</span>
                     </button>
                     {/* What this account has left. Rendered from the plan the
                         backend last reported, never computed here. */}
                     {allowance && (
-                      <p style={{ marginTop: "var(--s-3)", fontSize: "0.8rem", opacity: 0.75 }}>
+                      <p
+                        style={{
+                          marginTop: "var(--s-3)",
+                          fontSize: "0.8rem",
+                          opacity: 0.75,
+                        }}
+                      >
                         {allowance.text}{" "}
                         {allowance.link && (
-                          <Link href={allowance.link.href} style={{ color: "var(--dd-gold)" }}>
+                          <Link
+                            href={allowance.link.href}
+                            style={{ color: "var(--dd-gold)" }}
+                          >
                             {allowance.link.label}
                           </Link>
                         )}
@@ -657,10 +772,14 @@ export default function StudioPage() {
 
       {/* ---------- LOADING: particle dissolve assembling the arch ---------- */}
       {phase === "loading" && (
-        <div className="cinema">
+        <div className="cinema studio-workspace">
           <section className="loading-scene" role="status" aria-live="polite">
             <div className="canvas">
-              <DissolveCanvas progress={progress} count={4500} color={DISSOLVE_COLOR[featured]} />
+              <DissolveCanvas
+                progress={progress}
+                count={4500}
+                color={DISSOLVE_COLOR[featured]}
+              />
             </div>
             <DustLayer count={26} seed={17} />
             <div className="core">
@@ -683,7 +802,10 @@ export default function StudioPage() {
               </div>
               <div className="step-label">{lc.pretitle}</div>
               <h2 key={msgIdx}>{lc.messages[msgIdx]}</h2>
-              <div className="mono" style={{ marginTop: "var(--s-3)", opacity: 0.6 }}>
+              <div
+                className="mono"
+                style={{ marginTop: "var(--s-3)", opacity: 0.6 }}
+              >
                 {mmss(elapsed)}
               </div>
             </div>
@@ -694,21 +816,31 @@ export default function StudioPage() {
 
       {/* ---------- ERROR ---------- */}
       {phase === "error" && err && (
-        <div className="cinema">
+        <div className="cinema studio-workspace">
           <section className="error-scene">
             <DustLayer count={18} seed={29} />
             <div>
               <div className="code">{copy.error.code}</div>
               <h1>
                 {copy.error.title.map((w, i) => (
-                  <span key={i} className={i === copy.error.italicIdx ? "italic" : ""}>
+                  <span
+                    key={i}
+                    className={i === copy.error.italicIdx ? "italic" : ""}
+                  >
                     {w}
                     {i < copy.error.title.length - 1 ? " " : ""}
                   </span>
                 ))}
               </h1>
               <p>{isArabic ? err.ar : err.en}</p>
-              <div style={{ display: "flex", gap: "var(--s-4)", justifyContent: "center", flexWrap: "wrap" }}>
+              <div
+                style={{
+                  display: "flex",
+                  gap: "var(--s-4)",
+                  justifyContent: "center",
+                  flexWrap: "wrap",
+                }}
+              >
                 {/* Retrying cannot help when the weekly allowance is spent, so
                     the limit offers the plan instead of the same refusal. */}
                 {quotaBlocked ? (
@@ -737,353 +869,514 @@ export default function StudioPage() {
       )}
 
       {/* ---------- DONE: cinematic reveal + compare, then the FYP grid ---------- */}
-      {phase === "done" && result && (() => {
-        // The featured style is guaranteed to be one that was generated (see
-        // runRedesign), but fall back to the original so a null can never reach
-        // an <img src> or the report/orbit/furniture panel.
-        const featuredSrc = result[featured] ?? result.original;
-        return (
-        <>
-          <div className="cinema">
-            <section className="result-scene">
-              <div className="reveal-stage">
-                <div className="canvas">
-                  <ArchCanvas
-                    opts={{ dustCount: 900, cameraZStart: 7, cameraZEnd: 6.4, enableMashrabiya: true, ambient: 0.6 }}
-                    fallbackOpacity={0.35}
-                  />
-                </div>
-                <DustLayer count={26} seed={21} />
-                <div className="label">
-                  <div className="eyebrow">{rc.eyebrow}</div>
-                  <h1>
-                    {rc.title.map((w, i) => (
-                      <span key={i} className={i === rc.italicIdx ? "italic" : ""}>
-                        {w}
-                        {i < rc.title.length - 1 ? " " : ""}
-                      </span>
-                    ))}
-                  </h1>
-                </div>
-              </div>
+      {phase === "done" &&
+        result &&
+        (() => {
+          // The featured style is guaranteed to be one that was generated (see
+          // runRedesign), but fall back to the original so a null can never reach
+          // an <img src> or the report/orbit/furniture panel.
+          const featuredSrc = result[featured] ?? result.original;
+          return (
+            <>
+              <div className="cinema studio-workspace">
+                <section className="result-scene">
+                  <div className="reveal-stage">
+                    <div className="canvas">
+                      <ArchCanvas
+                        opts={{
+                          dustCount: 900,
+                          cameraZStart: 7,
+                          cameraZEnd: 6.4,
+                          enableMashrabiya: true,
+                          ambient: 0.6,
+                        }}
+                        fallbackOpacity={0.35}
+                      />
+                    </div>
+                    <DustLayer count={26} seed={21} />
+                    <div className="label">
+                      <div className="eyebrow">{rc.eyebrow}</div>
+                      <h1>
+                        {rc.title.map((w, i) => (
+                          <span
+                            key={i}
+                            className={i === rc.italicIdx ? "italic" : ""}
+                          >
+                            {w}
+                            {i < rc.title.length - 1 ? " " : ""}
+                          </span>
+                        ))}
+                      </h1>
+                    </div>
+                  </div>
 
-              {/* culture toggle for the reveal lead */}
-              <div
-                style={{
-                  display: "flex",
-                  gap: "var(--s-3)",
-                  justifyContent: "center",
-                  flexWrap: "wrap",
-                  marginTop: "var(--s-5)",
-                }}
-              >
-                {STYLE_ORDER.map((id) => (
-                  <button
-                    key={id}
-                    onClick={() => setFeatured(id)}
-                    className="mono"
+                  {/* culture toggle for the reveal lead */}
+                  <div
                     style={{
-                      padding: "8px 18px",
-                      borderRadius: "var(--r-pill)",
-                      border: `1px solid ${featured === id ? "var(--brass)" : "var(--hairline-2)"}`,
-                      background: featured === id ? "var(--brass-wash)" : "transparent",
-                      color: featured === id ? "var(--brass-bright)" : "var(--fg-mute)",
+                      display: "flex",
+                      gap: "var(--s-3)",
+                      justifyContent: "center",
+                      flexWrap: "wrap",
+                      marginTop: "var(--s-5)",
                     }}
                   >
-                    {tc.styles[id].name}
-                  </button>
-                ))}
-              </div>
-
-              {/* Unmissable notice when the backend served LIGHT-mode stand-ins */}
-              {isPlaceholder && (
-                <div
-                  role="status"
-                  style={{
-                    margin: "var(--s-5) auto 0",
-                    width: "min(1400px, 92vw)",
-                    padding: "12px 20px",
-                    border: "1px solid var(--brass)",
-                    background: "var(--brass-wash)",
-                    borderRadius: "16px",
-                    display: "flex",
-                    flexDirection: "column",
-                    gap: "4px",
-                    textAlign: "center",
-                  }}
-                >
-                  <span className="font-arabic" dir="rtl" style={{ color: "var(--brass-bright)", fontWeight: 600 }}>
-                    وضع المعاينة — لا توجد وحدة GPU متصلة؛ هذه ألوان تمييزية وليست تصاميم حقيقية
-                  </span>
-                  <span className="mono" style={{ color: "var(--fg-mute)", fontSize: "0.72rem", letterSpacing: "0.08em" }}>
-                    PREVIEW MODE — no GPU connected. These tints are placeholders, not real redesigns.
-                  </span>
-                </div>
-              )}
-
-              <div style={{ padding: "var(--s-7) 0", position: "relative" }}>
-                <div
-                  className="compare"
-                  ref={compareRef}
-                  onMouseDown={(e) => {
-                    dragging.current = true;
-                    onCompareMove(e.clientX);
-                  }}
-                  onMouseMove={(e) => dragging.current && onCompareMove(e.clientX)}
-                  onMouseUp={() => (dragging.current = false)}
-                  onMouseLeave={() => (dragging.current = false)}
-                  onTouchStart={(e) => {
-                    dragging.current = true;
-                    onCompareMove(e.touches[0].clientX);
-                  }}
-                  onTouchMove={(e) => onCompareMove(e.touches[0].clientX)}
-                  onTouchEnd={() => (dragging.current = false)}
-                >
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={result.original} alt={rc.before} />
-                  <div className="after-wrap" style={{ clipPath: clipAfter }}>
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={featuredSrc} alt={rc.after} />
+                    {STYLE_ORDER.map((id) => (
+                      <button
+                        key={id}
+                        onClick={() => setFeatured(id)}
+                        className="mono"
+                        style={{
+                          padding: "8px 18px",
+                          borderRadius: "var(--r-pill)",
+                          border: `1px solid ${featured === id ? "var(--brass)" : "var(--hairline-2)"}`,
+                          background:
+                            featured === id
+                              ? "var(--brass-wash)"
+                              : "transparent",
+                          color:
+                            featured === id
+                              ? "var(--brass-bright)"
+                              : "var(--fg-mute)",
+                        }}
+                      >
+                        {tc.styles[id].name}
+                      </button>
+                    ))}
                   </div>
-                  <span className="lbl before">{rc.before}</span>
-                  <span className="lbl after">{rc.after}</span>
-                  <div className="handle" style={{ left: `${comparePos}%` }}>
-                    <div className="knob">{"⇄"}</div>
+
+                  {/* Unmissable notice when the backend served LIGHT-mode stand-ins */}
+                  {isPlaceholder && (
+                    <div
+                      role="status"
+                      style={{
+                        margin: "var(--s-5) auto 0",
+                        width: "min(1400px, 92vw)",
+                        padding: "12px 20px",
+                        border: "1px solid var(--brass)",
+                        background: "var(--brass-wash)",
+                        borderRadius: "16px",
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: "4px",
+                        textAlign: "center",
+                      }}
+                    >
+                      <span
+                        className="font-arabic"
+                        dir="rtl"
+                        style={{
+                          color: "var(--brass-bright)",
+                          fontWeight: 600,
+                        }}
+                      >
+                        وضع المعاينة — لا توجد وحدة GPU متصلة؛ هذه ألوان تمييزية
+                        وليست تصاميم حقيقية
+                      </span>
+                      <span
+                        className="mono"
+                        style={{
+                          color: "var(--fg-mute)",
+                          fontSize: "0.72rem",
+                          letterSpacing: "0.08em",
+                        }}
+                      >
+                        PREVIEW MODE — no GPU connected. These tints are
+                        placeholders, not real redesigns.
+                      </span>
+                    </div>
+                  )}
+
+                  <div
+                    style={{ padding: "var(--s-7) 0", position: "relative" }}
+                  >
+                    <div
+                      className="compare"
+                      ref={compareRef}
+                      onMouseDown={(e) => {
+                        dragging.current = true;
+                        onCompareMove(e.clientX);
+                      }}
+                      onMouseMove={(e) =>
+                        dragging.current && onCompareMove(e.clientX)
+                      }
+                      onMouseUp={() => (dragging.current = false)}
+                      onMouseLeave={() => (dragging.current = false)}
+                      onTouchStart={(e) => {
+                        dragging.current = true;
+                        onCompareMove(e.touches[0].clientX);
+                      }}
+                      onTouchMove={(e) => onCompareMove(e.touches[0].clientX)}
+                      onTouchEnd={() => (dragging.current = false)}
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={result.original} alt={rc.before} />
+                      <div
+                        className="after-wrap"
+                        style={{ clipPath: clipAfter }}
+                      >
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={featuredSrc} alt={rc.after} />
+                      </div>
+                      <span className="lbl before">{rc.before}</span>
+                      <span className="lbl after">{rc.after}</span>
+                      <div
+                        className="handle"
+                        style={{ left: `${comparePos}%` }}
+                      >
+                        <div className="knob">{"⇄"}</div>
+                      </div>
+                    </div>
                   </div>
-                </div>
+
+                  <div className="actions">
+                    <button
+                      className="btn"
+                      onClick={() => downloadTile(featuredSrc, featured)}
+                    >
+                      <span>{rc.download}</span>
+                      <span className="arrow">↓</span>
+                    </button>
+                    <button className="btn ghost" onClick={startOver}>
+                      <span>{rc.again}</span>
+                    </button>
+                  </div>
+                </section>
               </div>
 
-              <div className="actions">
-                <button className="btn" onClick={() => downloadTile(featuredSrc, featured)}>
-                  <span>{rc.download}</span>
-                  <span className="arrow">↓</span>
-                </button>
-                <button className="btn ghost" onClick={startOver}>
-                  <span>{rc.again}</span>
-                </button>
-              </div>
-            </section>
-          </div>
-
-          {/* ----- FYP: full grid + Cultural Highlighter + 2D map (outside .cinema) ----- */}
-          <section className="relative z-10 mx-auto max-w-5xl px-4 pb-16">
-            <div className="mb-6 flex items-center justify-between">
-              <h2 className={cn("text-lg font-semibold text-cream", isArabic ? "font-arabic" : "font-display")}>
-                {isArabic ? "كل البيوت الثلاثة" : "All three houses"}
-              </h2>
-              <div className={cn("flex items-center gap-3", isArabic && "flex-row-reverse")}>
-                {/* Save the CURRENT state: featuredSrc is replaced after every
+              {/* ----- FYP: full grid + Cultural Highlighter + 2D map (outside .cinema) ----- */}
+              <section className="studio-results-panel relative z-10 mx-auto max-w-6xl px-4 pb-16">
+                <div className="mb-6 flex items-center justify-between">
+                  <h2
+                    className={cn(
+                      "text-lg font-semibold text-cream",
+                      isArabic ? "font-arabic" : "font-display",
+                    )}
+                  >
+                    {isArabic ? "كل البيوت الثلاثة" : "All three houses"}
+                  </h2>
+                  <div
+                    className={cn(
+                      "flex items-center gap-3",
+                      isArabic && "flex-row-reverse",
+                    )}
+                  >
+                    {/* Save the CURRENT state: featuredSrc is replaced after every
                     furniture insertion, so pressing this after editing stores
                     the edited room, not the freshly generated one. */}
-                {/* `featured` is the culture actually on screen, so it is the
+                    {/* `featured` is the culture actually on screen, so it is the
                     one this design should be recorded and rated as. */}
-                <SaveDesignButton
-                  oldImage={result.original}
-                  newImage={featuredSrc}
-                  culture={featured}
-                  // The renderer's own measurement of this generation, stored on
-                  // the design so the evaluation dashboard can average it.
-                  duration={result.duration_s}
-                  // The score for the culture actually on screen — that is the
-                  // image being saved.
-                  ssim={result.ssim?.[featured] ?? null}
-                  // Colour control and furniture placement replace this image;
-                  // when they have, it is no longer what the pipeline produced.
-                  edited={!!pristine[featured] && pristine[featured] !== featuredSrc}
-                  // Preview mode: a tint, not a render. Still worth saving, but
-                  // its millisecond "generation time" must not reach the
-                  // evaluation dashboard's averages.
-                  light={isPlaceholder}
-                />
-                <RoomReport
-                  beforeSrc={result.original}
-                  afterSrc={featuredSrc}
-                  styleLabel={{
-                    ar: TILES.find((t) => t.key === featured)?.ar ?? "",
-                    en: TILES.find((t) => t.key === featured)?.en ?? "",
-                  }}
-                  regions={highlightRegions}
-                  mapObjects={mapObjects}
-                  isLive={hasRealRegions && hasRealMap}
-                  jobId={backendMap?.jobId}
-                />
-                <button
-                  onClick={startOver}
-                  className={cn(
-                    "flex items-center gap-2 text-sm text-cream-muted transition hover:text-gold",
-                    isArabic ? "font-arabic flex-row-reverse" : "font-ui"
-                  )}
-                >
-                  <RotateCcw size={16} />
-                  {isArabic ? "غرفة جديدة" : "New room"}
-                </button>
-              </div>
-            </div>
+                    <SaveDesignButton
+                      oldImage={result.original}
+                      newImage={featuredSrc}
+                      culture={featured}
+                      // The renderer's own measurement of this generation, stored on
+                      // the design so the evaluation dashboard can average it.
+                      duration={result.duration_s}
+                      // The score for the culture actually on screen — that is the
+                      // image being saved.
+                      ssim={result.ssim?.[featured] ?? null}
+                      // Colour control and furniture placement replace this image;
+                      // when they have, it is no longer what the pipeline produced.
+                      edited={
+                        !!pristine[featured] &&
+                        pristine[featured] !== featuredSrc
+                      }
+                      // Preview mode: a tint, not a render. Still worth saving, but
+                      // its millisecond "generation time" must not reach the
+                      // evaluation dashboard's averages.
+                      light={isPlaceholder}
+                    />
+                    <RoomReport
+                      beforeSrc={result.original}
+                      afterSrc={featuredSrc}
+                      styleLabel={{
+                        ar: TILES.find((t) => t.key === featured)?.ar ?? "",
+                        en: TILES.find((t) => t.key === featured)?.en ?? "",
+                      }}
+                      regions={highlightRegions}
+                      mapObjects={mapObjects}
+                      isLive={hasRealRegions && hasRealMap}
+                      jobId={backendMap?.jobId}
+                    />
+                    <button
+                      onClick={startOver}
+                      className={cn(
+                        "flex items-center gap-2 text-sm text-cream-muted transition hover:text-gold",
+                        isArabic ? "font-arabic flex-row-reverse" : "font-ui",
+                      )}
+                    >
+                      <RotateCcw size={16} />
+                      {isArabic ? "غرفة جديدة" : "New room"}
+                    </button>
+                  </div>
+                </div>
 
-            {/* Colour Control — repaint the wall or floor of the featured
+                {/* Colour Control — repaint the wall or floor of the featured
                 render. Needs the cached room analysis for the same reason
                 furniture placement does: the masks live server-side and are
                 only derivable from the generation pass. Confirming replaces
                 the featured image, so Save, the report and the 3D orbit all
                 pick the recoloured room up without knowing about this panel. */}
-            {result.job_id && result.room_analysis && (
-              <div className="mb-6">
-                <ColorControl
-                  jobId={result.job_id}
-                  style={featured}
-                  imageSrc={featuredSrc}
-                  onImageChange={(image) =>
-                    setResult((prev) => (prev ? { ...prev, [featured]: image } : prev))
-                  }
-                />
-              </div>
-            )}
+                {result.job_id && result.room_analysis && (
+                  <div className="mb-6">
+                    <ColorControl
+                      jobId={result.job_id}
+                      style={featured}
+                      imageSrc={featuredSrc}
+                      onImageChange={(image) =>
+                        setResult((prev) =>
+                          prev ? { ...prev, [featured]: image } : prev,
+                        )
+                      }
+                    />
+                  </div>
+                )}
 
-            <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
-              {/* Only tiles that were actually generated — a single-culture
+                <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
+                  {/* Only tiles that were actually generated — a single-culture
                   request legitimately returns nulls for the other two. */}
-              {TILES.filter((t) => typeof result[t.key] === "string").map((t) => {
-                const src = result[t.key] as string;
-                return (
-                  <figure
-                    key={t.key}
-                    className="group overflow-hidden rounded-2xl border border-gold/20 bg-[var(--dd-surface)] transition-colors duration-300 hover:border-gold/60"
+                  {TILES.filter((t) => typeof result[t.key] === "string").map(
+                    (t) => {
+                      const src = result[t.key] as string;
+                      return (
+                        <figure
+                          key={t.key}
+                          className="group overflow-hidden rounded-2xl border border-gold/20 bg-[var(--dd-surface)] transition-colors duration-300 hover:border-gold/60"
+                        >
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img
+                            src={src}
+                            alt={isArabic ? t.ar : t.en}
+                            className="block aspect-[4/3] w-full object-cover"
+                          />
+                          <figcaption
+                            className={cn(
+                              "flex items-center justify-between gap-2 px-4 py-3",
+                              isArabic && "flex-row-reverse",
+                            )}
+                          >
+                            <span
+                              className={cn(
+                                "flex items-center gap-2",
+                                isArabic && "flex-row-reverse",
+                              )}
+                            >
+                              <span>{t.flag}</span>
+                              <span
+                                className={cn(
+                                  "text-sm font-medium text-cream-soft",
+                                  isArabic && "font-arabic",
+                                )}
+                              >
+                                {t.ar}
+                              </span>
+                              <span className="font-ui text-xs text-cream-muted">
+                                {t.en}
+                              </span>
+                            </span>
+                            <button
+                              onClick={() => downloadTile(src, t.key)}
+                              aria-label={
+                                isArabic
+                                  ? `تنزيل التصميم ${t.ar}`
+                                  : `Download ${t.en} design`
+                              }
+                              className={cn(
+                                "flex items-center gap-1.5 rounded-lg border border-gold px-3 py-1.5 text-xs font-semibold text-gold transition-all duration-300 hover:bg-gold hover:text-[var(--dd-ink)]",
+                                isArabic
+                                  ? "font-arabic flex-row-reverse"
+                                  : "font-ui",
+                              )}
+                            >
+                              <Download size={14} />
+                              {isArabic ? "تنزيل" : "Download"}
+                            </button>
+                          </figcaption>
+                        </figure>
+                      );
+                    },
+                  )}
+                </div>
+
+                {/* Cultural elements + 2D layout — scaffold preview (sample data). */}
+                <div className="mt-12 border-t border-gold/15 pt-8">
+                  <div
+                    className={cn(
+                      "mb-4 flex items-center justify-between gap-3",
+                      isArabic && "flex-row-reverse",
+                    )}
                   >
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={src} alt={isArabic ? t.ar : t.en} className="block aspect-[4/3] w-full object-cover" />
-                    <figcaption
-                      className={cn("flex items-center justify-between gap-2 px-4 py-3", isArabic && "flex-row-reverse")}
-                    >
-                      <span className={cn("flex items-center gap-2", isArabic && "flex-row-reverse")}>
-                        <span>{t.flag}</span>
-                        <span className={cn("text-sm font-medium text-cream-soft", isArabic && "font-arabic")}>{t.ar}</span>
-                        <span className="font-ui text-xs text-cream-muted">{t.en}</span>
-                      </span>
-                      <button
-                        onClick={() => downloadTile(src, t.key)}
-                        aria-label={isArabic ? `تنزيل التصميم ${t.ar}` : `Download ${t.en} design`}
+                    <div className={cn(isArabic ? "text-right" : "text-left")}>
+                      <h2
                         className={cn(
-                          "flex items-center gap-1.5 rounded-lg border border-gold px-3 py-1.5 text-xs font-semibold text-gold transition-all duration-300 hover:bg-gold hover:text-[var(--dd-ink)]",
-                          isArabic ? "font-arabic flex-row-reverse" : "font-ui"
+                          "text-lg font-semibold text-cream",
+                          isArabic ? "font-arabic" : "font-display",
                         )}
                       >
-                        <Download size={14} />
-                        {isArabic ? "تنزيل" : "Download"}
-                      </button>
-                    </figcaption>
-                  </figure>
-                );
-              })}
-            </div>
-
-            {/* Cultural elements + 2D layout — scaffold preview (sample data). */}
-            <div className="mt-12 border-t border-gold/15 pt-8">
-              <div className={cn("mb-4 flex items-center justify-between gap-3", isArabic && "flex-row-reverse")}>
-                <div className={cn(isArabic ? "text-right" : "text-left")}>
-                  <h2 className={cn("text-lg font-semibold text-cream", isArabic ? "font-arabic" : "font-display")}>
-                    {isArabic ? "العناصر الثقافية والمخطط" : "Cultural elements & layout"}
-                    <span className="ms-2 align-middle text-xs text-cream-muted">
-                      {hasRealRegions && hasRealMap ? (isArabic ? "(حيّ)" : "(live)") : isArabic ? "(تجريبي)" : "(preview)"}
-                    </span>
-                  </h2>
-                  <p className={cn("mt-1 text-xs text-cream-muted", isArabic && "font-arabic")}>
-                    {isArabic
-                      ? hasRealRegions && hasRealMap
-                        ? "التظليل والمخطط محسوبان من الخادم لغرفتك (عمق + تجزئة). اضغط أي عنصر."
-                        : hasRealMap
-                          ? "التظليل على الصورة تجريبي؛ المخطط العلوي محسوب من الخادم (عمق + تجزئة). اضغط أي عنصر."
-                          : "عناصر ومخطط تجريبيان — الخادم لم يُرجع خريطة التجزئة والإسقاط. اضغط أي عنصر."
-                      : hasRealRegions && hasRealMap
-                        ? "Highlights & top-down map are computed by the backend for your room (depth + segmentation). Click any element."
-                        : hasRealMap
-                          ? "Highlight regions are samples; the top-down map is computed by the backend (depth + segmentation). Click any element."
-                          : "Sample regions + top-down map — the backend did not return segmentation & projection data. Click any element."}
-                  </p>
-                </div>
-                <button
-                  onClick={() => setShowElements((v) => !v)}
-                  className={cn(
-                    "shrink-0 rounded-lg border border-cream-muted px-3 py-1.5 text-xs text-cream-muted transition hover:border-gold hover:text-gold",
-                    isArabic ? "font-arabic" : "font-ui"
-                  )}
-                  aria-pressed={showElements}
-                >
-                  {showElements ? (isArabic ? "إخفاء" : "Hide") : isArabic ? "إظهار العناصر" : "Show elements"}
-                </button>
-              </div>
-
-              {showElements && (
-                <>
-                  <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-                    <div>
-                      <p className={cn("mb-2 text-xs font-medium text-cream-soft", isArabic && "font-arabic")}>
-                        {isArabic ? "التظليل على الصورة" : "On-image highlight"}
+                        {isArabic
+                          ? "العناصر الثقافية والمخطط"
+                          : "Cultural elements & layout"}
+                        <span className="ms-2 align-middle text-xs text-cream-muted">
+                          {hasRealRegions && hasRealMap
+                            ? isArabic
+                              ? "(حيّ)"
+                              : "(live)"
+                            : isArabic
+                              ? "(تجريبي)"
+                              : "(preview)"}
+                        </span>
+                      </h2>
+                      <p
+                        className={cn(
+                          "mt-1 text-xs text-cream-muted",
+                          isArabic && "font-arabic",
+                        )}
+                      >
+                        {isArabic
+                          ? hasRealRegions && hasRealMap
+                            ? "التظليل والمخطط محسوبان من الخادم لغرفتك (عمق + تجزئة). اضغط أي عنصر."
+                            : hasRealMap
+                              ? "التظليل على الصورة تجريبي؛ المخطط العلوي محسوب من الخادم (عمق + تجزئة). اضغط أي عنصر."
+                              : "عناصر ومخطط تجريبيان — الخادم لم يُرجع خريطة التجزئة والإسقاط. اضغط أي عنصر."
+                          : hasRealRegions && hasRealMap
+                            ? "Highlights & top-down map are computed by the backend for your room (depth + segmentation). Click any element."
+                            : hasRealMap
+                              ? "Highlight regions are samples; the top-down map is computed by the backend (depth + segmentation). Click any element."
+                              : "Sample regions + top-down map — the backend did not return segmentation & projection data. Click any element."}
                       </p>
-                      <CulturalElementHighlighter
-                        imageSrc={result.original}
-                        regions={highlightRegions}
-                        alt={isArabic ? "تحليل العناصر الثقافية" : "Cultural element analysis"}
-                      />
                     </div>
-                    <div>
-                      <p className={cn("mb-2 text-xs font-medium text-cream-soft", isArabic && "font-arabic")}>
-                        {isArabic ? "المخطط العلوي ثنائي الأبعاد" : "2D top-down map"}
-                      </p>
-                      <RoomMap2D objects={mapObjects} />
-                    </div>
+                    <button
+                      onClick={() => setShowElements((v) => !v)}
+                      className={cn(
+                        "shrink-0 rounded-lg border border-cream-muted px-3 py-1.5 text-xs text-cream-muted transition hover:border-gold hover:text-gold",
+                        isArabic ? "font-arabic" : "font-ui",
+                      )}
+                      aria-pressed={showElements}
+                    >
+                      {showElements
+                        ? isArabic
+                          ? "إخفاء"
+                          : "Hide"
+                        : isArabic
+                          ? "إظهار العناصر"
+                          : "Show elements"}
+                    </button>
                   </div>
-                  {/* The Understood Room, layer 3: orbit the redesigned room in 3D.
+
+                  {showElements && (
+                    <>
+                      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+                        <div>
+                          <p
+                            className={cn(
+                              "mb-2 text-xs font-medium text-cream-soft",
+                              isArabic && "font-arabic",
+                            )}
+                          >
+                            {isArabic
+                              ? "التظليل على الصورة"
+                              : "On-image highlight"}
+                          </p>
+                          <CulturalElementHighlighter
+                            imageSrc={result.original}
+                            regions={highlightRegions}
+                            alt={
+                              isArabic
+                                ? "تحليل العناصر الثقافية"
+                                : "Cultural element analysis"
+                            }
+                          />
+                        </div>
+                        <div>
+                          <p
+                            className={cn(
+                              "mb-2 text-xs font-medium text-cream-soft",
+                              isArabic && "font-arabic",
+                            )}
+                          >
+                            {isArabic
+                              ? "المخطط العلوي ثنائي الأبعاد"
+                              : "2D top-down map"}
+                          </p>
+                          <RoomMap2D objects={mapObjects} />
+                        </div>
+                      </div>
+                      {/* The Understood Room, layer 3: orbit the redesigned room in 3D.
                       Depth comes from the input photo; structure is preserved by
                       the ControlNets, so it displaces the styled image cleanly. */}
-                  {result.depth_map && (
-                    <div className="mt-6">
-                      <p className={cn("mb-2 text-xs font-medium text-cream-soft", isArabic && "font-arabic")}>
-                        {isArabic
-                          ? `الجولة ثلاثية الأبعاد — ${TILES.find((t) => t.key === featured)?.ar ?? ""} (اسحب للدوران)`
-                          : `3D room view — ${TILES.find((t) => t.key === featured)?.en ?? ""} (drag to orbit)`}
-                      </p>
-                      <DepthOrbit imageUrl={featuredSrc} depthUrl={result.depth_map} />
-                    </div>
-                  )}
+                      {result.depth_map && (
+                        <div className="mt-6">
+                          <p
+                            className={cn(
+                              "mb-2 text-xs font-medium text-cream-soft",
+                              isArabic && "font-arabic",
+                            )}
+                          >
+                            {isArabic
+                              ? `الجولة ثلاثية الأبعاد — ${TILES.find((t) => t.key === featured)?.ar ?? ""} (اسحب للدوران)`
+                              : `3D room view — ${TILES.find((t) => t.key === featured)?.en ?? ""} (drag to orbit)`}
+                          </p>
+                          <DepthOrbit
+                            imageUrl={featuredSrc}
+                            depthUrl={result.depth_map}
+                          />
+                        </div>
+                      )}
 
-                  {/* Cultural furniture: recommend, position, confirm, insert.
+                      {/* Cultural furniture: recommend, position, confirm, insert.
                       Needs the cached room analysis (masks live server-side), so
                       it only renders when /redesign returned a job id and an
                       analysis — otherwise placement has nothing to validate
                       against and the panel would offer a broken promise. */}
-                  {result.job_id && result.room_analysis && (
-                    <FurniturePlacement
-                      jobId={result.job_id}
-                      style={featured}
-                      imageSrc={featuredSrc}
-                      analysis={result.room_analysis}
-                      onPlaced={(image) =>
-                        setResult((prev) => (prev ? { ...prev, [featured]: image } : prev))
-                      }
-                    />
-                  )}
+                      {result.job_id && result.room_analysis && (
+                        <FurniturePlacement
+                          jobId={result.job_id}
+                          style={featured}
+                          imageSrc={featuredSrc}
+                          analysis={result.room_analysis}
+                          onPlaced={(image) =>
+                            setResult((prev) =>
+                              prev ? { ...prev, [featured]: image } : prev,
+                            )
+                          }
+                        />
+                      )}
 
-                  <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
-                    <div>
-                      <p className={cn("mb-2 text-xs font-medium text-cream-soft", isArabic && "font-arabic")}>
-                        {isArabic ? "السرد الثقافي الصوتي (يتحدّث عربيّاً)" : "Bilingual cultural narration (it speaks)"}
-                      </p>
-                      <CulturalNarration />
-                    </div>
-                    <div>
-                      <p className={cn("mb-2 text-xs font-medium text-cream-soft", isArabic && "font-arabic")}>
-                        {isArabic ? "شدّة الطراز (الاستئصال حيّاً)" : "Style intensity (the ablation, live)"}
-                      </p>
-                      <StyleIntensitySlider />
-                    </div>
-                  </div>
-                </>
-              )}
-            </div>
-          </section>
-        </>
-        );
-      })()}
+                      <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
+                        <div>
+                          <p
+                            className={cn(
+                              "mb-2 text-xs font-medium text-cream-soft",
+                              isArabic && "font-arabic",
+                            )}
+                          >
+                            {isArabic
+                              ? "السرد الثقافي الصوتي (يتحدّث عربيّاً)"
+                              : "Bilingual cultural narration (it speaks)"}
+                          </p>
+                          <CulturalNarration />
+                        </div>
+                        <div>
+                          <p
+                            className={cn(
+                              "mb-2 text-xs font-medium text-cream-soft",
+                              isArabic && "font-arabic",
+                            )}
+                          >
+                            {isArabic
+                              ? "شدّة الطراز (الاستئصال حيّاً)"
+                              : "Style intensity (the ablation, live)"}
+                          </p>
+                          <StyleIntensitySlider />
+                        </div>
+                      </div>
+                    </>
+                  )}
+                </div>
+              </section>
+            </>
+          );
+        })()}
     </main>
   );
 }

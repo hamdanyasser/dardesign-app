@@ -250,8 +250,7 @@ const translations = {
         moroccan: {
           flag: "🇲🇦",
           name: "Moroccan",
-          selectorDescription:
-            "Zellige tiles · Carved plaster · Vibrant color",
+          selectorDescription: "Zellige tiles · Carved plaster · Vibrant color",
           origin: "Moroccan Heritage · التراث المغربي",
           landingDescription:
             "Zellige, carved plaster, and vivid tones channel the layered craftsmanship of Marrakech riads and Andalusian courtyards.",
@@ -493,9 +492,9 @@ interface ThemeLanguageContextType {
   toggleTheme: () => void;
 }
 
-const ThemeLanguageContext = createContext<ThemeLanguageContextType | undefined>(
-  undefined
-);
+const ThemeLanguageContext = createContext<
+  ThemeLanguageContextType | undefined
+>(undefined);
 
 function getNestedString(source: Record<string, unknown>, key: string): string {
   const value = key.split(".").reduce<unknown>((current, segment) => {
@@ -515,13 +514,19 @@ export function ThemeLanguageProvider({
   children: React.ReactNode;
 }) {
   const [language, setLanguage] = useState<Language>("en");
-  const [theme, setTheme] = useState<Theme>("dark");
+  const [theme, setTheme] = useState<Theme>("light");
+
+  useEffect(() => {
+    const savedTheme = window.localStorage.getItem("dardesign-theme");
+    if (savedTheme === "dark" || savedTheme === "light") setTheme(savedTheme);
+  }, []);
 
   useEffect(() => {
     const html = document.documentElement;
     html.setAttribute("lang", language);
     html.setAttribute("dir", language === "ar" ? "rtl" : "ltr");
     html.setAttribute("data-theme", theme);
+    window.localStorage.setItem("dardesign-theme", theme);
   }, [language, theme]);
 
   const toggleLanguage = useCallback(() => {
@@ -536,7 +541,7 @@ export function ThemeLanguageProvider({
 
   const t = useCallback(
     (key: string) => getNestedString(copy as Record<string, unknown>, key),
-    [copy]
+    [copy],
   );
 
   const value = useMemo(
@@ -549,7 +554,7 @@ export function ThemeLanguageProvider({
       toggleLanguage,
       toggleTheme,
     }),
-    [copy, language, t, theme, toggleLanguage, toggleTheme]
+    [copy, language, t, theme, toggleLanguage, toggleTheme],
   );
 
   return (
@@ -564,7 +569,7 @@ export function useThemeLanguage() {
 
   if (!context) {
     throw new Error(
-      "useThemeLanguage must be used within a ThemeLanguageProvider"
+      "useThemeLanguage must be used within a ThemeLanguageProvider",
     );
   }
 

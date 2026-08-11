@@ -12,6 +12,7 @@ import {
 import "./globals.css";
 import "@/components/cinema/cinema.css";
 import "@/components/dar/dar-cinema.css";
+import AppShell from "@/components/AppShell";
 import { AuthProvider } from "@/context/AuthContext";
 import { ImageProvider } from "@/context/ImageContext";
 import { ThemeLanguageProvider } from "@/context/ThemeLanguageContext";
@@ -120,14 +121,16 @@ export default function RootLayout({
     <html
       lang="en"
       dir="ltr"
-      data-theme="dark"
+      data-theme="light"
       className={`${inter.variable} ${notoKufiArabic.variable} ${tajawal.variable} ${dmSans.variable} ${cormorantGaramond.variable} ${amiri.variable} ${reemKufi.variable} ${jetBrainsMono.variable}`}
       suppressHydrationWarning
     >
       <body className="antialiased">
         <ThemeLanguageProvider>
           <AuthProvider>
-            <ImageProvider>{children}</ImageProvider>
+            <ImageProvider>
+              <AppShell>{children}</AppShell>
+            </ImageProvider>
           </AuthProvider>
         </ThemeLanguageProvider>
       </body>

@@ -97,8 +97,8 @@ async function safeFetch(input: RequestInfo, init?: RequestInit): Promise<Respon
     throw new ApiError(
       {
         code: "network_unreachable",
-        message_en: e instanceof Error ? e.message : "Cannot reach server",
-        message_ar: "تعذّر الاتصال بالخادم. تأكد من تشغيل الخدمة.",
+        message_en: `Cannot reach the data service at ${DATA_API_URL}. Start the local backend or configure NEXT_PUBLIC_DATA_API_URL.`,
+        message_ar: "تعذّر الاتصال بخدمة البيانات. شغّل الخادم المحلي أو اضبط NEXT_PUBLIC_DATA_API_URL.",
       },
       0,
     );

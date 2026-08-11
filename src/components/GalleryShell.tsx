@@ -11,7 +11,6 @@
    ============================================================ */
 
 import type { ReactNode } from "react";
-import CinemaChrome from "@/components/cinema/CinemaChrome";
 import IslamicPattern from "@/components/islamic-pattern";
 import { useThemeLanguage } from "@/context/ThemeLanguageContext";
 import { cn } from "@/lib/utils";
@@ -29,28 +28,29 @@ export default function GalleryShell({
 
   return (
     <main
-      className="relative min-h-screen"
-      style={{ background: "var(--ink)" }}
+      className="app-page relative min-h-screen"
       dir={isArabic ? "rtl" : "ltr"}
     >
-      {/* Same wrapper /studio uses — this is what the chrome CSS is scoped to. */}
-      <div className="cinema">
-        <CinemaChrome />
-      </div>
+      <IslamicPattern opacity={0.018} />
 
-      <IslamicPattern opacity={0.03} />
-
-      <section className="relative z-10 mx-auto max-w-5xl px-4 pb-24 pt-32">
-        <header className={cn("mb-8", isArabic ? "text-right" : "text-left")}>
+      <section className="app-page-container relative z-10">
+        <header
+          className={cn(
+            "app-page-header",
+            isArabic ? "text-right" : "text-left",
+          )}
+        >
           <h1
             className={cn(
-              "text-2xl font-semibold text-[var(--dd-gold)]",
+              "app-page-title",
               isArabic ? "font-arabic" : "font-display",
             )}
           >
             {title}
           </h1>
-          <p className="mt-1.5 text-sm text-[var(--dd-text-secondary)]">{subtitle}</p>
+          <p className="mt-1.5 text-sm text-[var(--dd-text-secondary)]">
+            {subtitle}
+          </p>
         </header>
         {children}
       </section>
@@ -99,14 +99,26 @@ export function DesignCard({
           isArabic && "flex-row-reverse",
         )}
       >
-        <div className={cn("flex items-center gap-3", isArabic && "flex-row-reverse")}>
+        <div
+          className={cn(
+            "flex items-center gap-3",
+            isArabic && "flex-row-reverse",
+          )}
+        >
           <time className="text-xs text-[var(--dd-text-secondary)]">
-            {new Date(createdAt * 1000).toLocaleString(isArabic ? "ar" : "en-GB")}
+            {new Date(createdAt * 1000).toLocaleString(
+              isArabic ? "ar" : "en-GB",
+            )}
           </time>
           {caption}
         </div>
         {actions && (
-          <div className={cn("flex items-center gap-2", isArabic && "flex-row-reverse")}>
+          <div
+            className={cn(
+              "flex items-center gap-2",
+              isArabic && "flex-row-reverse",
+            )}
+          >
             {actions}
           </div>
         )}
