@@ -473,9 +473,13 @@ export interface FurnitureItem {
   cultural_tags: string[];
   material_tags: string[];
   color_tags: string[];
-  /** Present on recommendations: ranking score and why it was suggested. */
+  /** Present on recommendations: ranking score and why it was suggested.
+   *  Both languages always ship together — a justification that exists in only
+   *  one of them is a blank space in the other. Ordered most-distinguishing
+   *  first, so `reasons[0]` is the line worth putting on a card. */
   score?: number;
   reasons?: string[];
+  reasons_ar?: string[];
 }
 
 /** An open spot the room analysis found (normalized image coords). */

@@ -79,7 +79,11 @@ export default function FurniturePlacement({
   const [pos, setPos] = useState<PlacementPosition | null>(null);
   const [imageSize, setImageSize] = useState<{ width: number; height: number } | null>(null);
   const [valid, setValid] = useState(true);
-  const [reason, setReason] = useState<string | null>(null);
+  // Both languages, resolved at render rather than on arrival. Storing the
+  // already-chosen string froze whichever language was active when the server
+  // answered: switching to Arabic mid-placement left this one line in English
+  // while the rest of the page flipped, until the next drag refreshed it.
+  const [reason, setReason] = useState<{ en: string; ar: string } | null>(null);
   const [error, setError] = useState<{ en: string; ar: string } | null>(null);
   const [noSpace, setNoSpace] = useState<{ en: string; ar: string } | null>(null);
 
@@ -195,7 +199,11 @@ export default function FurniturePlacement({
         validatePlacement(jobId, selected.id, next, { signal: ctrl.signal })
           .then((r) => {
             setValid(r.valid);
-            setReason(isArabic ? r.reason_ar : r.reason);
+            setReason(
+              r.reason || r.reason_ar
+                ? { en: r.reason ?? "", ar: r.reason_ar ?? "" }
+                : null,
+            );
           })
           .catch((e) => {
             // An aborted check is expected during a fast drag — ignore it.
@@ -359,10 +367,13 @@ export default function FurniturePlacement({
                     {isArabic ? item.name_ar : item.name_en}
                   </p>
                   {/* Why this was suggested — a recommendation with no stated
-                      reason just looks arbitrary. */}
-                  {item.reasons?.[0] && (
+                      reason just looks arbitrary. The backend orders these
+                      most-distinguishing first, so [0] is what separates this
+                      piece from the rest of the culture rather than the
+                      room-type fit every one of them shares. */}
+                  {(isArabic ? item.reasons_ar?.[0] : item.reasons?.[0]) && (
                     <p className="mt-1 text-xs text-[var(--dd-text-secondary)]">
-                      {item.reasons[0]}
+                      {isArabic ? item.reasons_ar?.[0] : item.reasons?.[0]}
                     </p>
                   )}
                 </button>
@@ -436,13 +447,14 @@ export default function FurniturePlacement({
             )}
             role="status"
           >
-            {reason ??
-              (valid
+            {reason
+              ? t(reason.en, reason.ar)
+              : valid
                 ? t(
                     "Valid position: enough floor space and no detected overlap.",
                     "موضع صالح: مساحة أرضية كافية ولا يوجد تداخل.",
                   )
-                : "")}
+                : ""}
           </p>
 
           {/* controls */}

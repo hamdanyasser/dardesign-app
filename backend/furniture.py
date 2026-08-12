@@ -34,7 +34,10 @@ CATALOGUE_PATH = ROOT / "ontology" / "furniture.json"
 CULTURES = ("lebanese", "khaleeji", "moroccan")
 
 MIN_RESULTS = 3
-MAX_RESULTS = 6
+# One culture's whole catalogue. It was 6 when a culture held 5 pieces and the cap
+# never bit; at 9 per culture it was hiding a third of every one of them, which a
+# design agent reading /recommendations would never know it was missing.
+MAX_RESULTS = 9
 
 # Mood presets -> the tags they favour. Used only when the caller passes a mood;
 # an unknown mood contributes nothing rather than erroring, so the frontend can
@@ -55,16 +58,60 @@ class CatalogueError(RuntimeError):
     """Raised when the catalogue is missing or an id/culture is unknown."""
 
 
+# Room-type names, so a reason can say "يناسب غرفة معيشة" rather than falling back
+# to the catalogue key. Missing keys degrade to the English word rather than
+# raising — a new room type should weaken one phrase, not break the panel.
+ROOM_TYPE_AR: dict[str, str] = {
+    "living_room": "غرفة معيشة",
+    "majlis": "مجلس",
+    "dining_room": "غرفة طعام",
+    "bedroom": "غرفة نوم",
+    "hallway": "ممرًا",
+    "courtyard": "فناءً",
+}
+
+# Display order for the reasons attached to a recommendation. Lower shows first.
+# A warning outranks a compliment, a specific observation outranks a generic one,
+# and "suits a living room" comes last because it is true of almost everything.
+RANK_TOO_LARGE = 0
+RANK_HARMONY = 1
+RANK_DUPLICATE = 2
+RANK_MOOD = 3
+RANK_FITS = 4
+RANK_ROOM_TYPE = 5
+
+MOOD_AR: dict[str, str] = {
+    "warm": "الدافئ", "daylight": "النهاري", "evening": "المسائي",
+    "luxury": "الفاخر", "cozy": "الحميم", "minimal": "البسيط",
+    "traditional": "التقليدي", "modern": "العصري",
+}
+
+
 @dataclass
 class Recommendation:
     item: dict[str, Any]
     score: float
-    # Human-readable, bilingual-ready justifications. The panel can surface these
-    # so a recommendation never looks arbitrary to the user (or to an examiner).
-    reasons: list[str] = field(default_factory=list)
+    # Why this piece was suggested, so a recommendation never looks arbitrary to
+    # the user (or to an examiner). Held as (en, ar) pairs and split only at the
+    # API boundary: the app is bilingual, and a justification that exists in one
+    # language is a blank space in the other.
+    reasons_bi: list[tuple[str, str]] = field(default_factory=list)
+
+    @property
+    def reasons(self) -> list[str]:
+        return [en for en, _ in self.reasons_bi]
+
+    @property
+    def reasons_ar(self) -> list[str]:
+        return [ar for _, ar in self.reasons_bi]
 
     def to_dict(self) -> dict[str, Any]:
-        return {**self.item, "score": round(self.score, 3), "reasons": self.reasons}
+        return {
+            **self.item,
+            "score": round(self.score, 3),
+            "reasons": self.reasons,
+            "reasons_ar": self.reasons_ar,
+        }
 
 
 @lru_cache(maxsize=1)
@@ -158,6 +205,15 @@ def item_aspect(item: dict) -> float:
     return w / h if h > 0 else 1.0
 
 
+def max_results() -> int:
+    """The most items one call can return — a whole culture's catalogue.
+
+    A function rather than the constant itself so the API layer reads it at call
+    time and cannot bake a stale copy into a default argument.
+    """
+    return MAX_RESULTS
+
+
 def _overlap(a: Iterable[str] | None, b: Iterable[str] | None) -> int:
     if not a or not b:
         return 0
@@ -198,13 +254,22 @@ def recommend(
     scored: list[Recommendation] = []
     for item in candidates:
         score = 1.0
-        reasons: list[str] = []
+        # (rank, en, ar). Rank orders the list for *display*, not for scoring:
+        # the panel shows one line per card, and room-type fit — true of nearly
+        # every piece in the culture — would otherwise be the only thing the user
+        # ever reads. Sorted at the end so reasons[0] is the most distinguishing
+        # thing this piece has going for it, and a size warning always wins.
+        reasons: list[tuple[int, str, str]] = []
 
         # --- room type ---
         if room_type:
             if room_type in (item.get("room_types") or []):
                 score += 2.0
-                reasons.append(f"suits a {room_type.replace('_', ' ')}")
+                reasons.append((
+                    RANK_ROOM_TYPE,
+                    f"suits a {room_type.replace('_', ' ')}",
+                    f"يناسب {ROOM_TYPE_AR.get(room_type, room_type.replace('_', ' '))}",
+                ))
             else:
                 # Not disqualifying: a chair in a kitchen is odd, not impossible.
                 score -= 1.0
@@ -214,39 +279,47 @@ def recommend(
         if existing:
             if category in existing:
                 score -= 1.5
-                reasons.append("similar piece already in the room")
+                reasons.append((RANK_DUPLICATE, "similar piece already in the room", "توجد قطعة مشابهة في الغرفة"))
             else:
                 score += 1.5
-                reasons.append("adds a piece the room is missing")
+                reasons.append((RANK_DUPLICATE, "adds a piece the room is missing", "يضيف قطعة تنقص الغرفة"))
 
         # --- physical fit ---
         fits = _fits(item, free_floor_m2)
         if fits is True:
             score += 1.0
-            reasons.append("fits the available floor space")
+            reasons.append((RANK_FITS, "fits the available floor space", "يتّسع له المكان المتاح"))
         elif fits is False:
             # Heavily penalised rather than removed, so a small room still returns
             # something and the placement engine gets the final say.
             score -= 3.0
-            reasons.append("may be too large for the free floor area")
+            reasons.append((RANK_TOO_LARGE, "may be too large for the free floor area", "قد يكون كبيرًا على المساحة المتاحة"))
 
         # --- harmony with what the room already looks like ---
         color_hits = _overlap(item.get("color_tags"), room_colors)
         if color_hits:
             score += 0.5 * color_hits
-            reasons.append("matches the room's colour palette")
+            reasons.append((RANK_HARMONY, "matches the room's colour palette", "ينسجم مع ألوان الغرفة"))
         material_hits = _overlap(item.get("material_tags"), room_materials)
         if material_hits:
             score += 0.4 * material_hits
-            reasons.append("matches the room's materials")
+            reasons.append((RANK_HARMONY, "matches the room's materials", "ينسجم مع خامات الغرفة"))
 
         # --- mood preset ---
         mood_hits = _overlap(item.get("color_tags"), mood_tags)
         if mood_hits:
             score += 0.4 * mood_hits
-            reasons.append(f"fits a {mood} mood")
+            reasons.append((
+                RANK_MOOD,
+                f"fits a {mood} mood",
+                f"يناسب الطابع {MOOD_AR.get(mood, mood)}",
+            ))
 
-        scored.append(Recommendation(item=item, score=score, reasons=reasons))
+        scored.append(Recommendation(
+            item=item,
+            score=score,
+            reasons_bi=[(en, ar) for _, en, ar in sorted(reasons, key=lambda r: r[0])],
+        ))
 
     scored.sort(key=lambda r: (-r.score, r.item["id"]))
 
