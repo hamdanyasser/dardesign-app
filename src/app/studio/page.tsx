@@ -1039,43 +1039,17 @@ export default function StudioPage() {
                   <div
                     style={{ padding: "var(--s-7) 0", position: "relative" }}
                   >
-                    <div
-                      className="compare"
-                      ref={compareRef}
-                      onMouseDown={(e) => {
-                        dragging.current = true;
-                        onCompareMove(e.clientX);
-                      }}
-                      onMouseMove={(e) =>
-                        dragging.current && onCompareMove(e.clientX)
-                      }
-                      onMouseUp={() => (dragging.current = false)}
-                      onMouseLeave={() => (dragging.current = false)}
-                      onTouchStart={(e) => {
-                        dragging.current = true;
-                        onCompareMove(e.touches[0].clientX);
-                      }}
-                      onTouchMove={(e) => onCompareMove(e.touches[0].clientX)}
-                      onTouchEnd={() => (dragging.current = false)}
-                    >
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src={result.original} alt={rc.before} />
-                      <div
-                        className="after-wrap"
-                        style={{ clipPath: clipAfter }}
-                      >
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img src={featuredSrc} alt={rc.after} />
-                      </div>
-                      <span className="lbl before">{rc.before}</span>
-                      <span className="lbl after">{rc.after}</span>
-                      <div
-                        className="handle"
-                        style={{ left: `${comparePos}%` }}
-                      >
-                        <div className="knob">{"⇄"}</div>
-                      </div>
-                    </div>
+                    {/* afterSide="right": the result is pinned to the right in
+                    both languages, matching .lbl.before/.lbl.after in
+                    cinema.css, so the images and their labels agree in RTL. */}
+                    <BeforeAfterSlider
+                      beforeSrc={result.original}
+                      afterSrc={featuredSrc}
+                      beforeLabel={rc.before}
+                      afterLabel={rc.after}
+                      afterSide="right"
+                      className="compare max-w-none rounded-none"
+                    />
                   </div>
 
                   <div className="actions">
@@ -1188,6 +1162,16 @@ export default function StudioPage() {
                   {TILES.filter((t) => typeof result[t.key] === "string").map(
                     (t) => {
                       const src = result[t.key] as string;
+                      // Cultures get their motif tile; "Original" is not a
+                      // culture and keeps its house icon.
+                      const Motif =
+                        t.key === "original"
+                          ? null
+                          : MotifTiles[
+                              STYLE_MOTIF[
+                                t.key as StyleId
+                              ] as keyof typeof MotifTiles
+                            ];
                       return (
                         <figure
                           key={t.key}
@@ -1211,7 +1195,18 @@ export default function StudioPage() {
                                 isArabic && "flex-row-reverse",
                               )}
                             >
-                              <span>{t.flag}</span>
+                              {Motif ? (
+                                <span
+                                  className="block h-5 w-5 shrink-0 overflow-hidden rounded-sm"
+                                  aria-hidden
+                                >
+                                  <Motif />
+                                </span>
+                              ) : (
+                                <span>
+                                  {t.key === "original" ? t.flag : null}
+                                </span>
+                              )}
                               <span
                                 className={cn(
                                   "text-sm font-medium text-cream-soft",
@@ -1295,26 +1290,9 @@ export default function StudioPage() {
                               : "Sample regions + top-down map — the backend did not return segmentation & projection data. Click any element."}
                       </p>
                     </div>
-                    <button
-                      onClick={() => setShowElements((v) => !v)}
-                      className={cn(
-                        "shrink-0 rounded-lg border border-cream-muted px-3 py-1.5 text-xs text-cream-muted transition hover:border-gold hover:text-gold",
-                        isArabic ? "font-arabic" : "font-ui",
-                      )}
-                      aria-pressed={showElements}
-                    >
-                      {showElements
-                        ? isArabic
-                          ? "إخفاء"
-                          : "Hide"
-                        : isArabic
-                          ? "إظهار العناصر"
-                          : "Show elements"}
-                    </button>
                   </div>
 
-                  {showElements && (
-                    <>
+                  <>
                       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
                         <div>
                           <p
@@ -1420,8 +1398,7 @@ export default function StudioPage() {
                           <StyleIntensitySlider />
                         </div>
                       </div>
-                    </>
-                  )}
+                  </>
                 </div>
               </section>
             </>
