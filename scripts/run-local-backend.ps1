@@ -45,6 +45,24 @@ if (Test-Path $smtpFile) {
     Write-Host "email         : not configured - decision emails will be logged, not sent" -ForegroundColor Yellow
 }
 
+# Design Planner key, same gitignored KEY=VALUE pattern as the SMTP file above.
+# Without it the planner answers from DAR's placement rules instead, which is a
+# working mode rather than an error - see backend/design_planner.py.
+$llmFile = Join-Path $root ".dardesign-llm"
+if (Test-Path $llmFile) {
+    Get-Content $llmFile | ForEach-Object {
+        $line = $_.Trim()
+        if ($line -and -not $line.StartsWith("#")) {
+            $key, $value = $line -split "=", 2
+            Set-Item -Path "env:$($key.Trim())" -Value $value.Trim()
+        }
+    }
+    $model = if ($env:DARDESIGN_LLM_MODEL) { $env:DARDESIGN_LLM_MODEL } else { "claude-sonnet-5" }
+    Write-Host "planner       : $model" -ForegroundColor Cyan
+} else {
+    Write-Host "planner       : not configured - rooms are planned by DAR's placement rules" -ForegroundColor Yellow
+}
+
 Write-Host "data backend  : http://localhost:8000" -ForegroundColor Cyan
 Write-Host "database      : $(Join-Path $root 'backend\dardesign.db')"
 Write-Host "images        : $(Join-Path $root 'images')"

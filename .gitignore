@@ -106,6 +106,9 @@ backend/dardesign.db-shm
 # SMTP settings for the subscription decision emails — holds an app password
 .dardesign-smtp
 
+# Design Planner credentials — holds an Anthropic API key
+.dardesign-llm
+
 # Promo/demo video renders and their source clips. Nothing in the app loads
 # these; they are ~14 MB each, which is 8x the largest tracked file, and git
 # keeps every version forever. Keep them on disk or in Drive, not in history.

@@ -1577,3 +1577,132 @@ export async function renderScene(
     clearTimeout(timer);
   }
 }
+
+/* ============================================================
+   Design Planner — a written brief becomes a proposed layout.
+
+   On DATA_API_URL, not API_URL: the model API key belongs on a machine the
+   user controls, never on a throwaway Kaggle GPU container.
+
+   Everything returned here is a PROPOSAL. `src/lib/design/planner.ts`
+   re-validates every placement against the real collision engine before any
+   of it reaches the scene.
+   ============================================================ */
+
+export interface PlannedItem {
+  catalogId: string;
+  xCm: number;
+  zCm: number;
+  rotationDeg: number;
+  /** null = use the catalogue item's own default material. */
+  materialKey: string | null;
+  reasonEn: string;
+  reasonAr: string;
+}
+
+export interface DesignPlan {
+  items: PlannedItem[];
+  notesEn: string;
+  notesAr: string;
+  /** "llm" — a design model planned it. "rules" — DAR's placement rules did. */
+  source: "llm" | "rules";
+  model: string | null;
+  /** Pieces the backend threw out, with why. Shown, never swallowed. */
+  rejected: Array<{ catalogId: string | null; why: string }>;
+  warning?: string;
+  cached?: boolean;
+}
+
+export interface PlanRoomInput {
+  widthCm: number;
+  depthCm: number;
+  heightCm?: number;
+  culture: string;
+  brief: string;
+  existing?: Array<Record<string, unknown>>;
+}
+
+/** Ask the planner for a layout. ~10-20s with a model; instant without one. */
+export async function planLayout(
+  input: PlanRoomInput,
+  opts: { signal?: AbortSignal; timeoutMs?: number } = {},
+): Promise<DesignPlan> {
+  const timeoutMs = opts.timeoutMs ?? 90_000;
+  const ctrl = new AbortController();
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    ctrl.abort();
+  }, timeoutMs);
+  const onParentAbort = () => ctrl.abort();
+  opts.signal?.addEventListener("abort", onParentAbort, { once: true });
+
+  try {
+    const res = await safeFetch(`${DATA_API_URL}/api/design/plan`, {
+      method: "POST",
+      headers: { ...COMMON_HEADERS, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        width_cm: input.widthCm,
+        depth_cm: input.depthCm,
+        height_cm: input.heightCm ?? 300,
+        culture: input.culture,
+        brief: input.brief,
+        existing: input.existing ?? [],
+      }),
+      signal: ctrl.signal,
+      ...WITH_CREDENTIALS,
+    });
+    const data = (await unwrap(res)) as DesignPlan;
+    // Shape check: an empty plan renders as a broken panel, so say so plainly.
+    if (!Array.isArray(data?.items)) {
+      throw new ApiError(
+        {
+          code: "bad_response",
+          message_en: "The planner returned no layout.",
+          message_ar: "لم يُعِد المخطِّط أي توزيع.",
+        },
+        res.status,
+      );
+    }
+    return data;
+  } catch (e) {
+    if (e instanceof DOMException && e.name === "AbortError") {
+      throw new ApiError(
+        timedOut
+          ? {
+              code: "timeout",
+              message_en: "The planner took too long. Try a shorter brief.",
+              message_ar: "استغرق المخطِّط وقتاً طويلاً. جرّب وصفاً أقصر.",
+            }
+          : {
+              code: "aborted",
+              message_en: "Planning was cancelled.",
+              message_ar: "أُلغي التخطيط.",
+            },
+        0,
+      );
+    }
+    throw e;
+  } finally {
+    clearTimeout(timer);
+    opts.signal?.removeEventListener("abort", onParentAbort);
+  }
+}
+
+export interface PlannerStatus {
+  configured: boolean;
+  model: string | null;
+}
+
+/** Whether a design model is configured, so the panel can say so before asking. */
+export async function fetchPlannerStatus(): Promise<PlannerStatus> {
+  try {
+    const res = await safeFetch(`${DATA_API_URL}/api/design/planner-status`, {
+      headers: COMMON_HEADERS,
+    });
+    if (!res.ok) return { configured: false, model: null };
+    return (await res.json()) as PlannerStatus;
+  } catch {
+    return { configured: false, model: null };
+  }
+}

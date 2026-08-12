@@ -1,0 +1,25 @@
+# Design Planner credentials — the LLM that plans an empty room's furniture.
+#
+# Copy this file to .dardesign-llm (gitignored) and fill it in, then restart
+# scripts\run-local-backend.ps1.
+#
+# UNCONFIGURED IS A WORKING MODE. With no key the planner returns a layout
+# computed from DAR's own placement rules and labels it "Planned by DAR's
+# rules" in the UI. The demo, the tests and CI all run that path, so nothing
+# is dark without a key.
+#
+# A Pro/Plus web subscription is NOT API access. This key comes from
+# console.anthropic.com (pay-as-you-go).
+#
+# Cost: the catalogue is 9 items per culture, so a plan is roughly 1k tokens in
+# and 1.5k out — about $0.02 on Sonnet 5, less on Haiku. Repeated briefs are
+# served from an in-process cache and cost nothing. The backend also refuses to
+# make more than 200 calls per process, and logs the estimated cost of each.
+
+ANTHROPIC_API_KEY=sk-ant-...
+
+# Optional. Defaults to claude-sonnet-5.
+#   claude-haiku-4-5  — cheapest, ~$0.004 a plan
+#   claude-sonnet-5   — the default; best value for structured planning
+#   claude-opus-5     — strongest spatial reasoning, ~$0.02-0.05 a plan
+# DARDESIGN_LLM_MODEL=claude-sonnet-5

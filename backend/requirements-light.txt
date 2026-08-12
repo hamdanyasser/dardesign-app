@@ -17,3 +17,4 @@ PyYAML==6.0.2
 # --- dev / tests ---
 pytest==8.3.4
 httpx==0.28.1
+anthropic==0.121.0            # backend/design_planner.py - optional; absent or unkeyed = rule-based plans
