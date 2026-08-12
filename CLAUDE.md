@@ -65,7 +65,7 @@ src/
 │   ├── dar/                     # DarCinema — the DEFAULT cinematic RTL landing (Claude Design handoff), scoped under .dar-cinema
 │   │   ├── DarCinema.tsx         # 5-scene scrollytelling: intro bloom → threshold tunnel (scroll 3D) → 3D scan → souls carousel → orbit room → provenance
 │   │   └── dar-cinema.css        # ~180 lines, scoped under .dar-cinema (warm charcoal/gold v2 tokens, Reem Kufi + Tajawal, dark/light toggle)
-│   ├── cinema/                  # Shared cinematic chrome for /studio + error + 404 only (CinemaChrome, ArchCanvas, DissolveCanvas, DustLayer, copy, hooks, cinema.css)
+│   ├── cinema/                  # Shared cinematic pieces for /studio + error + 404 (ArchCanvas, DissolveCanvas, DustLayer, MotifTiles, copy, hooks, cinema.css). CinemaChrome was deleted 2026-08-12 — the redesign's sidebar replaced it and nothing imported it
 │   ├── design/                  # Build Mode UI (see "Build Mode" below)
 │   │   ├── DesignCanvas.tsx      # Pointer/key gestures → store actions; owns no scene logic
 │   │   ├── CatalogDock.tsx       # Bottom rail; cut-out PNGs live HERE only, never in the 3D scene
@@ -87,11 +87,6 @@ src/
 │   │   ├── *.module.css          # Scoped CSS modules (authored to a 1480px measure)
 │   │   └── README.md             # Integration contract — read before wiring anything new
 │   ├── islamic-pattern.tsx      # Decorative 8-pointed star repeating SVG background
-│   ├── gold-button.tsx          # Primary CTA — renders as <Link> or <button>
-│   ├── upload-zone.tsx          # Drag-and-drop image upload with preview
-│   ├── loading-screen.tsx       # 8s loading animation with spinning star + progress bar
-│   ├── error-banner.tsx         # Bilingual error display + retry CTA
-│   ├── share-dialog.tsx         # Copy-to-clipboard share modal
 │   └── before-after-slider.tsx  # Pointer/keyboard/ARIA image comparison wipe
 ├── context/
 │   ├── ThemeLanguageContext.tsx  # Language (EN/AR), theme (dark/light), all translations
@@ -264,41 +259,17 @@ Three intensities of one identity — same palette, type and material logic, dif
 
 Shared, non-negotiable: hairline rules instead of card borders; one radius family (2/6/14px, never pill except toggles); no drop shadows except one cinematic lift on hero imagery; mono restricted to metric values/dimensions/durations/codes, never headings/body/buttons/nav; em-dash (never a fabricated zero) for any unmeasured figure.
 
-A1/A2/A3 are implemented across the app: Landing/Studio/Result carry A2 (CinemaChrome, Studio tabs, the material culture picker), and History/Others/Subscription/Admin Users/Admin Subscriptions/Login/Register carry A1's concrete patterns (hairline-only entries, diamond-shaped ratings, underline-only auth inputs, non-card subscription rows, plain hairline admin tables). Evaluation's A3 restructure (01–04 sectioning) is tracked separately below.
+A1/A2/A3 are implemented across the app: Landing/Studio/Result carry A2 (Studio tabs, the material culture picker), and History/Others/Subscription/Admin Users/Admin Subscriptions/Login/Register carry A1's concrete patterns (hairline-only entries, diamond-shaped ratings, underline-only auth inputs, non-card subscription rows, plain hairline admin tables). Evaluation's A3 restructure (01–04 sectioning) is tracked separately below.
 
 The `src/components/story/` narrative tabs are a **separate handoff** styled in scoped CSS modules rather than the `--dd-*`/cinema token surface. They read as A1-at-editorial-scale — numbered chapters, hairline rules, mono confined to chapter numbers and measurement values — and they honour the em-dash rule strictly (see "Narrative layer" below). They have **not** been formally reconciled against the A1/A2/A3 mockups; treat that as open rather than settled.
 
-Known tensions in the source material itself (not yet reconciled, currently resolved in code by favoring the actual A1/A2 mockups over the context doc's prose summary): the context doc says "no glass" and "mono forbidden on nav/buttons," but the A2 mockup's own `.chrome` uses `backdrop-filter:blur`, and both A1 and A2 set `.nav`/`.btn` to the mono font. The current `CinemaChrome` scrim (`backdrop-filter: blur(8px)`, replacing an unreadable `mix-blend-mode: difference`) is a deliberate, working legibility fix — kept as-is.
+Known tensions in the source material itself (not yet reconciled, currently resolved in code by favoring the actual A1/A2 mockups over the context doc's prose summary): the context doc says "no glass" and "mono forbidden on nav/buttons," but the A2 mockup's own `.chrome` uses `backdrop-filter:blur`, and both A1 and A2 set `.nav`/`.btn` to the mono font. (The `CinemaChrome` scrim that settled this in practice — `backdrop-filter: blur(8px)`, replacing an unreadable `mix-blend-mode: difference` — went away with the component on 2026-08-12; the tension itself is still unreconciled, and the sidebar now makes the call.)
 
 **Flags retired (2026-08-10, completed).** The design context doc called national flag emoji "the single clearest thing to replace" with a material-stack + proportion-motif treatment. No flag emoji or flag-like imagery remains anywhere in the app. Studio's culture picker, the "All three" triptych, and the post-generation result tiles all render `MotifTiles[STYLE_MOTIF[id]]` (`src/components/cinema/svg/MotifTiles.tsx` — qanater for Lebanese, majlis for Khaleeji, zellige for Moroccan; the "Original" result tile keeps its house icon — it isn't a culture). The Moroccan `zellige` tile was itself rebuilt: it was a literal 5-pointed star shape, which reads as a flag emblem rather than tessellation — replaced with the design doc's own reference construction (a square + the same square rotated 45°, i.e. an 8-pointed geometric lattice, outline only, no filled star silhouette). The dead `style-card.tsx`/`style-selector.tsx` pair (unreachable — their only caller was the retired `/transform` flow) has been deleted rather than left as unused code, along with its orphaned `.style-card-base`/`.style-card-selected` CSS and `ThemeLanguageContext`'s `StyleCopy.flag` field.
 
 ---
 
 ## Component API Reference
-
-### GoldButton
-```tsx
-<GoldButton href="/transform" disabled={false} className="" onClick={fn}>
-  Label
-</GoldButton>
-```
-Renders `<Link>` when `href` provided (and not disabled), otherwise `<button>`.
-
-### UploadZone
-```tsx
-<UploadZone
-  onImageSelect={(file: File) => void}
-  imagePreviewUrl={string | null}
-  onRemove={() => void}
-/>
-```
-Validates: image type + max 10MB. Shows preview with remove button when image is set.
-
-### LoadingScreen
-```tsx
-<LoadingScreen onComplete={() => void} />
-```
-8-second animation. Calls `onComplete` after timeout. Cycles through `copy.loading.messages` every 2.5s.
 
 ### BeforeAfterSlider
 ```tsx
@@ -414,7 +385,7 @@ Two invariants that are easy to break:
 Demo path: `/` (DarCinema landing, CTA → `/studio`) → **`/studio`** (upload → all three redesigns).
 
 - **`POST /redesign`** (one shot, ~1–2 min, keepalive-streamed): multipart `file` + optional `styles` (comma-separated subset — defaults to all three; asking for one is ~3x faster because the depth+seg pass and room analysis run once regardless, which makes the iterate-and-retest loop practical without changing the default). Returns `{ original, lebanese, khaleeji, moroccan }` as base64 PNG **data URLs**, plus `object_map` (top-down projection), `seg_regions` (on-image highlighter bboxes from `seg_bounding_boxes()` in `backend/projection.py`), `depth_map` (grayscale depth PNG data URL for DepthOrbit), `room_analysis` (the Build Mode shell source), and `job_id` / `duration_s` / `ssim` — all from one depth+seg pass, null on failure, `placeholder: true` in LIGHT mode. The depth/seg block is best-effort in its own `try`: a failure there must never cost the user their three designs. Client = `redesignRoom()` in `src/lib/api.ts` (≥180s timeout, `AbortController`, typed bilingual errors, response-shape validation — the shape check is what catches an in-band error arriving under a streamed 200). Replaces the old async `/upload`+`/transform`+`/status`+`/result` polling flow.
-- **`/studio`** (`src/app/studio/page.tsx`): drag-drop (`UploadZone`) → cinematic loading scene (indeterminate ring + measured elapsed time + scope label — **no percentage**, because `/redesign` returns once and has no intermediate state to report) → the reveal: a `BeforeAfterSlider` wipe over the featured culture, a design-directions rail, then a six-tab working area. Bilingual error + retry. RTL/Tajawal, gold-on-charcoal.
+- **`/studio`** (`src/app/studio/page.tsx`): drag-drop (inlined in the page since the 2026-08-12 redesign; the shared `UploadZone` it used to call is gone) → cinematic loading scene (indeterminate ring + measured elapsed time + scope label — **no percentage**, because `/redesign` returns once and has no intermediate state to report) → the reveal: a `BeforeAfterSlider` wipe over the featured culture, a design-directions rail, then a six-tab working area. Bilingual error + retry. RTL/Tajawal, gold-on-charcoal.
 - **Result tabs** (`ResultTab` in `studio/page.tsx`): **Result** (all generated tiles + per-image download) · **Design Story** · **Culture DNA** · **Inside DAR** · **Understand** (highlighter, 2D map, DepthOrbit, narration) · **Edit** (colour, furniture, intensity). The three narrative tabs are **conditionally mounted**, not CSS-hidden like the tool tabs — `GenerationStory` runs a timed chapter loop and `DesignStory` measures natural image ratios, both of which would otherwise run offscreen. `TOOL_TABS` is what keeps the shared Understand/Edit wrapper from leaking into the narrative tabs; it is the thing to update if a tab is ever added.
 - **`/transform` and `/result`** are retired — they now `redirect("/studio")`.
 - **CulturalElementHighlighter** (`src/components/CulturalElementHighlighter.tsx` + `src/data/ontology.json`): overlays segmentation regions (SVG + accessible hotspots) and reveals an element's Arabic term + note on click. **Wired**: real regions arrive in `/redesign`'s `seg_regions`; `DEMO_REGIONS` is the fallback for placeholder/absent data. `/studio` labels the section "(live)" when both regions and map are real.
@@ -504,7 +475,7 @@ The loop: photo → `/redesign` → **Design it yourself** → move/add furnitur
 - **`POST /api/usage/consume` is the gate**, called by `/studio` immediately before `/redesign`. It reads, decides and increments under one lock in one transaction, so two tabs cannot both spend the third use. It is a separate endpoint rather than a check inside `/redesign` because renders and accounts can be **different backends** (`NEXT_PUBLIC_DATA_API_URL`): the GPU host has no users table and is sent no session cookie. The studio therefore fails *closed* on `quota_exceeded`/`not_authenticated` and *open* on anything else — an unreachable accounts backend is not the user's overspend. A use is spent when a generation starts; there is deliberately no refund endpoint, since any client could call it after every render.
 - **Daily expiry service**: `subscriptions.start_expiry_service()` (daemon thread, same shape as the TTL sweeper) runs `db.expire_subscriptions()` every 24h from the FastAPI lifespan — one UPDATE returning every plan past its date to Basic. It sweeps **once at startup**, so a backend that was down over an expiry date catches up on boot; the interval only decides how promptly an expired plan is noticed, never whether it is.
 - **Decision emails** ([backend/mailer.py](backend/mailer.py)): approving or declining mails the user the verdict — *"Your subscription to the Pro plan has been accepted/declined."* plus the Arabic, the expiry date on an approval and the weekly limit on a decline. Stdlib `smtplib`, no dependency, plain text. Queued as a **FastAPI background task after the response**, and `send()` returns a bool instead of raising: the admin approved the plan, so the plan is approved — a mail server that is down costs the notification, never the decision. Only a decision that actually landed queues a mail, so the 409 on a re-decided request cannot send a second one. **Unconfigured is a working mode**: with no `DARDESIGN_SMTP_HOST` the whole message is written to the log, so the demo and the tests need no mail account. Config via `DARDESIGN_SMTP_*` (locally: a gitignored `.dardesign-smtp`, loaded by `run-local-backend.ps1`; template in `.dardesign-smtp.example`). Tests: [tests/test_email.py](tests/test_email.py).
-- **Pages**: `/subscription` (both plans, current usage, subscribe/unsubscribe, pending-request banner), `/admin/subscriptions` — *Manage Subscriptions*, the approve/decline queue — and `/admin/users` — *Users*, every account with its plan and when it starts and ends. All three are linked from `CinemaChrome`; the two admin ones are hidden from non-admins as a convenience only, since every `/api/admin/*` endpoint checks the role server-side. `db.list_users` names its columns, so the password hash never leaves the database. Basic accounts print "—" for plan dates, never today's date. Tests: [tests/test_subscriptions.py](tests/test_subscriptions.py).
+- **Pages**: `/subscription` (both plans, current usage, subscribe/unsubscribe, pending-request banner), `/admin/subscriptions` — *Manage Subscriptions*, the approve/decline queue — and `/admin/users` — *Users*, every account with its plan and when it starts and ends. All three are linked from the app sidebar; the two admin ones are hidden from non-admins as a convenience only, since every `/api/admin/*` endpoint checks the role server-side. `db.list_users` names its columns, so the password hash never leaves the database. Basic accounts print "—" for plan dates, never today's date. Tests: [tests/test_subscriptions.py](tests/test_subscriptions.py).
 
 ---
 
