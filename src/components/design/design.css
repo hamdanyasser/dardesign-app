@@ -12,8 +12,20 @@
 .dar-build {
   position: fixed;
   inset: 0;
+  /* The app shell offsets .app-main by --app-sidebar-width, but a fixed
+     element ignores that margin, so Build Mode used to slide underneath the
+     sidebar: the culture tabs, two catalogue cards and the room-provenance
+     chip were all unreachable. Mirror the shell's own contract instead —
+     logical property, because in RTL the sidebar is on the other side. */
+  inset-inline-start: var(--app-sidebar-width, 0px);
   display: grid;
   grid-template-rows: auto 1fr auto;
+  /* minmax(0, 1fr), not the implicit `auto`: a grid item's default
+     min-width is its content, so the catalogue rail — 27 cards wide on
+     "All three" — would size the column to ~4100px, drag the stage and
+     its canvas off-screen with it, and never let .rail's own overflow-x
+     engage. Same reason .stage carries min-height: 0. */
+  grid-template-columns: minmax(0, 1fr);
   background:
     radial-gradient(120% 90% at 50% 0%, color-mix(in srgb, var(--brass) 7%, transparent), transparent 60%),
     var(--bg);
@@ -534,19 +546,16 @@ html[lang="ar"] .dar-build .handoff-title { font-family: var(--f-display-ar); }
    would put this off the side of the page in RTL.
    ============================================================ */
 
-/* The app shell's 256px sidebar is painted over the Build Mode stage, which
-   spans the full viewport. Clear it, and stay below the toolbar row. Logical
-   properties so RTL follows the sidebar to the other side. */
+/* No sidebar offset needed here: .dar-build itself now starts after the
+   shell sidebar, so the panel just sits at the stage's inline start,
+   below the toolbar row. */
 .dar-build .plan-open,
 .dar-build .planner { --dar-shell-inset: 0px; }
-@media (min-width: 900px) {
-  .dar-build .plan-open,
-  .dar-build .planner { --dar-shell-inset: 256px; }
-}
 
+/* Below PlanMinimap, which owns the top of this column (14px + 156px tall). */
 .dar-build .plan-open {
   position: absolute;
-  inset-block-start: 64px;
+  inset-block-start: 186px;
   inset-inline-start: calc(var(--dar-shell-inset) + 14px);
   display: inline-flex;
   align-items: center;
@@ -566,10 +575,10 @@ html[lang="ar"] .dar-build .handoff-title { font-family: var(--f-display-ar); }
 
 .dar-build .planner {
   position: absolute;
-  inset-block-start: 64px;
+  inset-block-start: 186px;
   inset-inline-start: calc(var(--dar-shell-inset) + 14px);
   width: 292px;
-  max-height: calc(100% - 92px);
+  max-height: calc(100% - 214px);
   overflow-y: auto;
   border: 1px solid var(--hairline-2);
   border-radius: 6px;

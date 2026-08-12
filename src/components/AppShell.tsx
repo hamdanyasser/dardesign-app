@@ -6,6 +6,7 @@ import { useState, type ReactNode } from "react";
 import {
   Activity,
   BarChart3,
+  Boxes,
   CreditCard,
   History,
   LayoutDashboard,
@@ -33,6 +34,9 @@ type NavigationItem = {
 
 const mainNavigation: NavigationItem[] = [
   { href: "/studio", label: { en: "Studio", ar: "الاستوديو" }, icon: Sparkles },
+  // Build Mode had no way in but a Studio result or a typed URL, which made
+  // the room planner effectively undiscoverable.
+  { href: "/design", label: { en: "Build Mode", ar: "وضع البناء" }, icon: Boxes },
   {
     href: "/history",
     label: { en: "My designs", ar: "تصاميمي" },
