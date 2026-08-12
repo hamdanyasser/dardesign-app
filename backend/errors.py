@@ -197,3 +197,18 @@ ERR_REQUEST_NOT_PENDING = ApiError(
     "This request no longer exists or has already been decided.",
     "هذا الطلب لم يعد موجوداً أو تمّت معالجته مسبقاً.",
 )
+
+# --- design planner ---
+# There is no "planner unavailable" error on purpose: with no model configured
+# the planner returns a rule-based layout rather than failing, so the only way
+# to reach an error here is a request that could never describe a room.
+ERR_BAD_ROOM = ApiError(
+    "bad_room", 400,
+    "That room's dimensions are not usable. Width and depth must be between 100 and 2000 cm.",
+    "أبعاد الغرفة غير صالحة. يجب أن يكون العرض والعمق بين ١٠٠ و٢٠٠٠ سم.",
+)
+ERR_BAD_CULTURE = ApiError(
+    "bad_culture", 400,
+    "Unknown culture.",
+    "طراز غير معروف.",
+)

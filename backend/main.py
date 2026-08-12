@@ -34,6 +34,11 @@ POST /api/color/{preview,apply,undo,reset}
                                     Colour Control — recolour the wall or floor
                                     of a finished render inside its segmentation
                                     mask (see backend/recolor_api.py)
+POST /api/design/plan               Design Planner — an LLM picks catalogue
+                                    pieces and where they stand, for an empty
+                                    room the user describes. Falls back to
+                                    placement rules when no model is configured
+                                    (see backend/design_planner.py)
 
 CORS is permissive in dev; tighten via $DARDESIGN_ALLOWED_ORIGINS in prod.
 """
@@ -81,8 +86,10 @@ from .compositing import CompositingError, composite_item
 from .errors import (
     ERR_ALREADY_SUBSCRIBED,
     ERR_BAD_CREDENTIALS,
+    ERR_BAD_CULTURE,
     ERR_BAD_FURNITURE_ID,
     ERR_BAD_IMAGE_DATA,
+    ERR_BAD_ROOM,
     ERR_BAD_SHARE_TOKEN,
     ERR_BAD_STYLE,
     ERR_CATALOGUE_UNAVAILABLE,
@@ -130,6 +137,11 @@ from .furniture import (
     items_for_culture as furniture_items_for_culture,
     max_results as furniture_max_results,
     recommend as furniture_recommend,
+)
+from .design_planner import (
+    is_configured as planner_is_configured,
+    model_name as planner_model_name,
+    plan as planner_plan,
 )
 from .guardrails import (
     clamp_params,
@@ -1849,6 +1861,67 @@ async def furniture_item(item_id: str) -> JSONResponse:
         return JSONResponse(furniture_get_item(item_id))
     except FurnitureCatalogueError as e:
         _raise(ERR_BAD_FURNITURE_ID, detail_en=str(e))
+
+
+class DesignPlanRequest(BaseModel):
+    width_cm: float
+    depth_cm: float
+    height_cm: float | None = None
+    culture: str
+    brief: str = ""
+    # What DAR already found in the photograph, so the planner designs around it
+    # instead of on top of it. Optional: an empty room legitimately has none.
+    existing: list[dict] = []
+
+
+@app.post("/api/design/plan")
+async def design_plan(
+    req: DesignPlanRequest,
+    session: str | None = Cookie(default=None, alias=SESSION_COOKIE),
+) -> JSONResponse:
+    """Plan a room's furniture from a written brief.
+
+    Behind a session because every call spends real money at a model provider,
+    and this backend already knows who the caller is. The client falls back to
+    its own rule-based plan on 401, so signing out costs the AI plan, never the
+    feature.
+
+    Never fails for want of a model: with no ANTHROPIC_API_KEY configured the
+    planner returns a rule-based layout tagged source="rules". The response is
+    advisory in full — the browser re-validates every placement against the same
+    collision engine that governs a human drag before anything enters the scene.
+    """
+    _require_user(session)
+
+    if req.culture != "all" and req.culture not in CORE_STYLES:
+        _raise(ERR_BAD_CULTURE, detail_en=f"Unknown culture: {req.culture!r}")
+    if not (100 <= req.width_cm <= 2000) or not (100 <= req.depth_cm <= 2000):
+        _raise(ERR_BAD_ROOM)
+
+    room = {
+        "widthCm": req.width_cm,
+        "depthCm": req.depth_cm,
+        "heightCm": req.height_cm or 300,
+    }
+    # to_thread: the SDK call is blocking, and the event loop also serves the
+    # keepalive streams that /redesign depends on.
+    result = await asyncio.to_thread(
+        planner_plan, room, req.culture, req.brief, req.existing
+    )
+    log_event(
+        "design_plan", ok=True, culture=req.culture, source=result.get("source"),
+        items=len(result.get("items", [])), light=_light_mode(),
+    )
+    return JSONResponse(result)
+
+
+@app.get("/api/design/planner-status")
+async def design_planner_status() -> JSONResponse:
+    """Whether a design model is configured, so the panel can say so up front."""
+    return JSONResponse({
+        "configured": planner_is_configured(),
+        "model": planner_model_name() if planner_is_configured() else None,
+    })
 
 
 @app.get("/audit")

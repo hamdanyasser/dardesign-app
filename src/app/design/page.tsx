@@ -26,6 +26,7 @@ import DesignCanvas, { type DragPayload } from "@/components/design/DesignCanvas
 import HandoffPanel from "@/components/design/HandoffPanel";
 import { ObjectInspector, RoomInspector } from "@/components/design/Inspector";
 import PlanMinimap from "@/components/design/PlanMinimap";
+import PlanPanel from "@/components/design/PlanPanel";
 import SourceCard from "@/components/design/SourceCard";
 import "@/components/design/design.css";
 import { cultureAccent } from "@/lib/design/materials";
@@ -430,6 +431,32 @@ function BuildModeReady({
           showFound={showFound}
           onReady={(api) => {
             captureRef.current = api.capture;
+          }}
+        />
+
+        <PlanPanel
+          scene={scene}
+          isArabic={isArabic}
+          onApply={(gated) => {
+            // One gesture, so a whole plan is one undo. `replace` would have
+            // been fewer lines and would have wiped undo/redo entirely — an AI
+            // plan you cannot take back is worse than no plan.
+            dispatch({
+              type: "beginGesture",
+              labelEn: "Plan the room",
+              labelAr: "تخطيط الغرفة",
+            });
+            for (const p of gated.placements) {
+              dispatch({
+                type: "addAt",
+                catalogId: p.catalogId,
+                x: p.x,
+                z: p.z,
+                rotationDeg: p.rotationDeg,
+                materialKey: p.materialKey,
+              });
+            }
+            dispatch({ type: "endGesture" });
           }}
         />
 

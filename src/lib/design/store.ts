@@ -36,7 +36,14 @@ export interface DesignState {
 
 export type DesignAction =
   | { type: "add"; catalogId: string }
-  | { type: "addAt"; catalogId: string; x: number; z: number; rotationDeg?: number }
+  | {
+      type: "addAt";
+      catalogId: string;
+      x: number;
+      z: number;
+      rotationDeg?: number;
+      materialKey?: string | null;
+    }
   | { type: "select"; uid: string | null }
   | { type: "beginGesture"; labelEn: string; labelAr: string }
   | { type: "endGesture" }
@@ -147,7 +154,10 @@ export function designReducer(state: DesignState, action: DesignAction): DesignS
         widthCm: item.widthCm,
         depthCm: item.depthCm,
         heightCm: item.heightCm,
-        materialKey: defaultMaterialFor(item),
+        // A caller may name the material (the design planner does); otherwise the
+        // ontology's own default for this piece stands.
+        materialKey:
+          (action.type === "addAt" && action.materialKey) || defaultMaterialFor(item),
       };
       const next = { ...state.scene, objects: [...state.scene.objects, obj] };
       return {

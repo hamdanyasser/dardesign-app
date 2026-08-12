@@ -467,6 +467,34 @@ The loop: photo → `/redesign` → **Design it yourself** → move/add furnitur
 
 ---
 
+## Design Planner (`/design` → "Describe your room")
+
+Empty room → the user writes what they want → an LLM plans the furniture → it appears in Build Mode → they edit it → **Render with DAR**. Added 2026-08-12.
+
+**The model is a design planner, never a renderer and never a source of facts.** It picks pieces from the cultural catalogue and proposes where they stand. It emits **no dimensions at all** — those come from `ontology/furniture.json`. Five gates, each one a place a hallucination dies:
+
+1. **Closed vocabulary.** `catalogId` is a JSON-Schema `enum` of exactly that culture's 9 ids, so structured outputs (`output_config.format`) make an invented id *unrepresentable*, not merely unlikely.
+2. **No invented dimensions.** Sizes come from the catalogue via `catalogItem(id)`.
+3. **Backend validation** (`validate_items`): unknown id, non-finite or absurd coordinate, unknown material → dropped **and reported**, never quietly rounded into something plausible.
+4. **Client re-validation** (`src/lib/design/planner.ts` → `gatePlan`): every placement runs `evaluatePlacement()`, the same oriented-rect SAT that colours the drag ghost and refuses a human drop. Blocking → one repair attempt through `findSpot` → else dropped. Items are validated **in order against the scene as it is being built**, so the second piece is judged against the first.
+5. **Advisory verdicts still pass.** Standing a sofa where the photo found the old one is the most likely act of redesign.
+
+Rules that are easy to violate:
+
+- **`format` and `effort` are sibling keys inside ONE `output_config`.** Two separate `output_config` kwargs silently overwrite each other. Pinned by `test_format_and_effort_are_siblings_in_one_output_config`.
+- **Apply a plan with `beginGesture` → N × `addAt` → `endGesture`, never `replace`.** `replace` wipes `undo`/`redo` (`store.ts:301-309`), so an AI plan would be unundoable. Gestures collapse N adds into one entry — **one Ctrl+Z removes the whole plan** (verified: 7 → 0).
+- `addAt` takes an optional `materialKey` (added for this feature); omitted, the ontology's own default for the piece stands.
+- The planner endpoint is on **`DATA_API_URL`, not `API_URL`** — the model key belongs on a machine the user controls, never on a throwaway Kaggle GPU container. It is also **behind `_require_user`**, because every call spends real money.
+- The room rectangle is **sent by the client**. `RoomAnalysis.summary()` returns no width/depth/height at all — only `free_floor_m2` and ratios. `deriveRoom()` backs the rectangle out client-side.
+
+**Unconfigured is a working mode** (the `mailer.py` precedent). With no `ANTHROPIC_API_KEY`, a provider error, or the per-process call cap reached, `fallback_plan()` returns a deterministic rule-based layout tagged `source: "rules"` and the UI badge says **"Planned by DAR's rules"** instead of naming a model. CI and the tests run that path, so the feature is never dark. This is not theoretical — it was first exercised against a real `400 credit balance too low`, and the user still got a furnished room.
+
+**Cost.** The catalogue is 9 items per culture, so a plan is ~1k tokens in / ~1.5k out — about $0.02 on `claude-sonnet-5` (the default; `DARDESIGN_LLM_MODEL` overrides). Do **not** send `furniture.json` wholesale (9.4k tokens); `catalogue_projection()` is the compact view. **Prompt caching is deliberately unused** — the minimum cacheable prefix is 1024 tokens on Sonnet 5 and 4096 on Haiku 4.5, so a prompt this small would silently fail to cache and pay the write premium for nothing. An in-process response cache keyed on `sha256(room + culture + normalised brief)` makes a repeated demo free, and `MAX_CALLS_PER_PROCESS = 200` bounds a runaway loop.
+
+Config: `.dardesign-llm` (gitignored; template in `.dardesign-llm.example`), loaded by `run-local-backend.ps1` exactly like `.dardesign-smtp`. Tests: [tests/test_design_planner.py](tests/test_design_planner.py) — 25 tests, **no live API calls**, fake client injected via `plan(..., client=…)`.
+
+---
+
 ## Plans and the weekly allowance
 
 - **Two plans, one flag.** `users.IsSubscribed` *is* the plan: 0 = **Basic** (free, 3 designs/week), 1 = **Pro** ($20, 30 days, unlimited). Policy lives in [backend/subscriptions.py](backend/subscriptions.py) (`PRO_PRICE_USD`, `PRO_DURATION_DAYS`, `BASIC_WEEKLY_LIMIT`, `USAGE_WINDOW_SECONDS`); `db.py` holds only the storage and is handed every number, so the limit changes in one place and the schema has no opinion about it. `/api/subscription` ships `terms` to the client, so the price on the page cannot drift from the price enforced.
