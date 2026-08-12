@@ -14,7 +14,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import { Clock, Loader2 } from "lucide-react";
+import { Check, Clock, Loader2 } from "lucide-react";
 import GalleryShell from "@/components/GalleryShell";
 import { useAuth } from "@/context/AuthContext";
 import { useThemeLanguage } from "@/context/ThemeLanguageContext";
@@ -116,9 +116,6 @@ export default function SubscriptionPage() {
   const isPro = !!state?.isSubscribed;
   const pending = state?.pendingRequest ?? null;
 
-  const used = state?.numberOfUses ?? 0;
-  const limit = state?.limit ?? freeLimit;
-
   return (
     <GalleryShell
       title={t("Subscription", "الاشتراك")}
@@ -142,190 +139,181 @@ export default function SubscriptionPage() {
           </p>
           <Link
             href="/login"
-            className="font-editorial-mono mt-5 inline-block rounded-[2px] bg-[var(--dd-gold)] px-6 py-3 text-xs text-[var(--dd-ink)] transition hover:bg-[var(--dd-gold-hover)]"
+            className="mt-5 inline-block rounded-lg bg-[var(--dd-gold)] px-5 py-2.5 font-medium text-[var(--dd-ink)] transition hover:bg-[var(--dd-gold-hover)]"
           >
             {t("Sign in", "تسجيل الدخول")}
           </Link>
         </div>
       ) : (
         <>
-          {pending && (
-            <p
-              className={cn(
-                "mb-8 flex items-center gap-2 border-s-2 border-[var(--dd-gold)] ps-3 text-sm text-[var(--dd-gold)]",
-                isArabic && "flex-row-reverse",
-              )}
-            >
-              <Clock className="h-4 w-4 shrink-0" />
-              {t(
-                "Your Pro request is waiting for the admin. Your plan stays Basic until it is approved.",
-                "طلبك للخطة الاحترافية بانتظار موافقة المشرف. تبقى خطتك أساسية حتى تتم الموافقة.",
-              )}
-            </p>
-          )}
-
-          {/* A1: two editorial rows, not pricing cards. */}
-          <PlanRow
-            name={t("Basic", "الأساسية")}
-            price={t("FREE", "مجانية")}
-            priceCaption={!isPro ? t("Current plan", "خطتك الحالية") : undefined}
-            features={[
-              { label: t("Designs per week", "التصاميم أسبوعياً"), value: String(freeLimit) },
-              { label: t("All three cultures", "الأنماط الثلاثة"), value: t("YES", "نعم") },
-              { label: t("Save & share", "الحفظ والمشاركة"), value: t("YES", "نعم") },
-            ]}
-          />
-          <PlanRow
-            name={t("Pro", "الاحترافية")}
-            price={t(`$${price}`, `${price}$`)}
-            wash
-            priceCaption={
-              isPro
-                ? t("Current plan", "خطتك الحالية")
-                : pending
-                  ? t("Waiting for approval", "بانتظار الموافقة")
-                  : undefined
-            }
-            features={[
-              { label: t("Designs per week", "التصاميم أسبوعياً"), value: t("UNLIMITED", "غير محدود") },
-              { label: t("Duration", "المدة"), value: t(`${days} DAYS`, `${days} يوماً`) },
-              { label: t("Approval", "الموافقة"), value: t("BY REQUEST", "بالطلب") },
-            ]}
-            action={
-              isPro ? (
-                <button
-                  onClick={unsubscribe}
-                  disabled={busy}
-                  className="font-editorial-mono rounded-[2px] border border-[var(--dd-border)] px-3 py-1.5 text-[10px] text-[var(--dd-text-secondary)] transition hover:border-[var(--error)] hover:text-[var(--error)] disabled:opacity-50"
-                >
-                  {busy
-                    ? t("Working…", "جارٍ التنفيذ…")
-                    : t("Unsubscribe — back to Basic", "إلغاء الاشتراك — العودة إلى الأساسية")}
-                </button>
-              ) : !pending ? (
-                <button
-                  onClick={subscribe}
-                  disabled={busy}
-                  className="font-editorial-mono rounded-[2px] border border-[var(--dd-gold)] px-3 py-1.5 text-[10px] text-[var(--dd-gold)] transition hover:bg-[var(--dd-gold)] hover:text-[var(--dd-ink)] disabled:opacity-50"
-                >
-                  {busy
-                    ? t("Sending…", "جارٍ الإرسال…")
-                    : t("Request upgrade", "طلب الترقية")}
-                </button>
-              ) : undefined
-            }
-          />
-
-          {/* A1: the weekly allowance is discrete rules, not a progress bar.
-              Pro isn't metered, so it gets its dates on the same mono line
-              instead. */}
-          <div className={cn("mt-8", isArabic && "text-right")}>
-            <div className="font-editorial-mono text-[9px] text-[var(--dd-text-secondary)]">
-              {isPro ? t("Plan", "الخطة") : t("This week", "هذا الأسبوع")}
+          {/* Where the account stands right now: plan, dates, what is left. */}
+          <section className="mb-8 rounded-2xl border border-[var(--dd-gold-dim)]/30 bg-[var(--dd-surface)] p-5">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <p className="text-xs uppercase tracking-wide text-[var(--dd-text-secondary)]">
+                  {t("Current plan", "خطتك الحالية")}
+                </p>
+                <p className="mt-1 text-xl font-semibold text-[var(--dd-gold)]">
+                  {isPro ? t("Pro", "الاحترافية") : t("Basic", "الأساسية")}
+                </p>
+              </div>
+              <dl className="flex flex-wrap gap-6 text-sm">
+                {isPro ? (
+                  <>
+                    <Stat label={t("Started", "تاريخ البدء")} value={fmtDate(state?.planStartedAt)} />
+                    <Stat label={t("Renews / ends", "تاريخ الانتهاء")} value={fmtDate(state?.planExpiryDate)} />
+                    <Stat label={t("Designs left", "التصاميم المتبقية")} value={t("Unlimited", "غير محدودة")} />
+                  </>
+                ) : (
+                  <>
+                    <Stat
+                      label={t("Designs used this week", "التصاميم المستخدمة هذا الأسبوع")}
+                      value={`${state?.numberOfUses ?? 0} / ${state?.limit ?? freeLimit}`}
+                    />
+                    <Stat
+                      label={t("Designs left", "التصاميم المتبقية")}
+                      value={String(state?.remaining ?? 0)}
+                    />
+                    <Stat label={t("Refills on", "يتجدّد في")} value={fmtDate(state?.windowEnds)} />
+                  </>
+                )}
+              </dl>
             </div>
-            {isPro ? (
-              <div
+
+            {pending && (
+              <p
                 className={cn(
-                  "font-editorial-mono mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-[var(--dd-text-secondary)]",
+                  "mt-4 flex items-center gap-2 rounded-lg border border-[var(--dd-gold)]/40 bg-[var(--dd-gold)]/10 px-3 py-2 text-sm text-[var(--dd-gold)]",
                   isArabic && "flex-row-reverse",
                 )}
               >
-                <span>
-                  {t("STARTED", "بدأت")} {fmtDate(state?.planStartedAt)}
-                </span>
-                <span>
-                  {t("EXPIRES", "تنتهي")} {fmtDate(state?.planExpiryDate)}
-                </span>
-              </div>
-            ) : (
-              <div className={cn("mt-2 flex items-center gap-[5px]", isArabic && "flex-row-reverse")}>
-                {Array.from({ length: Math.max(limit, 1) }, (_, i) => (
-                  <span
-                    key={i}
-                    className="h-[5px] w-16 max-w-[64px] flex-1"
-                    style={{
-                      background:
-                        i < used ? "var(--dd-gold)" : "color-mix(in srgb, var(--dd-text) 13%, transparent)",
-                    }}
-                  />
-                ))}
-                <span
-                  className={cn(
-                    "font-editorial-mono text-[10px] text-[var(--dd-text-secondary)]",
-                    isArabic ? "me-2" : "ms-2",
-                  )}
-                >
-                  {t(
-                    `${used} / ${limit} USED · RESETS ${fmtDate(state?.windowEnds)}`,
-                    `${used} / ${limit} مُستخدَم · يتجدّد ${fmtDate(state?.windowEnds)}`,
-                  )}
-                </span>
-              </div>
+                <Clock className="h-4 w-4 shrink-0" />
+                {t(
+                  "Your Pro request is waiting for the admin. Your plan stays Basic until it is approved.",
+                  "طلبك للخطة الاحترافية بانتظار موافقة المشرف. تبقى خطتك أساسية حتى تتم الموافقة.",
+                )}
+              </p>
             )}
+          </section>
+
+          <div className="grid gap-5 md:grid-cols-2">
+            <PlanCard
+              name={t("Basic", "الأساسية")}
+              price={t("Free", "مجانية")}
+              current={!isPro}
+              features={[
+                t(
+                  `${freeLimit} designs per week`,
+                  `${freeLimit} تصاميم في الأسبوع`,
+                ),
+                t("All three cultural styles", "الأنماط الثقافية الثلاثة"),
+                t("Save and share your designs", "حفظ التصاميم ومشاركتها"),
+              ]}
+            />
+
+            <PlanCard
+              name={t("Pro", "الاحترافية")}
+              price={t(`$${price} / ${days} days`, `${price}$ / ${days} يوماً`)}
+              featured
+              current={isPro}
+              features={[
+                t("Unlimited designs — no weekly limit", "تصاميم غير محدودة — بلا حدّ أسبوعي"),
+                t("All three cultural styles", "الأنماط الثقافية الثلاثة"),
+                t(`Runs for ${days} days from approval`, `تدوم ${days} يوماً من تاريخ الموافقة`),
+              ]}
+              action={
+                isPro ? (
+                  <button
+                    onClick={unsubscribe}
+                    disabled={busy}
+                    className="w-full rounded-lg border border-[var(--dd-gold-dim)]/50 px-5 py-2.5 font-medium text-[var(--dd-text-soft)] transition hover:border-[var(--error)] hover:text-[var(--error)] disabled:opacity-50"
+                  >
+                    {busy
+                      ? t("Working…", "جارٍ التنفيذ…")
+                      : t("Unsubscribe — back to Basic", "إلغاء الاشتراك — العودة إلى الأساسية")}
+                  </button>
+                ) : (
+                  <button
+                    onClick={subscribe}
+                    disabled={busy || !!pending}
+                    className="w-full rounded-lg bg-[var(--dd-gold)] px-5 py-2.5 font-medium text-[var(--dd-ink)] transition hover:bg-[var(--dd-gold-hover)] disabled:opacity-50"
+                  >
+                    {busy
+                      ? t("Sending…", "جارٍ الإرسال…")
+                      : pending
+                        ? t("Waiting for approval", "بانتظار الموافقة")
+                        : t(`Subscribe — $${price}`, `اشترك — ${price}$`)}
+                  </button>
+                )
+              }
+            />
           </div>
+
+          <p className="mt-6 text-center text-xs text-[var(--dd-text-secondary)]">
+            {t(
+              "Subscribing sends a request to the admin; your plan changes only once it is approved.",
+              "عند الاشتراك يُرسل طلب إلى المشرف؛ ولا تتغيّر خطتك إلا بعد الموافقة عليه.",
+            )}
+          </p>
         </>
       )}
     </GalleryShell>
   );
 }
 
-function PlanRow({
+function Stat({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <dt className="text-xs text-[var(--dd-text-secondary)]">{label}</dt>
+      <dd className="mt-0.5 font-medium text-[var(--dd-text-soft)]">{value}</dd>
+    </div>
+  );
+}
+
+function PlanCard({
   name,
   price,
-  priceCaption,
   features,
   action,
-  wash,
+  featured,
+  current,
 }: {
   name: string;
   price: string;
-  priceCaption?: string;
-  features: { label: string; value: string }[];
+  features: string[];
   action?: React.ReactNode;
-  wash?: boolean;
+  featured?: boolean;
+  current?: boolean;
 }) {
   const { isArabic } = useThemeLanguage();
   return (
-    <div
+    <article
       className={cn(
-        "grid grid-cols-1 gap-4 border-b border-[var(--dd-border)] py-7 md:grid-cols-[170px_1fr_180px] md:items-start md:gap-7",
-        wash && "bg-[var(--dd-gold)]/5",
+        "flex flex-col rounded-2xl border bg-[var(--dd-surface)] p-5",
+        featured
+          ? "border-[var(--dd-gold)]/60 shadow-[0_0_30px_-12px_var(--dd-gold)]"
+          : "border-[var(--dd-gold-dim)]/25",
       )}
     >
-      <div
-        className={cn(
-          "text-[1.9rem] leading-none text-[var(--dd-text)]",
-          isArabic ? "font-editorial-ar font-normal" : "font-editorial font-normal",
+      <header className={cn("flex items-center justify-between gap-2", isArabic && "flex-row-reverse")}>
+        <h2 className="text-lg font-semibold text-[var(--dd-text)]">{name}</h2>
+        {current && (
+          <span className="rounded-full border border-[var(--dd-gold)]/50 px-2 py-0.5 text-xs text-[var(--dd-gold)]">
+            {isArabic ? "خطتك الحالية" : "Your plan"}
+          </span>
         )}
-      >
-        {name}
-      </div>
-      <ul>
+      </header>
+      <p className="mt-1 text-2xl font-semibold text-[var(--dd-gold)]">{price}</p>
+      <ul className="mt-4 flex-1 space-y-2 text-sm text-[var(--dd-text-soft)]">
         {features.map((f) => (
-          <li
-            key={f.label}
-            className={cn(
-              "flex items-center justify-between border-b border-[var(--dd-text)]/[0.07] py-1.5 text-[13.5px] text-[var(--dd-text-soft)] last:border-b-0",
-              isArabic && "flex-row-reverse",
-            )}
-          >
-            <span>{f.label}</span>
-            <span className="font-editorial-mono text-[11px] text-[var(--dd-text-secondary)]" dir="ltr">
-              {f.value}
-            </span>
+          <li key={f} className={cn("flex items-start gap-2", isArabic && "flex-row-reverse text-right")}>
+            <Check className="mt-0.5 h-4 w-4 shrink-0 text-[var(--dd-gold)]" />
+            <span>{f}</span>
           </li>
         ))}
       </ul>
-      <div className={cn(isArabic ? "text-left md:text-right" : "text-right")}>
-        <div className="font-editorial-mono text-[1.4rem] text-[var(--dd-text)]">{price}</div>
-        {priceCaption && (
-          <div className="font-editorial-mono mt-1 text-[9px] text-[var(--dd-text-secondary)]">
-            {priceCaption}
-          </div>
-        )}
-        {action && <div className="mt-3 inline-block">{action}</div>}
-      </div>
-    </div>
+      {action && <div className="mt-5">{action}</div>}
+    </article>
   );
 }
 
@@ -333,8 +321,10 @@ function Banner({ tone, children }: { tone: "error" | "ok"; children: React.Reac
   return (
     <p
       className={cn(
-        "mb-6 border-s-2 ps-3 text-sm",
-        tone === "error" ? "border-[var(--error)] text-[var(--error)]" : "border-[var(--success)] text-[var(--success)]",
+        "mb-6 rounded-lg border px-3 py-2 text-sm",
+        tone === "error"
+          ? "border-[var(--error)]/40 bg-[var(--error)]/10 text-[var(--error)]"
+          : "border-[var(--success)]/40 bg-[var(--success)]/10 text-[var(--success)]",
       )}
     >
       {children}

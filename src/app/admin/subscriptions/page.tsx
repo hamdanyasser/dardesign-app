@@ -112,7 +112,7 @@ export default function ManageSubscriptionsPage() {
       }
     >
       {error && (
-        <p className="mb-6 border-s-2 border-[var(--error)] ps-3 text-sm text-[var(--error)]">
+        <p className="mb-6 rounded-lg border border-[var(--error)]/40 bg-[var(--error)]/10 px-3 py-2 text-sm text-[var(--error)]">
           {error}
         </p>
       )}
@@ -131,23 +131,30 @@ export default function ManageSubscriptionsPage() {
           {t("No subscription requests yet.", "لا توجد طلبات اشتراك بعد.")}
         </p>
       ) : (
-        <div className="space-y-9">
-          <RequestTable
-            title={t(`Waiting for a decision · ${pending.length}`, `بانتظار القرار · ${pending.length}`)}
-            requests={pending}
-            fmt={fmt}
-            busy={busy}
-            onDecide={decide}
-            empty={t("Nothing pending.", "لا يوجد طلبات معلّقة.")}
-          />
+        <div className="space-y-8">
+          <Section title={t("Waiting for a decision", "بانتظار القرار")} count={pending.length}>
+            {pending.map((r) => (
+              <RequestRow
+                key={r.id}
+                request={r}
+                fmt={fmt}
+                busy={busy === r.id}
+                onDecide={decide}
+              />
+            ))}
+            {pending.length === 0 && (
+              <p className="px-4 py-6 text-center text-sm text-[var(--dd-text-secondary)]">
+                {t("Nothing pending.", "لا يوجد طلبات معلّقة.")}
+              </p>
+            )}
+          </Section>
 
           {decided.length > 0 && (
-            <RequestTable
-              title={t(`Already decided · ${decided.length}`, `طلبات تمّت معالجتها · ${decided.length}`)}
-              requests={decided}
-              fmt={fmt}
-              busy={null}
-            />
+            <Section title={t("Already decided", "طلبات تمّت معالجتها")} count={decided.length}>
+              {decided.map((r) => (
+                <RequestRow key={r.id} request={r} fmt={fmt} busy={false} />
+              ))}
+            </Section>
           )}
         </div>
       )}
@@ -155,58 +162,23 @@ export default function ManageSubscriptionsPage() {
   );
 }
 
-function RequestTable({
+function Section({
   title,
-  requests,
-  fmt,
-  busy,
-  onDecide,
-  empty,
+  count,
+  children,
 }: {
   title: string;
-  requests: SubscriptionRequest[];
-  fmt: (s: number | null | undefined) => string;
-  busy: number | null;
-  onDecide?: (r: SubscriptionRequest, approve: boolean) => void;
-  empty?: string;
+  count: number;
+  children: React.ReactNode;
 }) {
-  const { isArabic } = useThemeLanguage();
-  const t = (en: string, ar: string) => (isArabic ? ar : en);
-
   return (
     <section>
-      <h2 className="font-editorial-mono mb-3 text-[9.5px] text-[var(--dd-gold)]">{title}</h2>
-      {requests.length === 0 ? (
-        <p className="border-b border-[var(--dd-border)] pb-6 text-sm text-[var(--dd-text-secondary)]">
-          {empty}
-        </p>
-      ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[42rem] border-collapse text-sm" dir={isArabic ? "rtl" : "ltr"}>
-            <thead>
-              <tr className="border-b border-[var(--dd-border)] bg-[var(--dd-text)]/[0.025]">
-                <th className="font-editorial-mono whitespace-nowrap px-4 py-2.5 text-start text-[9.5px] text-[var(--dd-text-secondary)]">
-                  {t("Account", "الحساب")}
-                </th>
-                <th className="font-editorial-mono whitespace-nowrap px-4 py-2.5 text-start text-[9.5px] text-[var(--dd-text-secondary)]">
-                  {t("Requested", "تاريخ الطلب")}
-                </th>
-                <th className="font-editorial-mono whitespace-nowrap px-4 py-2.5 text-start text-[9.5px] text-[var(--dd-text-secondary)]">
-                  {t("Status", "الحالة")}
-                </th>
-                {onDecide && (
-                  <th className="font-editorial-mono whitespace-nowrap px-4 py-2.5 text-start text-[9.5px] text-[var(--dd-text-secondary)]" />
-                )}
-              </tr>
-            </thead>
-            <tbody>
-              {requests.map((r) => (
-                <RequestRow key={r.id} request={r} fmt={fmt} busy={busy === r.id} onDecide={onDecide} />
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+      <h2 className="mb-3 text-sm font-medium text-[var(--dd-text-secondary)]">
+        {title} ({count})
+      </h2>
+      <div className="divide-y divide-[var(--dd-gold-dim)]/20 overflow-hidden rounded-2xl border border-[var(--dd-gold-dim)]/25 bg-[var(--dd-surface)]">
+        {children}
+      </div>
     </section>
   );
 }
@@ -226,73 +198,65 @@ function RequestRow({
   const t = (en: string, ar: string) => (isArabic ? ar : en);
   const label =
     request.status === "approved"
-      ? t("APPROVED", "موافَق عليه")
+      ? t("Approved", "موافَق عليه")
       : request.status === "declined"
-        ? t("DECLINED", "مرفوض")
-        : t("PENDING", "قيد المراجعة");
-  const dotColor =
-    request.status === "approved"
-      ? "var(--success)"
-      : request.status === "declined"
-        ? "var(--error)"
-        : "var(--dd-gold)";
+        ? t("Declined", "مرفوض")
+        : t("Pending", "قيد المراجعة");
 
   return (
-    <tr className="border-b border-[var(--dd-border)] align-top">
-      <td className="whitespace-nowrap px-4 py-3">
-        <span
-          className={cn(
-            "text-[14px] text-[var(--dd-text)]",
-            isArabic ? "font-editorial-ar font-normal" : "font-editorial font-normal",
-          )}
-        >
-          {request.fullName}
-        </span>
-        <span className="block text-xs text-[var(--dd-text-secondary)]">
+    <div
+      className={cn(
+        "flex flex-wrap items-center justify-between gap-3 px-4 py-3",
+        isArabic && "flex-row-reverse",
+      )}
+    >
+      <div className={cn(isArabic && "text-right")}>
+        <p className="font-medium text-[var(--dd-text-soft)]">{request.fullName}</p>
+        <p className="text-xs text-[var(--dd-text-secondary)]">
           {request.email}
           {request.phoneNumber ? ` · ${request.phoneNumber}` : ""}
-        </span>
-      </td>
-      <td className="font-editorial-mono whitespace-nowrap px-4 py-3 text-[11px] text-[var(--dd-text-secondary)]">
-        {fmt(request.createdAt)}
-        {request.decidedAt != null && (
-          <span className="block">
-            {t("decided", "القرار")} {fmt(request.decidedAt)}
-          </span>
-        )}
-      </td>
-      <td className="font-editorial-mono whitespace-nowrap px-4 py-3 text-[11px]">
+        </p>
+        <p className="mt-0.5 text-xs text-[var(--dd-text-secondary)]">
+          {t("Requested", "تاريخ الطلب")}: {fmt(request.createdAt)}
+          {request.decidedAt != null && ` · ${t("decided", "تاريخ القرار")}: ${fmt(request.decidedAt)}`}
+        </p>
+      </div>
+
+      <div className={cn("flex items-center gap-2", isArabic && "flex-row-reverse")}>
         <span
-          aria-hidden
-          className={cn("inline-block h-1.5 w-1.5 rounded-full", isArabic ? "ms-1.5" : "me-1.5")}
-          style={{ background: dotColor }}
-        />
-        {label}
-      </td>
-      {onDecide && (
-        <td className="whitespace-nowrap px-4 py-3">
-          {request.status === "pending" && (
-            <div className={cn("flex items-center gap-2", isArabic && "flex-row-reverse")}>
-              <button
-                onClick={() => onDecide(request, true)}
-                disabled={busy}
-                className="font-editorial-mono flex items-center gap-1.5 rounded-[2px] border border-[var(--dd-gold)] bg-[var(--dd-gold)] px-2.5 py-1.5 text-[10px] text-[var(--dd-ink)] transition hover:bg-[var(--dd-gold-hover)] disabled:opacity-50"
-              >
-                {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}
-                {t("APPROVE", "موافقة")}
-              </button>
-              <button
-                onClick={() => onDecide(request, false)}
-                disabled={busy}
-                className="font-editorial-mono flex items-center gap-1.5 rounded-[2px] border border-[var(--dd-border)] px-2.5 py-1.5 text-[10px] text-[var(--dd-text-secondary)] transition hover:border-[var(--error)] hover:text-[var(--error)] disabled:opacity-50"
-              >
-                <X className="h-3 w-3" />
-                {t("DECLINE", "رفض")}
-              </button>
-            </div>
+          className={cn(
+            "rounded-full border px-2 py-0.5 text-xs",
+            request.status === "approved"
+              ? "border-[var(--success)]/50 text-[var(--success)]"
+              : request.status === "declined"
+                ? "border-[var(--error)]/50 text-[var(--error)]"
+                : "border-[var(--dd-gold)]/50 text-[var(--dd-gold)]",
           )}
-        </td>
-      )}
-    </tr>
+        >
+          {label}
+        </span>
+
+        {request.status === "pending" && onDecide && (
+          <>
+            <button
+              onClick={() => onDecide(request, true)}
+              disabled={busy}
+              className="flex items-center gap-1.5 rounded-lg bg-[var(--dd-gold)] px-3 py-1.5 text-sm font-medium text-[var(--dd-ink)] transition hover:bg-[var(--dd-gold-hover)] disabled:opacity-50"
+            >
+              {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+              {t("Approve", "موافقة")}
+            </button>
+            <button
+              onClick={() => onDecide(request, false)}
+              disabled={busy}
+              className="flex items-center gap-1.5 rounded-lg border border-[var(--dd-gold-dim)]/40 px-3 py-1.5 text-sm text-[var(--dd-text-soft)] transition hover:border-[var(--error)] hover:text-[var(--error)] disabled:opacity-50"
+            >
+              <X className="h-3.5 w-3.5" />
+              {t("Decline", "رفض")}
+            </button>
+          </>
+        )}
+      </div>
+    </div>
   );
 }

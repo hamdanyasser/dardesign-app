@@ -492,7 +492,7 @@ interface ThemeLanguageContextType {
   theme: Theme;
   isArabic: boolean;
   copy: Copy;
-  t: (key: string) => string;
+  t: (key: string, fallback?: string) => string;
   toggleLanguage: () => void;
   toggleTheme: () => void;
 }
@@ -529,10 +529,21 @@ export function ThemeLanguageProvider({
   // before first paint, so the user never sees the wrong theme.
   const [language, setLanguage] = useState<Language>("en");
   const [theme, setTheme] = useState<Theme>("light");
+  const [restored, setRestored] = useState(false);
+  const themeAnimTimer = useRef<number | null>(null);
 
   useEffect(() => {
-    const savedTheme = window.localStorage.getItem("dardesign-theme");
-    if (savedTheme === "dark" || savedTheme === "light") setTheme(savedTheme);
+    const savedTheme = window.localStorage.getItem(THEME_STORAGE_KEY);
+    if (savedTheme === "dark" || savedTheme === "light") {
+      setTheme(savedTheme);
+    }
+
+    const savedLanguage = window.localStorage.getItem(LANGUAGE_STORAGE_KEY);
+    if (savedLanguage === "en" || savedLanguage === "ar") {
+      setLanguage(savedLanguage);
+    }
+
+    setRestored(true);
   }, []);
 
   // Mirror to <html> and persist. Gated on `restored` so this effect cannot
@@ -544,8 +555,9 @@ export function ThemeLanguageProvider({
     html.setAttribute("lang", language);
     html.setAttribute("dir", language === "ar" ? "rtl" : "ltr");
     html.setAttribute("data-theme", theme);
-    window.localStorage.setItem("dardesign-theme", theme);
-  }, [language, theme]);
+    window.localStorage.setItem(THEME_STORAGE_KEY, theme);
+    window.localStorage.setItem(LANGUAGE_STORAGE_KEY, language);
+  }, [language, theme, restored]);
 
   const toggleLanguage = useCallback(() => {
     setLanguage((current) => (current === "en" ? "ar" : "en"));
@@ -557,7 +569,11 @@ export function ThemeLanguageProvider({
     // page loads aren't dragged to 300ms too. See the note there.
     const html = document.documentElement;
     html.setAttribute("data-theme-anim", "");
-    window.clearTimeout(themeAnimTimer.current);
+
+    if (themeAnimTimer.current !== null) {
+      window.clearTimeout(themeAnimTimer.current);
+    }
+
     themeAnimTimer.current = window.setTimeout(() => {
       html.removeAttribute("data-theme-anim");
     }, 320);
@@ -568,8 +584,14 @@ export function ThemeLanguageProvider({
   const copy = useMemo(() => translations[language], [language]);
 
   const t = useCallback(
-    (key: string) => getNestedString(copy as Record<string, unknown>, key),
-    [copy],
+    (key: string, fallback?: string) => {
+      if (fallback && language === "ar") {
+        return fallback;
+      }
+
+      return getNestedString(copy as Record<string, unknown>, key);
+    },
+    [copy, language],
   );
 
   const value = useMemo(

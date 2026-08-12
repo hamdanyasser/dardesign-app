@@ -1,3 +1,4 @@
+import Script from "next/script";
 import type { Metadata, Viewport } from "next";
 import {
   Amiri,
@@ -129,7 +130,9 @@ export default function RootLayout({
         {/* Runs before the app paints: restores the saved theme/language so there
             is no flash of the wrong theme. Falls back to the OS colour preference.
             Storage keys must stay in sync with ThemeLanguageContext. */}
-        <script
+        <Script
+          id="theme-language-restore"
+          strategy="beforeInteractive"
           dangerouslySetInnerHTML={{
             __html: `(function(){try{var h=document.documentElement;var t=localStorage.getItem('dd-theme');if(t!=='dark'&&t!=='light'){t=(window.matchMedia&&window.matchMedia('(prefers-color-scheme: light)').matches)?'light':'dark';}var l=localStorage.getItem('dd-language');if(l!=='en'&&l!=='ar'){l='en';}h.setAttribute('data-theme',t);h.setAttribute('lang',l);h.setAttribute('dir',l==='ar'?'rtl':'ltr');}catch(e){}})();`,
           }}
