@@ -1265,6 +1265,107 @@ class _OutOfMemory(Exception):
     pass
 
 
+def render_scene(
+    *,
+    depth_image: Any,
+    seg_image: Any,
+    style: StyleId,
+    out_path: Path,
+    seed: int | None = None,
+    room: str | None = None,
+    use_lora: bool = True,
+    controlnet_weights: tuple[float, float] | None = None,
+    lora_scale: float | None = None,
+    reference_path: Path | None = None,
+) -> Path:
+    """Render a Build Mode scene through the existing SDXL + dual-ControlNet path.
+
+    The one difference from transform_room is where the control images come
+    from. Normally depth and segmentation are annotator output derived from the
+    user's photograph; here they are rendered from the 3D scene the user
+    composed, so furniture placement, orientation, room geometry and viewpoint
+    are conditioned rather than described. Prompt, LoRA, weights and scheduler
+    are the ordinary cultural path — nothing about the model changes.
+
+    What this can and cannot hold is worth stating plainly, because the UI
+    promises it: layout, silhouette and viewpoint are strongly preserved
+    because they are literally the control signal. The appearance of any one
+    piece is not — SDXL invents surface, ornament and detail inside the
+    silhouette it is given. Material choices reach the model only through the
+    prompt, so they steer rather than bind.
+    """
+    if style not in StylePack:
+        raise PipelineError(f"unknown style {style!r}", "النمط غير معروف")
+
+    out_path = Path(out_path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+
+    if _is_light_mode():
+        # No GPU here. Emit the honest placeholder rather than anything that
+        # could be mistaken for a render of the user's design.
+        ref = reference_path if reference_path and Path(reference_path).exists() else None
+        if ref is None:
+            from PIL import Image
+
+            tmp = out_path.with_suffix(".src.png")
+            depth_image.convert("RGB").save(tmp)
+            ref = tmp
+        return _emit_placeholder(Path(ref), style, out_path)
+
+    from backend.prompt_builder import build_prompts
+
+    prompts = build_prompts(style, room=room, seed=seed)
+    positive = prompts.positive_en
+    negative = (
+        prompts.negative_en
+        + ", "
+        + CONFIG.get("extra_negative_en", _DEFAULT_CONFIG["extra_negative_en"])
+    )
+
+    cn_w = controlnet_weights or _winner_weights(style) or (
+        CONFIG["default_controlnet_weights"]["depth"],
+        CONFIG["default_controlnet_weights"]["seg"],
+    )
+
+    w, h = depth_image.size
+    target = fit_size(w, h, int(CONFIG["output_size"][0]))
+
+    try:
+        return _generate(
+            image_path=out_path,  # unused when control_override is supplied
+            out_path=out_path,
+            positive=positive,
+            negative=negative,
+            style=style,
+            strength=0.7,
+            seed=seed,
+            controlnet_weights=cn_w,
+            use_lora=use_lora,
+            lora_scale=lora_scale,
+            target_size=target,
+            use_sdxl=True,
+            control_override=(depth_image, seg_image),
+        )
+    except _OutOfMemory:
+        logger.warning("SDXL OOM on scene render — falling back to SD 1.5")
+        _free_pipe("sdxl")
+        return _generate(
+            image_path=out_path,
+            out_path=out_path,
+            positive=positive,
+            negative=negative,
+            style=style,
+            strength=0.7,
+            seed=seed,
+            controlnet_weights=cn_w,
+            use_lora=use_lora,
+            lora_scale=lora_scale,
+            target_size=fit_size(w, h, int(CONFIG["sd15_fallback_size"][0])),
+            use_sdxl=False,
+            control_override=(depth_image, seg_image),
+        )
+
+
 def _generate(
     *,
     image_path: Path,
@@ -1279,6 +1380,7 @@ def _generate(
     target_size: tuple[int, int],
     use_sdxl: bool,
     lora_scale: float | None = None,
+    control_override: tuple[Any, Any] | None = None,
     _fresh: bool = False,
 ) -> Path:
     import torch
@@ -1296,7 +1398,18 @@ def _generate(
                 pass
             loaded.style_loaded = None
 
-    src, depth, seg = _prepare_conditioning(image_path, target_size)
+    if control_override is not None:
+        # Build Mode path: the caller has already rendered depth + ADE20K
+        # segmentation from the 3D scene the user composed, so the layout the
+        # ControlNets see is the user's design rather than an annotator's
+        # reading of the original photograph. Everything downstream — LoRA,
+        # prompt, weights, scheduler — is unchanged, which is the point: this
+        # is the same generation path, conditioned on different control images.
+        depth, seg = control_override
+        depth = depth.convert("RGB").resize(target_size)
+        seg = seg.convert("RGB").resize(target_size)
+    else:
+        _src, depth, seg = _prepare_conditioning(image_path, target_size)
 
     generator = None
     if seed is not None:

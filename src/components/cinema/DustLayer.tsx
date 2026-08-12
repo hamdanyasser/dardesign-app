@@ -11,6 +11,15 @@ function seeded(i: number, seed: number, n: number): number {
   return v - Math.floor(v);
 }
 
+/* Math.sin is not guaranteed to be bit-identical between the Node build that
+   renders on the server and the browser's engine. The values agreed to ~10
+   decimals but not beyond, and React compares the *stringified* style, so
+   every mote produced a hydration mismatch warning. Rounding to 4dp is far
+   below one device pixel and makes the two renders agree exactly. */
+function q(value: number): number {
+  return Math.round(value * 1e4) / 1e4;
+}
+
 interface DustLayerProps {
   count?: number;
   seed?: number;
@@ -20,13 +29,13 @@ export default function DustLayer({ count = 20, seed = 1 }: DustLayerProps) {
   const motes = useMemo(
     () =>
       Array.from({ length: count }, (_, i) => {
-        const dur = 8 + seeded(i, seed, 2) * 14;
+        const dur = q(8 + seeded(i, seed, 2) * 14);
         return {
-          left: seeded(i, seed, 1) * 100,
+          left: q(seeded(i, seed, 1) * 100),
           dur,
-          delay: -seeded(i, seed, 3) * dur,
-          size: 1 + seeded(i, seed, 4) * 2.2,
-          bottom: -10 + seeded(i, seed, 5) * 20,
+          delay: q(-seeded(i, seed, 3) * dur),
+          size: q(1 + seeded(i, seed, 4) * 2.2),
+          bottom: q(-10 + seeded(i, seed, 5) * 20),
         };
       }),
     [count, seed]

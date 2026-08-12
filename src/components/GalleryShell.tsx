@@ -18,10 +18,13 @@ import { cn } from "@/lib/utils";
 export default function GalleryShell({
   title,
   subtitle,
+  eyebrow,
   children,
 }: {
   title: string;
   subtitle: string;
+  /** A1 pagehead: a small mono status line above the title, e.g. a count. */
+  eyebrow?: string;
   children: ReactNode;
 }) {
   const { isArabic } = useThemeLanguage();
@@ -58,44 +61,54 @@ export default function GalleryShell({
   );
 }
 
-/** One before/after card. Actions differ per page, so they're passed in. */
+/**
+ * One archive entry, A1-style: a hairline row, not a card. The before/after
+ * pair is a single plate split by a gold rule (not two separately-labelled
+ * images), the title sits where A1 puts the culture name, and `tag` is the
+ * small mono aside A1 uses for a one-off status word ("Shared", "by X").
+ * Actions differ per page, so they're passed in.
+ */
 export function DesignCard({
   beforeUrl,
   afterUrl,
   createdAt,
-  caption,
+  title,
+  tag,
+  rating,
   actions,
 }: {
   beforeUrl: string;
   afterUrl: string;
   createdAt: number;
-  caption?: ReactNode;
+  title?: ReactNode;
+  tag?: ReactNode;
+  rating?: ReactNode;
   actions?: ReactNode;
 }) {
   const { isArabic } = useThemeLanguage();
   return (
-    <article className="overflow-hidden rounded-2xl border border-[var(--dd-gold-dim)]/25 bg-[var(--dd-surface)]">
-      <div className="grid grid-cols-1 sm:grid-cols-2">
-        {[
-          { url: beforeUrl, label: isArabic ? "قبل" : "Before" },
-          { url: afterUrl, label: isArabic ? "بعد" : "After" },
-        ].map((side) => (
-          <figure key={side.label} className="relative">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={side.url}
-              alt={side.label}
-              className="block aspect-[4/3] w-full object-cover"
-            />
-            <figcaption className="absolute bottom-2 start-2 rounded-md bg-[var(--dd-bg)]/75 px-2 py-0.5 text-xs text-[var(--dd-text-soft)]">
-              {side.label}
-            </figcaption>
-          </figure>
-        ))}
+    <article className="border-b border-[var(--dd-border)] pb-8 pt-8 first:pt-0">
+      <div className="relative grid grid-cols-2 border border-[var(--dd-border)]">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={beforeUrl}
+          alt={isArabic ? "قبل" : "Before"}
+          className="block aspect-[4/3] w-full object-cover"
+        />
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={afterUrl}
+          alt={isArabic ? "بعد" : "After"}
+          className="block aspect-[4/3] w-full border-s border-[var(--dd-gold)] object-cover"
+        />
+        <span className="font-editorial-mono absolute bottom-2 start-2 rounded bg-[var(--dd-bg)]/70 px-1.5 py-0.5 text-[8.5px] text-[var(--dd-text-soft)]">
+          {isArabic ? "قبل · بعد" : "BEFORE · AFTER"}
+        </span>
       </div>
+
       <div
         className={cn(
-          "flex flex-wrap items-center justify-between gap-3 px-4 py-3",
+          "mt-4 flex flex-wrap items-baseline justify-between gap-2",
           isArabic && "flex-row-reverse",
         )}
       >
@@ -123,6 +136,14 @@ export function DesignCard({
           </div>
         )}
       </div>
+
+      {rating && <div className="mt-2.5">{rating}</div>}
+
+      {actions && (
+        <div className={cn("mt-4 flex flex-wrap items-center gap-2", isArabic && "flex-row-reverse")}>
+          {actions}
+        </div>
+      )}
     </article>
   );
 }

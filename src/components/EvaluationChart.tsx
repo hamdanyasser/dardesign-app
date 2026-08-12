@@ -63,14 +63,15 @@ export function ScoreBars({
             >
               {b.label}
             </span>
+            {/* A3: a measured tick, not a rounded progress pill. */}
             <div
-              className="h-3 flex-1 overflow-hidden rounded-full bg-[var(--dd-surface-strong)]"
+              className="h-[3px] flex-1 bg-[var(--dd-text)]/[0.08]"
               role="img"
               aria-label={`${b.label}: ${b.value == null ? emptyLabel : `${b.value} / ${max}`}`}
             >
               {b.value != null && (
                 <div
-                  className="h-full rounded-full"
+                  className="h-full"
                   style={{
                     width: `${pct}%`,
                     background: b.color ?? "var(--dd-gold)",
@@ -82,7 +83,10 @@ export function ScoreBars({
             </div>
             <span
               className={cn(
-                "min-w-[6.5rem] shrink-0 whitespace-nowrap font-mono text-xs",
+                // A3 mono for the metric value; min-width rather than a fixed
+                // width because the sample-size note now sits inline beside it
+                // and w-24 clipped "4.50 · n=8".
+                "font-editorial-mono min-w-[6.5rem] shrink-0 whitespace-nowrap text-[11px]",
                 b.value == null ? "text-cream-muted" : "text-cream-soft",
                 isArabic ? "text-left" : "text-right",
               )}

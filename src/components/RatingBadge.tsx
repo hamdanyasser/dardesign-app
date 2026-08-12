@@ -12,7 +12,6 @@
    being absent is what keeps it out rather than a flag here.
    ============================================================ */
 
-import { Star } from "lucide-react";
 import { useThemeLanguage } from "@/context/ThemeLanguageContext";
 import type { DesignRating } from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -34,87 +33,84 @@ export default function RatingBadge({
   const t = (en: string, ar: string) => (isArabic ? ar : en);
 
   // Unrated is a state, not a zero: the scale starts at 1, so showing 0.00 here
-  // would read as a terrible rating rather than an absent one.
+  // would read as a terrible rating rather than an absent one. A1: plain mono
+  // dash, no border/pill.
   if (!rating) {
     return (
       <span
         className={cn(
-          "rounded-full border border-[var(--dd-gold-dim)]/30 px-2 py-0.5 text-xs text-[var(--dd-text-secondary)]",
-          isArabic && "font-arabic",
+          "font-editorial-mono text-[10.5px] text-[var(--dd-text-secondary)]",
           className,
         )}
       >
-        {t("Not rated", "غير مقيَّم")}
+        {t("— · NOT YET RATED", "— · لم يُقيَّم بعد")}
       </span>
     );
   }
 
+  // The three scores the form actually asked for. `overall` is their mean,
+  // not a fourth measurement — labelled as an average, never as one of them.
   const scores: Array<[string, number]> = [
-    [t("Cultural", "ثقافي"), rating.culturalAccuracy],
-    [t("Quality", "الجودة"), rating.imageQuality],
-    [t("Preservation", "الحفاظ"), rating.roomPreservation],
+    [t("CULTURAL", "الثقافي"), rating.culturalAccuracy],
+    [t("QUALITY", "الجودة"), rating.imageQuality],
+    [t("PRESERVATION", "الحفاظ"), rating.roomPreservation],
   ];
   const placement = rating.furniturePlacement
     ? PLACEMENT_LABEL[rating.furniturePlacement]
     : undefined;
+  const filled = Math.round(rating.overall);
 
   return (
-    <span
-      className={cn("flex flex-wrap items-center gap-2", isArabic && "flex-row-reverse", className)}
-    >
-      <span
+    <div className={cn(isArabic && "text-right", className)}>
+      {/* A1: diamonds on a hairline, not stars in a pill. */}
+      <div className={cn("flex items-center gap-2", isArabic && "flex-row-reverse")}>
+        <span className={cn("flex items-center gap-[3px]", isArabic && "flex-row-reverse")}>
+          {Array.from({ length: 5 }, (_, i) => (
+            <span
+              key={i}
+              aria-hidden
+              className={cn(
+                "h-[9px] w-[9px] rotate-45 border border-[var(--dd-gold)]",
+                i < filled && "bg-[var(--dd-gold)]",
+              )}
+            />
+          ))}
+        </span>
+        <span className="font-editorial-mono text-[9.5px] text-[var(--dd-text-secondary)]" dir="ltr">
+          {rating.overall.toFixed(1)} · {t("AVG OF 3", "متوسط ٣")}
+        </span>
+      </div>
+
+      {/* The three scores the average above is derived from, plus furniture
+          placement when the design had any. */}
+      <div
         className={cn(
-          "flex items-center gap-1 rounded-full border border-[var(--dd-gold)]/50 px-2 py-0.5 text-xs text-[var(--dd-gold)]",
-          isArabic && "flex-row-reverse font-arabic",
+          "font-editorial-mono mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[9.5px] text-[var(--dd-text-secondary)]",
+          isArabic && "flex-row-reverse",
         )}
       >
-        <Star className="h-3 w-3 fill-current" aria-hidden />
-        <span dir="ltr">{rating.overall.toFixed(1)}/5</span>
-      </span>
-
-      {/* The three scores the form actually asked for. The average above is
-          derived from them, so showing both makes the derivation checkable. */}
-      {scores.map(([label, value]) => (
-        <span
-          key={label}
-          className={cn(
-            "flex items-center gap-1 text-xs text-[var(--dd-text-secondary)]",
-            isArabic && "flex-row-reverse font-arabic",
-          )}
-        >
-          {label}
-          <span className="font-mono text-[var(--dd-text-soft)]" dir="ltr">
-            {value}/5
+        {scores.map(([label, value]) => (
+          <span key={label} dir="ltr">
+            {label} {value}/5
           </span>
-        </span>
-      ))}
+        ))}
+        {placement && <span>{isArabic ? placement.ar : placement.en}</span>}
+      </div>
 
-      {placement && (
-        <span
-          className={cn(
-            "rounded-full border border-[var(--dd-gold-dim)]/30 px-2 py-0.5 text-xs text-[var(--dd-text-secondary)]",
-            isArabic && "font-arabic",
-          )}
-        >
-          {isArabic ? placement.ar : placement.en}
-        </span>
-      )}
-
-      {/* Inline rather than on its own line: the caption sits in a
-          non-wrapping flex row inside an overflow-hidden card, so a full-width
-          element there is squeezed to nothing and clipped. Long comments are
-          truncated with the whole text on the title attribute. */}
+      {/* A1: an italic serif pull-quote on a gold rule, not a truncated pill. */}
       {rating.comment && (
-        <span
-          title={rating.comment}
+        <p
           className={cn(
-            "max-w-[18rem] truncate text-xs italic text-[var(--dd-text-soft)]",
-            isArabic && "font-arabic",
+            "font-editorial mt-2 max-w-[46ch] text-[15px] italic leading-snug text-[var(--dd-text-soft)]",
+            isArabic
+              ? "font-editorial-ar border-e pe-3 text-right not-italic"
+              : "border-s ps-3",
+            "border-[var(--dd-gold)]",
           )}
         >
-          “{rating.comment}”
-        </span>
+          {rating.comment}
+        </p>
       )}
-    </span>
+    </div>
   );
 }

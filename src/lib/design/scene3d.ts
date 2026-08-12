@@ -1,0 +1,940 @@
+/* ============================================================
+   DAR Build Mode — the 3D world
+
+   Owns the renderer, camera, room shell and object meshes. Deliberately
+   knows nothing about React: it takes a DesignScene in and answers
+   picking questions, so the interaction layer can stay a thin component
+   and the same world could later be driven by a replay or a tour.
+
+   CAMERA. A hand-written orbit rig rather than OrbitControls. Three
+   reasons: the polar angle must be clamped so you can never get under
+   the floor, the target must stay inside the room so you cannot lose it,
+   and the motion wants critical-ish damping that OrbitControls' generic
+   feel does not give. It is ~60 lines and worth owning.
+
+   WALL CULLING. The two walls nearest the camera fade out every frame.
+   Without it an interior model is unusable — you spend the whole time
+   orbiting to see past a wall. With it the room feels like a doll's
+   house you are looking into, which is the intended feeling.
+   ============================================================ */
+
+import * as THREE from "three";
+import { ADE20K_DOOR, ADE20K_FLOOR, ADE20K_WALL, ADE20K_WINDOW, ade20kHex } from "./ade20k";
+import { buildObjectMesh, colorOf, standardMaterial } from "./geometry";
+import { cultureAccent, getMaterial } from "./materials";
+import type { WallOpening } from "./roomModel";
+import type { DesignScene, PlacedObject } from "./types";
+
+export type ViewPreset = "perspective" | "plan" | "corner";
+
+interface Spherical {
+  radius: number;
+  /** polar, from +Y down. Clamped so the camera stays above the floor. */
+  phi: number;
+  /** azimuth around Y. */
+  theta: number;
+}
+
+const MIN_PHI = 0.12;
+const MAX_PHI = Math.PI / 2 - 0.04;
+
+export class DesignWorld {
+  readonly renderer: THREE.WebGLRenderer;
+  readonly scene: THREE.Scene;
+  readonly camera: THREE.PerspectiveCamera;
+
+  private canvas: HTMLCanvasElement;
+  private shellGroup = new THREE.Group();
+  private objectGroup = new THREE.Group();
+  private helperGroup = new THREE.Group();
+  /** Each wall plus anything drawn onto it. Openings must fade WITH their
+   *  wall — a door reveal left visible after its wall is culled reads as a
+   *  slab floating in the middle of the room. */
+  private wallMeshes: Array<{
+    mesh: THREE.Mesh;
+    normal: THREE.Vector3;
+    id: WallOpening["wall"];
+    attachments: THREE.Mesh[];
+  }> = [];
+  private floorMesh: THREE.Mesh | null = null;
+  private objectIndex = new Map<string, THREE.Group>();
+
+  private sph: Spherical = { radius: 780, phi: 1.02, theta: -0.62 };
+  private targetSph: Spherical = { radius: 780, phi: 1.02, theta: -0.62 };
+  private target = new THREE.Vector3(0, 60, 0);
+  private targetTarget = new THREE.Vector3(0, 60, 0);
+
+  private raycaster = new THREE.Raycaster();
+  private floorPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+  private pointer = new THREE.Vector2();
+
+  private selectionCage: THREE.LineSegments | null = null;
+  private selectionRing: THREE.Mesh | null = null;
+  private ghost: THREE.Group | null = null;
+  private guideGroup = new THREE.Group();
+
+  private accent = colorOf("#d4af37");
+  private raf = 0;
+  private disposed = false;
+  private roomW = 520;
+  private roomD = 420;
+  private roomH = 300;
+  private dirty = true;
+  /** Frames still to render after the last change. Keeps the loop idle when
+   *  nothing moves, which matters on a laptop GPU also running a dev server. */
+  private settleFrames = 0;
+
+  constructor(canvas: HTMLCanvasElement) {
+    this.canvas = canvas;
+    this.renderer = new THREE.WebGLRenderer({
+      canvas,
+      antialias: true,
+      alpha: true,
+      powerPreference: "high-performance",
+    });
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    this.renderer.shadowMap.enabled = true;
+    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    // three 0.150 predates outputColorSpace; sRGBEncoding is its equivalent.
+    this.renderer.outputEncoding = THREE.sRGBEncoding;
+    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    // Deliberately under 1. ACES plus three's legacy (non-physical) light
+    // units blows saturated colour out fast: at exposure 1.05 with a key of
+    // 2.1, Moroccan cobalt #0040c0 rendered as pale sky blue and the whole
+    // palette lost its identity. The ontology's colours have to survive the
+    // renderer or there was no point sourcing them from it.
+    this.renderer.toneMappingExposure = 0.92;
+
+    this.scene = new THREE.Scene();
+    this.camera = new THREE.PerspectiveCamera(38, 1, 10, 8000);
+
+    this.scene.add(this.shellGroup, this.objectGroup, this.helperGroup, this.guideGroup);
+    this.setupLights();
+    this.loop = this.loop.bind(this);
+    this.raf = requestAnimationFrame(this.loop);
+  }
+
+  /* ---------------- lighting ---------------- */
+
+  private key!: THREE.DirectionalLight;
+
+  private setupLights() {
+    // Warm key from high and to one side, cool fill opposite: the standard
+    // architectural model lighting that makes massing legible. The hemisphere
+    // is kept low — raise it and the model flattens into an even wash, which
+    // is exactly what makes a 3D room look like a screenshot of nothing.
+    const hemi = new THREE.HemisphereLight(0xfff3e0, 0x2a2318, 0.45);
+    this.scene.add(hemi);
+
+    const key = new THREE.DirectionalLight(0xfff0d8, 1.15);
+    key.position.set(420, 780, 380);
+    key.castShadow = true;
+    key.shadow.mapSize.set(2048, 2048);
+    key.shadow.camera.near = 50;
+    key.shadow.camera.far = 2600;
+    const s = 800;
+    key.shadow.camera.left = -s;
+    key.shadow.camera.right = s;
+    key.shadow.camera.top = s;
+    key.shadow.camera.bottom = -s;
+    key.shadow.bias = -0.0012;
+    key.shadow.normalBias = 1.4;
+    this.key = key;
+    this.scene.add(key, key.target);
+
+    const fill = new THREE.DirectionalLight(0xbcd2e8, 0.26);
+    fill.position.set(-520, 340, -260);
+    this.scene.add(fill);
+  }
+
+  /** The plinth the model sits on.
+   *
+   *  Without it the room floats in a void and reads as a screenshot of a
+   *  renderer. With it the whole thing reads as a physical study model on a
+   *  table, which is the entire premise: honest massing you can pick up and
+   *  turn, not a failed photograph. It also catches the room's shadow, which
+   *  is what actually sells the weight. */
+  private buildPlinth(w: number, d: number) {
+    // Just wide enough to read as a base and catch the shadow. Larger and the
+    // room starts looking small on a runway.
+    const size = Math.max(w, d) * 1.5;
+    const plinth = new THREE.Mesh(
+      new THREE.CylinderGeometry(size / 2, size / 2, 6, 96),
+      new THREE.MeshStandardMaterial({
+        color: colorOf("#171410"),
+        roughness: 0.96,
+        metalness: 0,
+      }),
+    );
+    plinth.position.y = -11;
+    plinth.receiveShadow = true;
+    plinth.userData.isPlinth = true;
+    this.shellGroup.add(plinth);
+
+    // A hairline ring at the room's own footprint: a drawing on the model.
+    const ring = new THREE.Mesh(
+      new THREE.RingGeometry(size / 2 - 2.2, size / 2, 96),
+      new THREE.MeshBasicMaterial({
+        color: this.accent,
+        transparent: true,
+        opacity: 0.22,
+        side: THREE.DoubleSide,
+      }),
+    );
+    ring.rotation.x = -Math.PI / 2;
+    ring.position.y = -7.6;
+    ring.userData.isPlinth = true;
+    this.shellGroup.add(ring);
+  }
+
+  /* ---------------- room shell ---------------- */
+
+  buildShell(scene: DesignScene, openings: WallOpening[]) {
+    this.disposeGroup(this.shellGroup);
+    this.wallMeshes = [];
+    const { widthCm: w, depthCm: d, heightCm: h } = scene.room;
+    this.roomW = w;
+    this.roomD = d;
+    this.roomH = h;
+    this.accent = colorOf(cultureAccent(scene.culture));
+
+    const floorSpec = getMaterial(scene.room.floorMaterialKey);
+    const floorMat = new THREE.MeshStandardMaterial({
+      color: colorOf(floorSpec.hex),
+      roughness: floorSpec.roughness,
+      metalness: floorSpec.metalness,
+    });
+    this.buildPlinth(w, d);
+
+    const floor = new THREE.Mesh(new THREE.BoxGeometry(w, 8, d), floorMat);
+    floor.position.y = -4;
+    floor.receiveShadow = true;
+    floor.userData.isFloor = true;
+    floor.userData.ade = ADE20K_FLOOR;
+    this.floorMesh = floor;
+    this.shellGroup.add(floor);
+
+    // A metric grid, one line per 50cm. Reads as a drawing underlay and
+    // silently communicates the scale of everything on it.
+    const grid = new THREE.GridHelper(Math.max(w, d), Math.round(Math.max(w, d) / 50), 0x000000, 0x000000);
+    const gm = grid.material as THREE.Material;
+    gm.transparent = true;
+    gm.opacity = 0.07;
+    grid.position.y = 0.6;
+    this.shellGroup.add(grid);
+
+    const wallSpec = getMaterial(scene.room.wallMaterialKey);
+    const wallMat = new THREE.MeshStandardMaterial({
+      color: colorOf(wallSpec.hex),
+      roughness: wallSpec.roughness,
+      metalness: 0,
+      transparent: true,
+      opacity: 1,
+      side: THREE.DoubleSide,
+    });
+
+    const t = 10;
+    const defs: Array<{ w: number; h: number; d: number; pos: [number, number, number]; n: THREE.Vector3; id: WallOpening["wall"] }> = [
+      { w, h, d: t, pos: [0, h / 2, -d / 2], n: new THREE.Vector3(0, 0, 1), id: "north" },
+      { w, h, d: t, pos: [0, h / 2, d / 2], n: new THREE.Vector3(0, 0, -1), id: "south" },
+      { w: t, h, d, pos: [-w / 2, h / 2, 0], n: new THREE.Vector3(1, 0, 0), id: "west" },
+      { w: t, h, d, pos: [w / 2, h / 2, 0], n: new THREE.Vector3(-1, 0, 0), id: "east" },
+    ];
+    for (const def of defs) {
+      const mesh = new THREE.Mesh(new THREE.BoxGeometry(def.w, def.h, def.d), wallMat.clone());
+      mesh.position.set(...def.pos);
+      mesh.receiveShadow = true;
+      mesh.userData.wall = def.id;
+      mesh.userData.ade = ADE20K_WALL;
+      this.shellGroup.add(mesh);
+      const entry = { mesh, normal: def.n, id: def.id, attachments: [] as THREE.Mesh[] };
+      this.wallMeshes.push(entry);
+
+      // Skirting. A 12cm band at the base of each wall, one step darker than
+      // the wall itself. It costs one box per wall and it is most of what
+      // separates "two planes meeting" from "a room that was built" — the
+      // floor/wall junction is the line the eye actually reads for scale.
+      const skirtH = 12;
+      const skirt = new THREE.Mesh(
+        new THREE.BoxGeometry(
+          def.id === "west" || def.id === "east" ? t + 2 : def.w,
+          skirtH,
+          def.id === "west" || def.id === "east" ? def.d : t + 2,
+        ),
+        new THREE.MeshStandardMaterial({
+          color: colorOf(wallSpec.hex).multiplyScalar(0.72),
+          roughness: 0.85,
+          metalness: 0,
+          transparent: true,
+        }),
+      );
+      skirt.position.set(def.pos[0], skirtH / 2, def.pos[2]);
+      skirt.receiveShadow = true;
+      skirt.userData.ade = ADE20K_WALL;
+      this.shellGroup.add(skirt);
+      entry.attachments.push(skirt);
+    }
+
+    // Openings read off the photograph, drawn as recessed reveals on the wall
+    // they projected nearest to. They are architecture, not furniture.
+    for (const o of openings) {
+      const rev = new THREE.Mesh(
+        new THREE.BoxGeometry(o.widthCm, o.heightCm, 3),
+        new THREE.MeshStandardMaterial({
+          color: colorOf(o.kind === "door" ? "#2b2620" : "#cfe2ee"),
+          roughness: 0.6,
+          metalness: 0,
+          emissive: colorOf(o.kind === "door" ? "#000000" : "#8fb8d4"),
+          emissiveIntensity: o.kind === "door" ? 0 : 0.28,
+        }),
+      );
+      const sill = o.kind === "door" ? o.heightCm / 2 : 95 + o.heightCm / 2;
+      if (o.wall === "north" || o.wall === "south") {
+        rev.position.set(-w / 2 + o.t * w, sill, (o.wall === "north" ? -1 : 1) * (d / 2 - 6));
+      } else {
+        rev.rotation.y = Math.PI / 2;
+        rev.position.set((o.wall === "west" ? -1 : 1) * (w / 2 - 6), sill, -d / 2 + o.t * d);
+      }
+      (rev.material as THREE.Material).transparent = true;
+      rev.userData.ade = o.kind === "door" ? ADE20K_DOOR : ADE20K_WINDOW;
+      this.shellGroup.add(rev);
+      this.wallMeshes.find((x) => x.id === o.wall)?.attachments.push(rev);
+    }
+
+    this.key.target.position.set(0, 0, 0);
+    this.targetTarget.set(0, Math.min(90, h * 0.3), 0);
+    this.markDirty();
+  }
+
+  /* ---------------- objects ---------------- */
+
+  syncObjects(objects: PlacedObject[], selectedUid: string | null) {
+    const seen = new Set<string>();
+    for (const o of objects) {
+      seen.add(o.uid);
+      const existing = this.objectIndex.get(o.uid);
+      const sig = `${o.x}|${o.z}|${o.rotationDeg}|${o.materialKey}|${o.widthCm}|${o.depthCm}|${o.heightCm}|${o.locked}`;
+      if (existing && existing.userData.sig === sig) continue;
+      if (existing) {
+        this.objectGroup.remove(existing);
+        this.disposeObject(existing);
+        this.objectIndex.delete(o.uid);
+      }
+      const mesh = buildObjectMesh(o);
+      mesh.userData.sig = sig;
+      this.objectGroup.add(mesh);
+      this.objectIndex.set(o.uid, mesh);
+    }
+    for (const [uid, mesh] of Array.from(this.objectIndex.entries())) {
+      if (!seen.has(uid)) {
+        this.objectGroup.remove(mesh);
+        this.disposeObject(mesh);
+        this.objectIndex.delete(uid);
+      }
+    }
+    this.setSelection(objects.find((o) => o.uid === selectedUid) ?? null);
+    this.markDirty();
+  }
+
+  /** Hide/show the massing read off the photograph. Purely presentational —
+   *  the objects stay in the scene, stay in the plan and keep colliding, so
+   *  turning the layer off never quietly changes what a placement means. */
+  setFoundVisible(visible: boolean) {
+    let changed = false;
+    this.objectIndex.forEach((mesh) => {
+      if (mesh.userData.origin === "found" && mesh.visible !== visible) {
+        mesh.visible = visible;
+        changed = true;
+      }
+    });
+    if (changed) this.markDirty();
+  }
+
+  /* ---------------- selection ---------------- */
+
+  private setSelection(o: PlacedObject | null) {
+    if (this.selectionCage) {
+      this.helperGroup.remove(this.selectionCage);
+      this.selectionCage.geometry.dispose();
+      this.selectionCage = null;
+    }
+    if (this.selectionRing) {
+      this.helperGroup.remove(this.selectionRing);
+      this.selectionRing.geometry.dispose();
+      this.selectionRing = null;
+    }
+    if (!o) return;
+
+    // A wireframe cage rather than a glow: this is a drawing instrument, and
+    // an architect's selection is a measured box, not a video-game aura.
+    const box = new THREE.BoxGeometry(o.widthCm + 3, o.heightCm + 3, o.depthCm + 3);
+    const edges = new THREE.EdgesGeometry(box);
+    box.dispose();
+    const cage = new THREE.LineSegments(
+      edges,
+      new THREE.LineBasicMaterial({ color: this.accent, transparent: true, opacity: 0.95 }),
+    );
+    cage.position.set(o.x, o.heightCm / 2, o.z);
+    cage.rotation.y = (o.rotationDeg * Math.PI) / 180;
+    this.helperGroup.add(cage);
+    this.selectionCage = cage;
+
+    // Floor ring: shows the footprint that collision actually uses.
+    const r = Math.max(o.widthCm, o.depthCm) * 0.62;
+    const ring = new THREE.Mesh(
+      new THREE.RingGeometry(r, r + 2.4, 56),
+      new THREE.MeshBasicMaterial({
+        color: this.accent,
+        transparent: true,
+        opacity: 0.5,
+        side: THREE.DoubleSide,
+      }),
+    );
+    ring.rotation.x = -Math.PI / 2;
+    ring.position.set(o.x, 1.6, o.z);
+    this.helperGroup.add(ring);
+    this.selectionRing = ring;
+  }
+
+  /* ---------------- ghost + guides ---------------- */
+
+  /** The translucent preview shown while dragging from the catalogue or
+   *  moving a piece. Green-ish when it may land, red when it may not — the
+   *  colour is driven by the same evaluatePlacement the drop uses. */
+  setGhost(o: PlacedObject | null, tone: "ok" | "advisory" | "blocked") {
+    if (this.ghost) {
+      this.helperGroup.remove(this.ghost);
+      this.disposeObject(this.ghost);
+      this.ghost = null;
+    }
+    if (!o) {
+      this.markDirty();
+      return;
+    }
+    const g = buildObjectMesh(o);
+    const tint = colorOf(tone === "ok" ? "#5fbf8a" : tone === "advisory" ? "#e0aa4a" : "#e05c48");
+    g.traverse((c) => {
+      if (c instanceof THREE.Mesh) {
+        c.castShadow = false;
+        c.receiveShadow = false;
+        c.material = new THREE.MeshStandardMaterial({
+          color: tint,
+          transparent: true,
+          opacity: 0.42,
+          roughness: 0.8,
+          depthWrite: false,
+        });
+      }
+      if (c instanceof THREE.PointLight) c.intensity = 0;
+    });
+    // Footprint plate — the honest thing being tested is the plan rectangle.
+    const plate = new THREE.Mesh(
+      new THREE.PlaneGeometry(o.widthCm, o.depthCm),
+      new THREE.MeshBasicMaterial({ color: tint, transparent: true, opacity: 0.3, side: THREE.DoubleSide }),
+    );
+    plate.rotation.x = -Math.PI / 2;
+    plate.position.y = 2;
+    g.add(plate);
+    this.helperGroup.add(g);
+    this.ghost = g;
+    this.markDirty();
+  }
+
+  setGuides(guides: Array<{ axis: "x" | "z"; at: number }>) {
+    this.disposeGroup(this.guideGroup);
+    for (const g of guides) {
+      const mat = new THREE.LineBasicMaterial({ color: this.accent, transparent: true, opacity: 0.75 });
+      const half = (g.axis === "x" ? this.roomD : this.roomW) / 2;
+      const pts =
+        g.axis === "x"
+          ? [new THREE.Vector3(g.at, 2.4, -half), new THREE.Vector3(g.at, 2.4, half)]
+          : [new THREE.Vector3(-half, 2.4, g.at), new THREE.Vector3(half, 2.4, g.at)];
+      this.guideGroup.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), mat));
+    }
+    this.markDirty();
+  }
+
+  /* ---------------- picking ---------------- */
+
+  private setPointer(clientX: number, clientY: number) {
+    const r = this.canvas.getBoundingClientRect();
+    this.pointer.set(((clientX - r.left) / r.width) * 2 - 1, -((clientY - r.top) / r.height) * 2 + 1);
+    this.raycaster.setFromCamera(this.pointer, this.camera);
+  }
+
+  pickObject(clientX: number, clientY: number): string | null {
+    this.setPointer(clientX, clientY);
+    const hits = this.raycaster.intersectObjects(this.objectGroup.children, true);
+    for (const h of hits) {
+      const uid = h.object.userData.uid as string | undefined;
+      if (uid) return uid;
+    }
+    return null;
+  }
+
+  /** Where the pointer meets the floor plane, in room space. Returns null
+   *  when the ray is parallel to the floor (grazing camera angles). */
+  pickFloor(clientX: number, clientY: number): { x: number; z: number } | null {
+    this.setPointer(clientX, clientY);
+    const hit = new THREE.Vector3();
+    const ok = this.raycaster.ray.intersectPlane(this.floorPlane, hit);
+    if (!ok) return null;
+    return { x: hit.x, z: hit.z };
+  }
+
+  /* ---------------- camera ---------------- */
+
+  orbit(dxPx: number, dyPx: number) {
+    this.targetSph.theta -= dxPx * 0.0055;
+    this.targetSph.phi = THREE.MathUtils.clamp(this.targetSph.phi - dyPx * 0.0045, MIN_PHI, MAX_PHI);
+    this.markDirty();
+  }
+
+  zoom(delta: number) {
+    const min = 220;
+    const max = Math.max(this.roomW, this.roomD) * 2.6;
+    this.targetSph.radius = THREE.MathUtils.clamp(this.targetSph.radius * (1 + delta * 0.0014), min, max);
+    this.markDirty();
+  }
+
+  pan(dxPx: number, dyPx: number) {
+    // Pan in the camera's own screen plane, then clamp the target inside the
+    // room so the model can never be lost off-screen.
+    const right = new THREE.Vector3();
+    const up = new THREE.Vector3();
+    this.camera.getWorldDirection(right);
+    right.cross(this.camera.up).normalize();
+    up.copy(this.camera.up).normalize();
+    const k = this.sph.radius * 0.0016;
+    this.targetTarget.addScaledVector(right, -dxPx * k);
+    this.targetTarget.addScaledVector(up, dyPx * k * 0.6);
+    const hw = this.roomW * 0.6;
+    const hd = this.roomD * 0.6;
+    this.targetTarget.x = THREE.MathUtils.clamp(this.targetTarget.x, -hw, hw);
+    this.targetTarget.z = THREE.MathUtils.clamp(this.targetTarget.z, -hd, hd);
+    this.targetTarget.y = THREE.MathUtils.clamp(this.targetTarget.y, 0, this.roomH);
+    this.markDirty();
+  }
+
+  /** Distance at which the room's own corners fill `fill` of the viewport.
+   *
+   *  A fixed multiple of the room span cannot work here: the stage is a wide
+   *  letterbox between the top bar and the dock, so the vertical field is the
+   *  binding constraint and a room framed for a square viewport ends up
+   *  marooned in the middle of a very wide frame. This projects the eight
+   *  corners of the room volume at a trial distance and scales by whichever
+   *  axis overflows first, which is correct at any aspect ratio. */
+  private fitRadius(phi: number, theta: number, fill = 0.86): number {
+    const hw = this.roomW / 2;
+    const hd = this.roomD / 2;
+    const h = this.roomH;
+    const target = new THREE.Vector3(0, Math.min(90, h * 0.3), 0);
+
+    const trial = Math.max(this.roomW, this.roomD, h) * 2;
+    const sinPhi = Math.sin(phi);
+    const eye = new THREE.Vector3(
+      target.x + trial * sinPhi * Math.cos(theta),
+      target.y + trial * Math.cos(phi),
+      target.z + trial * sinPhi * Math.sin(theta),
+    );
+    const probe = new THREE.PerspectiveCamera(this.camera.fov, this.camera.aspect, 1, 1e5);
+    probe.position.copy(eye);
+    probe.lookAt(target);
+    probe.updateMatrixWorld();
+    probe.updateProjectionMatrix();
+
+    let maxAbsX = 1e-6;
+    let maxAbsY = 1e-6;
+    for (const x of [-hw, hw]) {
+      for (const z of [-hd, hd]) {
+        for (const y of [0, h]) {
+          const p = new THREE.Vector3(x, y, z).project(probe);
+          maxAbsX = Math.max(maxAbsX, Math.abs(p.x));
+          maxAbsY = Math.max(maxAbsY, Math.abs(p.y));
+        }
+      }
+    }
+    // NDC scales ~linearly with 1/distance, so one probe gives the answer.
+    const overflow = Math.max(maxAbsX, maxAbsY) / fill;
+    return THREE.MathUtils.clamp(trial * overflow, 200, 12000);
+  }
+
+  setView(preset: ViewPreset) {
+    let phi: number;
+    let theta: number;
+    let fill: number;
+    if (preset === "plan") {
+      phi = MIN_PHI;
+      theta = -Math.PI / 2;
+      fill = 0.92;
+    } else if (preset === "corner") {
+      // Low and close: standing in the doorway, not hovering over the model.
+      phi = 1.24;
+      theta = -2.42;
+      fill = 1.16;
+    } else {
+      // Lower than a floor-plan bird's eye: the room should read as a space
+      // you could walk into, not a diagram you hover above.
+      phi = 1.06;
+      theta = -0.72;
+      fill = 1.0;
+    }
+    this.targetSph = { radius: this.fitRadius(phi, theta, fill), phi, theta };
+    this.targetTarget.set(0, Math.min(90, this.roomH * 0.3), 0);
+    this.markDirty();
+  }
+
+  frameRoom() {
+    this.setView("perspective");
+    // No easing on first frame: the room should already be framed when the
+    // editor appears, not glide in from an arbitrary starting distance.
+    this.sph = { ...this.targetSph };
+    this.target.copy(this.targetTarget);
+  }
+
+  /** Ease the camera to look at one object without changing the orbit feel. */
+  focusOn(o: PlacedObject) {
+    this.targetTarget.set(o.x, o.heightCm * 0.5, o.z);
+    this.targetSph.radius = Math.min(this.targetSph.radius, Math.max(280, Math.max(o.widthCm, o.depthCm) * 4));
+    this.markDirty();
+  }
+
+  /* ---------------- loop ---------------- */
+
+  private markDirty() {
+    this.dirty = true;
+    this.settleFrames = 90;
+  }
+
+  resize(w: number, h: number) {
+    this.renderer.setSize(w, h, false);
+    this.camera.aspect = w / Math.max(1, h);
+    this.camera.updateProjectionMatrix();
+    this.markDirty();
+  }
+
+  private loop() {
+    if (this.disposed) return;
+    this.raf = requestAnimationFrame(this.loop);
+
+    // Critically-damped-ish easing. 0.16 is the value where a drag feels
+    // attached to the cursor but a view change still reads as a move.
+    const k = 0.16;
+    const before = this.sph.radius + this.sph.phi + this.sph.theta + this.target.lengthSq();
+    this.sph.radius += (this.targetSph.radius - this.sph.radius) * k;
+    this.sph.phi += (this.targetSph.phi - this.sph.phi) * k;
+    this.sph.theta += (this.targetSph.theta - this.sph.theta) * k;
+    this.target.lerp(this.targetTarget, k);
+    const after = this.sph.radius + this.sph.phi + this.sph.theta + this.target.lengthSq();
+
+    if (Math.abs(after - before) > 1e-4) this.settleFrames = Math.max(this.settleFrames, 2);
+    if (!this.dirty && this.settleFrames <= 0) return;
+    this.settleFrames--;
+    this.dirty = false;
+
+    const sinPhi = Math.sin(this.sph.phi);
+    this.camera.position.set(
+      this.target.x + this.sph.radius * sinPhi * Math.cos(this.sph.theta),
+      this.target.y + this.sph.radius * Math.cos(this.sph.phi),
+      this.target.z + this.sph.radius * sinPhi * Math.sin(this.sph.theta),
+    );
+    this.camera.lookAt(this.target);
+
+    this.cullWalls();
+    this.renderer.render(this.scene, this.camera);
+  }
+
+  /** Fade whichever walls sit between the camera and the room. */
+  private cullWalls() {
+    const dir = new THREE.Vector3();
+    this.camera.getWorldDirection(dir);
+    for (const { mesh, normal, attachments } of this.wallMeshes) {
+      const facing = normal.dot(dir);
+      // facing > 0 means the wall's inward normal points away from the
+      // camera, i.e. we are looking at its back — fade it out.
+      const want = facing > 0.02 ? 0.045 : 1;
+      const m = mesh.material as THREE.MeshStandardMaterial;
+      m.opacity += (want - m.opacity) * 0.18;
+      m.transparent = m.opacity < 0.99;
+      m.depthWrite = m.opacity > 0.6;
+      for (const a of attachments) {
+        const am = a.material as THREE.MeshStandardMaterial;
+        am.opacity = m.opacity;
+        am.depthWrite = m.depthWrite;
+        a.visible = m.opacity > 0.08;
+      }
+      if (Math.abs(want - m.opacity) > 0.01) this.settleFrames = Math.max(this.settleFrames, 2);
+    }
+  }
+
+  /* ---------------- conditioning capture ---------------- */
+
+  /** Render the designed scene into the two images the generation pipeline
+   *  already conditions on.
+   *
+   *  This is the whole trick behind "Render with DAR". backend/transform.py
+   *  runs SDXL with a dual ControlNet — Depth Anything depth plus an
+   *  ADE20K-palette OneFormer segmentation map — and normally derives both
+   *  from the user's photograph. Those two images ARE the layout signal. So
+   *  instead of describing the design in a prompt and hoping, we hand the
+   *  pipeline depth and segmentation rendered from the actual scene the user
+   *  built. Geometry, placement, orientation and viewpoint stop being
+   *  something the model has to infer and become something it is conditioned
+   *  on, because they are drawn into its control inputs.
+   *
+   *  Conventions are matched deliberately to the annotators being replaced:
+   *  depth is brighter-nearer (Depth Anything's output, and what DepthOrbit
+   *  already assumes), and segmentation uses the exact ADE20K-150 palette the
+   *  seg ControlNet was trained on — a near-miss colour is not a near-miss
+   *  class, it is a different class or none at all.
+   */
+  renderConditioning(width: number, height: number): {
+    depth: string;
+    seg: string;
+    beauty: string;
+    meta: { width: number; height: number; near: number; far: number; fov: number };
+  } {
+    const rt = new THREE.WebGLRenderTarget(width, height, {
+      minFilter: THREE.LinearFilter,
+      magFilter: THREE.LinearFilter,
+      format: THREE.RGBAFormat,
+    });
+
+    // The capture must use the user's current viewpoint at the generation
+    // aspect, not the on-screen aspect, or the render would be framed
+    // differently from the design that produced it.
+    const cam = this.camera.clone() as THREE.PerspectiveCamera;
+    cam.aspect = width / height;
+    cam.updateProjectionMatrix();
+
+    // Same angle the user chose, but pushed in until the room fills the frame.
+    // The on-screen view deliberately leaves the maquette floating on its
+    // plinth with air around it; captured as-is, ~40% of the conditioning was
+    // empty black, and unconstrained pixels are pixels SDXL invents. Keeping
+    // the azimuth and elevation preserves the viewpoint; only the distance
+    // changes, so the render frames the design the user is actually looking at.
+    const savedAspect = this.camera.aspect;
+    this.camera.aspect = cam.aspect;
+    this.camera.updateProjectionMatrix();
+    const radiusForCapture = this.fitRadius(this.sph.phi, this.sph.theta, 1.24);
+    this.camera.aspect = savedAspect;
+    this.camera.updateProjectionMatrix();
+
+    const sinPhi = Math.sin(this.sph.phi);
+    cam.position.set(
+      this.target.x + radiusForCapture * sinPhi * Math.cos(this.sph.theta),
+      this.target.y + radiusForCapture * Math.cos(this.sph.phi),
+      this.target.z + radiusForCapture * sinPhi * Math.sin(this.sph.theta),
+    );
+    cam.lookAt(this.target);
+    cam.updateMatrixWorld(true);
+
+    // Depth range tight around the room, so the 8-bit ramp is spent on the
+    // room rather than on empty space behind it.
+    const radius = Math.hypot(this.roomW, this.roomD, this.roomH) / 2;
+    const dist = radiusForCapture;
+    const near = Math.max(1, dist - radius);
+    const far = dist + radius;
+
+    const hidden: THREE.Object3D[] = [];
+    const hide = (o: THREE.Object3D) => {
+      if (o.visible) {
+        o.visible = false;
+        hidden.push(o);
+      }
+    };
+    // Editor furniture is not part of the room.
+    hide(this.helperGroup);
+    hide(this.guideGroup);
+    for (const c of this.shellGroup.children) {
+      if (c instanceof THREE.GridHelper) hide(c);
+      if (c.userData.isPlinth) hide(c);
+    }
+    // Found massing is deliberately KEPT: it is furniture physically present
+    // in the room, so it belongs in the layout the renderer is conditioned on
+    // even when the user has toggled its display off.
+    const restoredFound: THREE.Object3D[] = [];
+    this.objectIndex.forEach((mesh) => {
+      if (mesh.userData.origin === "found" && !mesh.visible) {
+        mesh.visible = true;
+        restoredFound.push(mesh);
+      }
+    });
+
+    // Walls the viewer is looking THROUGH must not come back as solid geometry.
+    // On screen cullWalls() fades the camera-facing walls to ~0.045 so you can
+    // see into the room; the conditioning passes replace every material with an
+    // opaque one, which would otherwise rebuild those walls as a solid slab
+    // directly in front of the lens — the room would be conditioned as a blank
+    // partition. Hiding them keeps the capture equal to the view that produced it.
+    for (const { mesh, attachments } of this.wallMeshes) {
+      const m = mesh.material as THREE.MeshStandardMaterial;
+      if (m.opacity < 0.5) {
+        hide(mesh);
+        for (const a of attachments) hide(a);
+      }
+    }
+
+    const prevTarget = this.renderer.getRenderTarget();
+    const prevBg = this.scene.background;
+    const prevTone = this.renderer.toneMapping;
+    const prevExposure = this.renderer.toneMappingExposure;
+    const prevEncoding = this.renderer.outputEncoding;
+
+    const readToDataUrl = (): string => {
+      const buf = new Uint8Array(width * height * 4);
+      this.renderer.readRenderTargetPixels(rt, 0, 0, width, height, buf);
+      const cv = document.createElement("canvas");
+      cv.width = width;
+      cv.height = height;
+      const ctx = cv.getContext("2d")!;
+      const img = ctx.createImageData(width, height);
+      // WebGL reads bottom-up; canvas ImageData is top-down.
+      const rowBytes = width * 4;
+      for (let y = 0; y < height; y++) {
+        const src = (height - 1 - y) * rowBytes;
+        img.data.set(buf.subarray(src, src + rowBytes), y * rowBytes);
+      }
+      ctx.putImageData(img, 0, 0);
+      return cv.toDataURL("image/png");
+    };
+
+    // ---- 1. beauty pass (the maquette itself, for the comparison) ----
+    this.renderer.setRenderTarget(rt);
+    this.renderer.setClearColor(0x0f0f14, 1);
+    this.renderer.clear();
+    this.renderer.render(this.scene, cam);
+    const beauty = readToDataUrl();
+
+    // Conditioning is DATA, not a picture. ACES tone mapping plus sRGB output
+    // is exactly right for the beauty pass above and exactly wrong here: it
+    // moved wall grey 120 to 129 and lamp yellow (224,255,8) to (187,189,40),
+    // and the seg ControlNet reads a shifted colour as a different class or no
+    // class at all. Depth wants its linear ramp intact for the same reason.
+    this.renderer.toneMapping = THREE.NoToneMapping;
+    this.renderer.toneMappingExposure = 1;
+    this.renderer.outputEncoding = THREE.LinearEncoding;
+
+    // ---- 2. depth pass ----
+    const depthMat = new THREE.ShaderMaterial({
+      uniforms: { uNear: { value: near }, uFar: { value: far } },
+      vertexShader: `
+        varying float vViewDepth;
+        void main() {
+          vec4 mv = modelViewMatrix * vec4(position, 1.0);
+          vViewDepth = -mv.z;
+          gl_Position = projectionMatrix * mv;
+        }`,
+      fragmentShader: `
+        uniform float uNear;
+        uniform float uFar;
+        varying float vViewDepth;
+        void main() {
+          float t = clamp((vViewDepth - uNear) / max(uFar - uNear, 0.0001), 0.0, 1.0);
+          float v = 1.0 - t;            // brighter = closer, matching Depth Anything
+          gl_FragColor = vec4(v, v, v, 1.0);
+        }`,
+    });
+    this.scene.overrideMaterial = depthMat;
+    // Black = infinitely far, so unpainted background reads as "not the room".
+    this.renderer.setClearColor(0x000000, 1);
+    this.renderer.clear();
+    this.renderer.render(this.scene, cam);
+    const depth = readToDataUrl();
+    this.scene.overrideMaterial = null;
+    depthMat.dispose();
+
+    // ---- 3. segmentation pass ----
+    // Per-object colour, so overrideMaterial cannot be used; swap and restore.
+    const swapped: Array<{ mesh: THREE.Mesh; mat: THREE.Material | THREE.Material[] }> = [];
+    const segMatCache = new Map<number, THREE.MeshBasicMaterial>();
+    const segMat = (classId: number) => {
+      let m = segMatCache.get(classId);
+      if (!m) {
+        m = new THREE.MeshBasicMaterial({ color: ade20kHex(classId), fog: false });
+        segMatCache.set(classId, m);
+      }
+      return m;
+    };
+    this.scene.traverse((o) => {
+      if (!(o instanceof THREE.Mesh) || !o.visible) return;
+      const cls = o.userData.ade;
+      if (typeof cls !== "number") return;
+      swapped.push({ mesh: o, mat: o.material });
+      o.material = segMat(cls);
+    });
+    // Anything without a class must not paint a random colour into the map.
+    const unclassified: THREE.Mesh[] = [];
+    this.scene.traverse((o) => {
+      if (o instanceof THREE.Mesh && o.visible && typeof o.userData.ade !== "number") {
+        o.visible = false;
+        unclassified.push(o);
+      }
+    });
+    this.renderer.setClearColor(0x000000, 1);
+    this.renderer.clear();
+    this.renderer.render(this.scene, cam);
+    const seg = readToDataUrl();
+
+    for (const u of unclassified) u.visible = true;
+    for (const s of swapped) s.mesh.material = s.mat;
+    segMatCache.forEach((m) => m.dispose());
+
+    // ---- restore ----
+    this.renderer.setRenderTarget(prevTarget);
+    this.renderer.toneMapping = prevTone;
+    this.renderer.toneMappingExposure = prevExposure;
+    this.renderer.outputEncoding = prevEncoding;
+    this.scene.background = prevBg;
+    for (const o of hidden) o.visible = true;
+    for (const o of restoredFound) o.visible = false;
+    rt.dispose();
+    this.markDirty();
+
+    return {
+      depth,
+      seg,
+      beauty,
+      meta: { width, height, near, far, fov: cam.fov },
+    };
+  }
+
+  /* ---------------- teardown ---------------- */
+
+  private disposeObject(o: THREE.Object3D) {
+    o.traverse((c) => {
+      if (c instanceof THREE.Mesh) {
+        c.geometry.dispose();
+        // Shared cache materials must survive; only clones are disposed.
+        const m = c.material as THREE.Material & { __shared?: boolean };
+        if (Array.isArray(c.material)) c.material.forEach((x) => x.dispose());
+        else if (!m.__shared) m.dispose();
+      }
+    });
+  }
+
+  private disposeGroup(g: THREE.Group) {
+    for (const c of [...g.children]) {
+      g.remove(c);
+      this.disposeObject(c);
+    }
+  }
+
+  dispose() {
+    this.disposed = true;
+    cancelAnimationFrame(this.raf);
+    this.disposeGroup(this.shellGroup);
+    this.disposeGroup(this.objectGroup);
+    this.disposeGroup(this.helperGroup);
+    this.disposeGroup(this.guideGroup);
+    this.objectIndex.clear();
+    this.renderer.dispose();
+  }
+}
+
+/** Marks the shared cache materials so disposeObject leaves them alone. */
+export function protectSharedMaterials(keys: string[]) {
+  for (const k of keys) {
+    (standardMaterial(k) as THREE.Material & { __shared?: boolean }).__shared = true;
+  }
+}

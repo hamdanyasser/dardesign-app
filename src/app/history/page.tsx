@@ -23,11 +23,15 @@ import {
   setSuggested,
   storedImageUrl,
   type HistoryEntry,
+  type StyleId,
 } from "@/lib/api";
 
 export default function HistoryPage() {
-  const { isArabic } = useThemeLanguage();
+  const { isArabic, copy } = useThemeLanguage();
   const { user, loading: authLoading } = useAuth();
+
+  const cultureName = (culture: HistoryEntry["culture"]) =>
+    (culture && copy.shared.styles[culture as StyleId]?.name) || null;
 
   const [entries, setEntries] = useState<HistoryEntry[]>([]);
   const [loading, setLoading] = useState(true);
@@ -91,15 +95,25 @@ export default function HistoryPage() {
   };
 
   const btn =
-    "flex items-center gap-1.5 rounded-lg border border-[var(--dd-gold-dim)]/40 px-3 py-1.5 text-sm text-[var(--dd-text-soft)] transition disabled:opacity-50";
+    "font-editorial-mono flex items-center gap-1.5 rounded-[2px] border border-[var(--dd-border)] px-2.5 py-1.5 text-[10px] text-[var(--dd-text-secondary)] transition hover:border-[var(--dd-gold)] hover:text-[var(--dd-gold)] disabled:opacity-50";
+
+  const ratedCount = entries.filter((e) => e.rating).length;
 
   return (
     <GalleryShell
       title={t("My designs", "تصاميمي")}
       subtitle={t("Every design you saved, newest first.", "كل تصميم حفظته، الأحدث أولاً.")}
+      eyebrow={
+        entries.length > 0
+          ? t(
+              `${entries.length} SAVED · ${ratedCount} RATED`,
+              `${entries.length} محفوظ · ${ratedCount} مقيَّم`,
+            )
+          : undefined
+      }
     >
       {error && (
-        <p className="mb-6 rounded-lg border border-[var(--error)]/40 bg-[var(--error)]/10 px-3 py-2 text-sm text-[var(--error)]">
+        <p className="mb-6 border-s-2 border-[var(--error)] ps-3 text-sm text-[var(--error)]">
           {error}
         </p>
       )}
@@ -122,30 +136,16 @@ export default function HistoryPage() {
           cta={t("Design a room", "صمّم غرفة")}
         />
       ) : (
-        <div className="space-y-6">
+        <div>
           {entries.map((e) => (
             <DesignCard
               key={e.id}
               beforeUrl={storedImageUrl(e.oldImageUrl)}
               afterUrl={storedImageUrl(e.newImageUrl)}
               createdAt={e.createdAt}
-              caption={
-                <span className="flex flex-wrap items-center gap-2">
-                  {e.culture && (
-                    <span className="rounded-full border border-[var(--dd-gold-dim)]/50 px-2 py-0.5 text-xs text-[var(--dd-text-secondary)]">
-                      {e.culture}
-                    </span>
-                  )}
-                  {e.isSuggested && (
-                    <span className="rounded-full border border-[var(--dd-gold)]/50 px-2 py-0.5 text-xs text-[var(--dd-gold)]">
-                      {t("Shared", "مشارَك")}
-                    </span>
-                  )}
-                  {/* The rating already stored for this design. The form below
-                      is still where it is given or changed. */}
-                  <RatingBadge rating={e.rating} />
-                </span>
-              }
+              title={cultureName(e.culture) ?? t("Untitled", "بلا عنوان")}
+              tag={e.isSuggested ? t("SHARED", "مُشارَك") : undefined}
+              rating={<RatingBadge rating={e.rating} />}
               actions={
                 <>
                   <button
@@ -196,7 +196,7 @@ function Empty({ message, href, cta }: { message: string; href: string; cta: str
       <p className="text-[var(--dd-text-soft)]">{message}</p>
       <Link
         href={href}
-        className="mt-5 inline-block rounded-lg bg-[var(--dd-gold)] px-5 py-2.5 font-medium text-[var(--dd-ink)] transition hover:bg-[var(--dd-gold-hover)]"
+        className="font-editorial-mono mt-5 inline-block rounded-[2px] bg-[var(--dd-gold)] px-6 py-3 text-xs text-[var(--dd-ink)] transition hover:bg-[var(--dd-gold-hover)]"
       >
         {cta}
       </Link>

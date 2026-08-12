@@ -53,6 +53,31 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * Studio edit actions (colour control, furniture placement) act on a job that
+ * only exists in the render backend's memory. If that process restarts
+ * mid-session — a real failure mode this app cannot recover from without a
+ * fresh generation, since the depth/segmentation data behind it is never
+ * persisted — the backend correctly reports "job_not_found", but that raw
+ * string doesn't say why or what to do about it. This turns it into an
+ * honest, actionable message instead of hiding or inventing a recovery.
+ */
+export function describeEditError(
+  e: unknown,
+  fallback: { en: string; ar: string },
+): { en: string; ar: string } {
+  if (e instanceof ApiError) {
+    if (e.code === "job_not_found") {
+      return {
+        en: "This design session is no longer available on the server (it may have restarted). Redesign the room to continue editing.",
+        ar: "لم تعد جلسة التصميم هذه متاحة على الخادم (قد يكون قد أعيد تشغيله). أعد تصميم الغرفة لمتابعة التعديل.",
+      };
+    }
+    return { en: e.message_en, ar: e.message_ar };
+  }
+  return fallback;
+}
+
 async function unwrap(res: Response): Promise<unknown> {
   if (res.ok) return res.json();
   let body: unknown = null;
@@ -1452,4 +1477,103 @@ export async function fetchAdminUsers(): Promise<{ users: AdminUserRow[]; terms:
     ...WITH_CREDENTIALS,
   });
   return (await unwrap(res)) as { users: AdminUserRow[]; terms: PlanTerms };
+}
+
+/* ----------------------------------------------------------------------------
+ * Build Mode -> photorealistic render
+ * ------------------------------------------------------------------------- */
+
+export interface SceneRenderResult {
+  jobId: string;
+  style: string;
+  /** base64 PNG data URL. */
+  image: string;
+  durationS: number | null;
+  /** True when the backend had no GPU and returned a LIGHT-mode stand-in.
+   *  The UI must say so rather than presenting it as a render. */
+  placeholder: boolean;
+}
+
+/** The address a render will actually be posted to. Surfaced in the failure
+ *  message because "could not be reached" is useless when the cause is almost
+ *  always a rotated tunnel URL in .env.local. */
+export function renderEndpoint(): string {
+  return `${API_URL}/render-scene`;
+}
+
+function dataUrlToBlob(dataUrl: string): Blob {
+  const [head, b64] = dataUrl.split(",");
+  const mime = /:(.*?);/.exec(head)?.[1] ?? "image/png";
+  const bin = atob(b64);
+  const buf = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
+  return new Blob([buf], { type: mime });
+}
+
+/** Post Build Mode's rendered depth + ADE20K segmentation to the generator.
+ *
+ *  These are the same two control images `/redesign` normally derives from the
+ *  photograph, so the layout the model is conditioned on is the one the user
+ *  composed. Same generous timeout as `/restyle`: a T4 render can queue behind
+ *  a running generation, and the backend serializes them. */
+export async function renderScene(
+  depthDataUrl: string,
+  segDataUrl: string,
+  style: string,
+  { room = "living room", timeoutMs = 360_000, signal }: { room?: string; timeoutMs?: number; signal?: AbortSignal } = {},
+): Promise<SceneRenderResult> {
+  const fd = new FormData();
+  fd.append("depth", dataUrlToBlob(depthDataUrl), "depth.png");
+  fd.append("seg", dataUrlToBlob(segDataUrl), "seg.png");
+  fd.append("style", style);
+  fd.append("room", room);
+
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  if (signal) signal.addEventListener("abort", () => ctrl.abort(), { once: true });
+
+  try {
+    const res = await fetch(`${API_URL}/render-scene`, {
+      method: "POST",
+      body: fd,
+      signal: ctrl.signal,
+      credentials: "omit",
+    });
+    if (!res.ok) {
+      let detail = "";
+      try {
+        detail = JSON.stringify(await res.json());
+      } catch {
+        /* non-JSON error body */
+      }
+      throw new ApiError(
+        {
+          code: "render_failed",
+          message_en: `The render could not be produced (${res.status}).${detail ? " " + detail : ""}`,
+          message_ar: `تعذّر إنتاج العرض (${res.status}).`,
+        },
+        res.status,
+      );
+    }
+    const j = (await res.json()) as Record<string, unknown>;
+    if (typeof j.image !== "string" || !j.image.startsWith("data:image")) {
+      throw new ApiError(
+        {
+          code: "render_empty",
+          message_en: "The renderer returned no image.",
+          message_ar: "لم يُعِد المحرك أي صورة.",
+        },
+        502,
+      );
+    }
+    return {
+      jobId: String(j.job_id ?? ""),
+      style: String(j.style ?? style),
+      image: j.image,
+      durationS: typeof j.duration_s === "number" ? j.duration_s : null,
+      placeholder: j.placeholder === true,
+    };
+  } finally {
+    clearTimeout(timer);
+  }
 }

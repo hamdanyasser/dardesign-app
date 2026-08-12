@@ -18,6 +18,7 @@ import { Check, Loader2, RotateCcw, X } from "lucide-react";
 import {
   ApiError,
   confirmPlacement,
+  describeEditError,
   fetchCandidatePositions,
   fetchFurnitureRecommendations,
   furnitureAssetUrl,
@@ -111,9 +112,7 @@ export default function FurniturePlacement({
       .catch((e) => {
         if (cancelled) return;
         setError(
-          e instanceof ApiError
-            ? { en: e.message_en, ar: e.message_ar }
-            : { en: "Could not load furniture.", ar: "تعذّر تحميل الأثاث." },
+          describeEditError(e, { en: "Could not load furniture.", ar: "تعذّر تحميل الأثاث." }),
         );
       })
       .finally(() => !cancelled && setLoadingItems(false));
@@ -176,9 +175,7 @@ export default function FurniturePlacement({
         setPhase("positioning");
       } catch (e) {
         setError(
-          e instanceof ApiError
-            ? { en: e.message_en, ar: e.message_ar }
-            : { en: "Could not find positions.", ar: "تعذّر إيجاد مواضع." },
+          describeEditError(e, { en: "Could not find positions.", ar: "تعذّر إيجاد مواضع." }),
         );
         setPhase("browsing");
         setSelected(null);
@@ -286,9 +283,7 @@ export default function FurniturePlacement({
       cancel();
     } catch (e) {
       setError(
-        e instanceof ApiError
-          ? { en: e.message_en, ar: e.message_ar }
-          : { en: "Could not insert the furniture.", ar: "تعذّر إدراج الأثاث." },
+        describeEditError(e, { en: "Could not insert the furniture.", ar: "تعذّر إدراج الأثاث." }),
       );
       setPhase("positioning");
     }

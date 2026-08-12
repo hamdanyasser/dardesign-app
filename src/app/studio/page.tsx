@@ -27,6 +27,15 @@ import ColorControl from "@/components/ColorControl";
 import CulturalNarration from "@/components/CulturalNarration";
 import DepthOrbit from "@/components/DepthOrbit";
 import FurniturePlacement from "@/components/FurniturePlacement";
+import BeforeAfterSlider from "@/components/before-after-slider";
+import EnterBuildMode from "@/components/design/EnterBuildMode";
+import {
+  CultureDNA,
+  DesignStory,
+  GenerationStory,
+  createDesignStoryData,
+  type GenerationStoryAssets,
+} from "@/components/story";
 import RoomReport from "@/components/RoomReport";
 import SaveDesignButton from "@/components/SaveDesignButton";
 import StyleIntensitySlider from "@/components/StyleIntensitySlider";
@@ -45,6 +54,15 @@ import {
 import { cn } from "@/lib/utils";
 
 type Phase = "idle" | "loading" | "done" | "error";
+
+/** Result sections. "result" is the room itself; "story"/"dna"/"inside" are the
+ *  narrative layer (Design Story, Culture DNA, Inside DAR); "understand"/"edit"
+ *  are the existing analysis and editing tools. */
+type ResultTab = "result" | "story" | "dna" | "inside" | "understand" | "edit";
+
+/** The analysis/editing panels below the tab bar belong to these two tabs only,
+ *  so the narrative tabs render on their own rather than inheriting them. */
+const TOOL_TABS: readonly ResultTab[] = ["understand", "edit"];
 
 /** Defense Mode (?demo=1): pre-rendered canonical rooms served from
  *  /public/demo — the zero-backend fallback if the GPU tunnel dies mid-demo.
@@ -69,11 +87,13 @@ const DISSOLVE_COLOR: Record<StyleId, number> = {
   moroccan: 0xf0d78c,
 };
 
+// "original" isn't a culture, so it keeps a plain glyph; the three cultures
+// get their material motif instead (see the Motif lookup at render time).
 const TILES = [
   { key: "original", ar: "الأصلية", en: "Original", flag: "🏠" },
-  { key: "lebanese", ar: "لبناني", en: "Lebanese", flag: "🇱🇧" },
-  { key: "khaleeji", ar: "خليجي", en: "Khaleeji", flag: "🇸🇦" },
-  { key: "moroccan", ar: "مغربي", en: "Moroccan", flag: "🇲🇦" },
+  { key: "lebanese", ar: "لبناني", en: "Lebanese" },
+  { key: "khaleeji", ar: "خليجي", en: "Khaleeji" },
+  { key: "moroccan", ar: "مغربي", en: "Moroccan" },
 ] as const;
 
 function mmss(totalSeconds: number): string {
@@ -115,10 +135,15 @@ export default function StudioPage() {
   const [generateScope, setGenerateScope] = useState<StyleId | "all">("all");
   const [progress, setProgress] = useState(0);
   const [elapsed, setElapsed] = useState(0);
-  const [comparePos, setComparePos] = useState(50);
   const [over, setOver] = useState(false);
   const [validationErr, setValidationErr] = useState<string | null>(null);
-  const [showElements, setShowElements] = useState(false);
+  /* Results IA (P1-8). The results view used to stack ~9 heavy panels in one
+     column behind a single Show/Hide toggle, so the jury had to scroll a long
+     way to find anything. Grouped into three tabs instead — every panel is
+     still reachable, now in one click. Panels stay mounted (hidden via CSS)
+     so an in-progress colour pick or furniture placement survives a tab
+     switch. */
+  const [resultTab, setResultTab] = useState<ResultTab>("result");
   const [demoRooms, setDemoRooms] = useState<DemoRoom[]>([]);
   // The renders exactly as generated, before any colour or furniture edit. Kept
   // so Save can say whether what it is storing is still the pipeline's own
@@ -145,8 +170,6 @@ export default function StudioPage() {
 
   const abortRef = useRef<AbortController | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-  const compareRef = useRef<HTMLDivElement>(null);
-  const dragging = useRef(false);
 
   // Reassuring elapsed timer during the ~1–2 min synchronous generation.
   useEffect(() => {
@@ -158,8 +181,11 @@ export default function StudioPage() {
     return () => clearInterval(id);
   }, [phase]);
 
-  // Eased faux-progress: no real progress events exist on /redesign, so the
-  // dissolve assembles asymptotically toward ~0.92, then snaps to 1 on resolve.
+  // Drives the particle dissolve ONLY — it is an animation curve, not a
+  // measurement. /redesign is a single synchronous call with no progress
+  // events, so there is nothing real to report as a percentage and none is
+  // shown: the UI reports elapsed time, which is measured, and an
+  // indeterminate ring, which promises nothing.
   useEffect(() => {
     if (phase !== "loading") return;
     const start = performance.now();
@@ -265,8 +291,7 @@ export default function StudioPage() {
     setErr(null);
     setQuotaBlocked(false);
     setResult(null);
-    setShowElements(false);
-    setComparePos(50);
+    setResultTab("result");
     setProgress(0);
 
     // Before the loading scene, so a refusal is immediate rather than a
@@ -341,8 +366,7 @@ export default function StudioPage() {
       }
     }
     setErr(null);
-    setShowElements(false);
-    setComparePos(50);
+    setResultTab("result");
     setResult({
       original: `${base}/original.png`,
       lebanese: `${base}/lebanese.png`,
@@ -361,7 +385,7 @@ export default function StudioPage() {
     abortRef.current?.abort();
     setResult(null);
     setErr(null);
-    setShowElements(false);
+    setResultTab("result");
     setProgress(0);
     clearImage();
     setPhase("idle");
@@ -374,15 +398,6 @@ export default function StudioPage() {
     document.body.appendChild(a);
     a.click();
     a.remove();
-  }, []);
-
-  // compare-slider drag
-  const onCompareMove = useCallback((clientX: number) => {
-    const el = compareRef.current;
-    if (!el) return;
-    const rect = el.getBoundingClientRect();
-    const x = Math.max(0, Math.min(rect.width, clientX - rect.left));
-    setComparePos((x / rect.width) * 100);
   }, []);
 
   const tc = copy.transform;
@@ -417,11 +432,17 @@ export default function StudioPage() {
   );
   const ringR = 90;
   const ringC = 2 * Math.PI * ringR;
-  const ringOffset = ringC * (1 - progress);
 
-  // "After" always shows right of the handle — .lbl.before/.lbl.after in
-  // cinema.css are pinned left/right in both languages, so the images must match.
-  const clipAfter = `inset(0 0 0 ${comparePos}%)`;
+  // What is actually being rendered this run — stated plainly, because "all
+  // three" genuinely takes about three times as long as one culture.
+  const scopeLabel =
+    generateScope === "all"
+      ? isArabic
+        ? "ثلاث لغات تصميم"
+        : "THREE DESIGN LANGUAGES"
+      : isArabic
+        ? `لغة تصميم واحدة · ${tc.styles[generateScope].name}`
+        : `ONE DESIGN LANGUAGE · ${tc.styles[generateScope].name.toUpperCase()}`;
 
   // The weekly allowance, as a line under the CTA. Only a plan the backend
   // actually reported produces one; when the accounts backend is unreachable
@@ -709,7 +730,20 @@ export default function StudioPage() {
                     }
                     onClick={() => setGenerateScope("all")}
                   >
-                    <div className="motif" />
+                    {/* Was an empty <div className="motif"/>, which rendered as a
+                        blank black square next to three illustrated cards — it
+                        read as a failed image. A triptych of the three motifs
+                        says "all three" without inventing new artwork. */}
+                    <div className="motif motif-trio" aria-hidden>
+                      {STYLE_ORDER.map((id) => {
+                        const Motif = MotifTiles[STYLE_MOTIF[id] as keyof typeof MotifTiles];
+                        return Motif ? (
+                          <span key={id} className="motif-third">
+                            <Motif />
+                          </span>
+                        ) : null;
+                      })}
+                    </div>
                     <div>
                       <h3 className="name">
                         {isArabic ? "الثلاثة معاً" : "All three"}
@@ -783,21 +817,22 @@ export default function StudioPage() {
             </div>
             <DustLayer count={26} seed={17} />
             <div className="core">
+              {/* Indeterminate by design. A percentage here would be invented:
+                  /redesign returns once, with no intermediate state to read. */}
               <div className="ring-wrap">
                 <svg viewBox="0 0 200 200">
                   <circle className="ring-bg" cx="100" cy="100" r={ringR} />
                   <circle
-                    className="ring-fg"
+                    className="ring-fg ring-indeterminate"
                     cx="100"
                     cy="100"
                     r={ringR}
-                    strokeDasharray={ringC}
-                    strokeDashoffset={ringOffset}
+                    strokeDasharray={`${(ringC * 0.16).toFixed(1)} ${ringC.toFixed(1)}`}
                   />
                 </svg>
                 <div className="ring-pct">
-                  <span className="pct-num">{Math.round(progress * 100)}</span>
-                  <span className="pct">%</span>
+                  <span className="pct-num mono">{mmss(elapsed)}</span>
+                  <span className="pct">{isArabic ? "منقضية" : "elapsed"}</span>
                 </div>
               </div>
               <div className="step-label">{lc.pretitle}</div>
@@ -812,6 +847,21 @@ export default function StudioPage() {
             <div className="footer-meta">{lc.meta}</div>
           </section>
         </div>
+      )}
+
+      {/* Inside DAR, during the real wait. Studio's animated percentage is
+          deliberately NOT passed as progress: /redesign is one synchronous
+          call with no stage telemetry, so the only honest inputs are the
+          upload preview, the requested scope and measured elapsed time. The
+          chapter loop is documentary pacing, not an estimate of completion. */}
+      {phase === "loading" && imagePreviewUrl && (
+        <section className="relative z-10 mx-auto max-w-5xl px-4 pb-16">
+          <GenerationStory
+            inputImage={imagePreviewUrl}
+            culture={generateScope}
+            status={{ state: "requesting", elapsedSeconds: elapsed }}
+          />
+        </section>
       )}
 
       {/* ---------- ERROR ---------- */}

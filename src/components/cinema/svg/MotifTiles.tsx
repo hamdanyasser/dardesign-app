@@ -38,22 +38,34 @@ export const MotifTiles: Record<MotifTileId, FC> = {
       </g>
     </svg>
   ),
+  // Interlocking square + 45°-rotated square (an 8-pointed geometric lattice,
+  // not a star silhouette) — the same construction as the approved design-doc
+  // reference motif for Moroccan. The previous version here was a literal
+  // 5-pointed star shape, which reads as a flag emblem — exactly the national-
+  // flag reference this motif system exists to retire. Outlines only, no
+  // filled star, so there is no silhouette to mistake for one.
+  /* Moroccan — plaster ground, cobalt as a single drawn accent.
+     Was a cobalt FIELD with red and white tessellation, which colour-blocks the
+     way a flag does. Zellige in a riad is glazed line-work laid into tadelakt
+     plaster: the plaster is the surface, the cobalt is the drawing. */
   zellige: () => (
     <svg viewBox="0 0 100 100" preserveAspectRatio="xMidYMid slice">
-      <rect width="100" height="100" fill="#1f4287" />
+      <rect width="100" height="100" fill="#e8e0d0" />
       <g>
         {[0, 50].map((y) =>
           [0, 50].map((x) => (
             <g key={`${x}-${y}`} transform={`translate(${x + 25} ${y + 25})`}>
-              <path
-                d="M0 -18 L5 -5 L18 -5 L8 4 L12 18 L0 10 L-12 18 L-8 4 L-18 -5 L-5 -5 Z"
-                fill="#ede4d2"
+              <rect x="-14" y="-14" width="28" height="28" fill="none" stroke="#2b50aa" strokeWidth="1.1" />
+              <rect
+                x="-14" y="-14" width="28" height="28" fill="none" stroke="#2b50aa" strokeWidth="1.1"
+                transform="rotate(45)"
               />
-              <path
-                d="M0 -10 L3 -3 L10 -3 L5 2 L7 10 L0 6 L-7 10 L-5 2 L-10 -3 L-3 -3 Z"
-                fill="#c44a36"
+              <rect x="-7" y="-7" width="14" height="14" fill="none" stroke="#8a6e0c" strokeWidth="0.8" opacity="0.75" />
+              <rect
+                x="-7" y="-7" width="14" height="14" fill="none" stroke="#8a6e0c" strokeWidth="0.8" opacity="0.75"
+                transform="rotate(45)"
               />
-              <circle r="2.5" fill="#d4a24a" />
+              <circle r="1.8" fill="#b4553a" opacity="0.9" />
             </g>
           ))
         )}
@@ -188,12 +200,18 @@ export const MotifTiles: Record<MotifTileId, FC> = {
       </g>
     </svg>
   ),
+  /* Khaleeji — brass, warm sand, deep shadow.
+     Was navy ground with a crimson bench band, which reads as flag colour-
+     blocking rather than a room. A majlis is a low seated perimeter under a
+     hanging brass lamp: warm sand walls, cushions in shadow, brass the only
+     bright thing in the room. */
   majlis: () => (
     <svg viewBox="0 0 100 100" preserveAspectRatio="xMidYMid slice">
-      <rect width="100" height="100" fill="#0d1429" />
+      <rect width="100" height="100" fill="#d9c9a8" />
+      {/* deep shadow the seating sits in */}
+      <rect x="0" y="60" width="100" height="40" fill="#1a1512" opacity="0.92" />
+      <rect x="0" y="59" width="100" height="1.2" fill="#b08d4f" />
       <g>
-        <rect x="0" y="60" width="100" height="40" fill="#6e1f2c" />
-        <rect x="0" y="58" width="100" height="2" fill="#d4af37" />
         {Array.from({ length: 5 }).map((_, i) => (
           <rect
             key={i}
@@ -202,16 +220,17 @@ export const MotifTiles: Record<MotifTileId, FC> = {
             width="16"
             height="14"
             rx="2"
-            fill="#6e1f2c"
-            stroke="#d4af37"
-            strokeWidth="0.4"
+            fill="#2a2018"
+            stroke="#b08d4f"
+            strokeWidth="0.5"
           />
         ))}
       </g>
-      <g fill="#d4af37">
-        <circle cx="50" cy="25" r="6" opacity="0.9" />
-        <circle cx="50" cy="25" r="12" opacity="0.35" />
-        <line x1="50" y1="0" x2="50" y2="20" stroke="#d4af37" strokeWidth="0.4" />
+      {/* the brass lamp — the one bright object */}
+      <g fill="#b08d4f">
+        <circle cx="50" cy="25" r="6" opacity="0.95" />
+        <circle cx="50" cy="25" r="12" opacity="0.28" />
+        <line x1="50" y1="0" x2="50" y2="20" stroke="#b08d4f" strokeWidth="0.5" />
       </g>
     </svg>
   ),

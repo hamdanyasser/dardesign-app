@@ -106,5 +106,11 @@ backend/dardesign.db-shm
 # SMTP settings for the subscription decision emails — holds an app password
 .dardesign-smtp
 
+# Promo/demo video renders and their source clips. Nothing in the app loads
+# these; they are ~14 MB each, which is 8x the largest tracked file, and git
+# keeps every version forever. Keep them on disk or in Drive, not in history.
+*.mp4
+*.mov
+
 # throwaway databases and corpora from scripts/seed_eval_demo.py
 .tmp/
