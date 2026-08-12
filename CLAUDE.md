@@ -1,21 +1,52 @@
-# CLAUDE.md — DarDesign Project Reference
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## Project Overview
 
 **DarDesign** is a bilingual (English/Arabic) AI interior design web app. Users upload a room photo, choose an Arabic architectural style (Lebanese, Khaleeji, or Moroccan), and get an AI-generated redesign. The app has a gold-on-dark luxury aesthetic with full RTL support.
 
-**Stack:** Next.js 14 App Router, React 18, TypeScript 5, Tailwind CSS 3.4, shadcn/ui (radix-nova style), Lucide icons
+**Stack:** Next.js 16 App Router (Turbopack), React 19, TypeScript 5, Tailwind CSS 3.4, shadcn/ui (radix-nova style), Lucide icons. Upgraded from Next 14 / React 18 on 2026-08-12 as part of the visual overhaul.
 
 ---
 
 ## Commands
 
+**This is a two-language repo** — a Next.js frontend *and* a FastAPI backend (`backend/`, `tests/`, `scripts/`) in one tree. CI runs both ([.github/workflows/ci.yml](.github/workflows/ci.yml)): `pytest` under `DARDESIGN_LIGHT=1` and `npm run build`. Run both before claiming a change is green.
+
+### Frontend
+
 ```bash
-npm run dev       # Start dev server (localhost:3000)
-npm run build     # Production build — must pass with zero errors
-npm run start     # Serve production build
-npm run lint      # ESLint check
+npm run dev                       # next dev on :3000
+npm run dev:tunnel <url>          # write .env.local + probe /healthz + next dev — the normal session start
+npm run build                     # production build; type check included. Must pass with zero errors
+npm run lint                      # BROKEN under Next 16 — see below
 ```
+
+**`npm run lint` does not work.** Next 16 removed the `next lint` command, so the script fails with `Invalid project directory provided, no such directory: …\lint`. CI never ran it (the frontend job is `npm run build` alone), so nothing is silently unchecked that used to be checked — but `npm run build` is currently the only frontend gate. Fixing it means migrating to the ESLint 9 flat config (`eslint.config.mjs`) that `eslint-config-next` v16 expects; the repo still has the eslintrc-format `.eslintrc.json`.
+
+`npm run dev:tunnel` refuses to fall back off :3000 — the backend's default CORS allowlist is `localhost:3000` only, and Next's silent :3001 fallback would break every `/redesign` call. Flags need npm's separator: `-- --set-only`, `-- --no-check`, `-- --any-port`.
+
+### Backend + tests
+
+```bash
+python -m pytest tests -q                          # full suite (531 tests, no GPU, ~20s)
+python -m pytest tests/test_subscriptions.py -q    # one file
+python -m pytest tests/test_api.py -k redesign -q  # one test / pattern
+python -m uvicorn backend.main:app --port 8000     # serve the API
+```
+
+Every test needs `DARDESIGN_LIGHT=1` — the suite exercises the real FastAPI app with the placeholder render branch. **Set it per shell, not inline**: `$env:DARDESIGN_LIGHT="1"` in PowerShell (the primary shell here — `VAR=x cmd` is a parse error), `DARDESIGN_LIGHT=1 python -m pytest …` in Git Bash.
+
+The `Makefile` wraps the same commands (`make test`, `make backend-light`, `make smoke-prompt`, plus the Kaggle-only training/eval targets) but its recipes are POSIX — on Windows use Git Bash or copy the command bodies.
+
+### The local data backend (Windows)
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\run-local-backend.ps1
+```
+
+The one command for day-to-day work with accounts and saved designs. It generates/reuses the session-signing key in `.dardesign-secret` (without a stable key every restart logs you out), loads `.dardesign-smtp` if present, sets `DARDESIGN_LIGHT=1`, and serves on :8000. It **never renders** — see "Two backends" below.
 
 ---
 
@@ -80,6 +111,19 @@ src/
     ├── api.ts                   # Typed backend client — redesignRoom/restyleRoom, renderScene, colour + furniture, auth, history, subscription/usage, admin. (uploadImage/startTransform/pollStatus are the retired async flow, still exported)
     └── utils.ts                 # cn() utility (clsx + tailwind-merge)
 ```
+
+Outside `src/`, the directories that are load-bearing rather than incidental:
+
+| path | what it is |
+|---|---|
+| `backend/` | the FastAPI service — see "Backend" below |
+| `ontology/` | **canonical** cultural vocabulary (`ontology.json`) + `furniture.json` dimensions. `src/data/ontology.json` is a second copy — keep them in step |
+| `configs/` | `pipeline.yaml` + `sweep_winners.json` — ControlNet weights are tuned here, not in code |
+| `scripts/` | training/eval/ops (`train_lora.py`, `controlnet_sweep.py`, `metrics.py`, `backfill_evaluation.py`, `dev-tunnel.mjs`, `run-local-backend.ps1`) |
+| `tests/` | pytest, backend only — there is **no frontend test runner**; `npm run build` is the frontend's gate |
+| `docs/` | thesis chapters, defense Q&A, demo runbook, Zainab handoff |
+| `kaggle/` | paste-into-cell runbooks for the T4 notebook |
+| `eval/` · `outputs/` · `datasets/` · `models/loras/` | eval CSVs, generated batches, per-culture training data, trained LoRAs (weights gitignored) |
 
 ---
 
@@ -326,7 +370,7 @@ A 4th culture, `persian` (فارسي), is **prompt-only** and restyle-only — i
 
 ## Known Decisions
 
-- **Backend lives in [backend/](backend/):** FastAPI service with `/upload`, `/transform`, `/status`, `/result`, `/retry`, `/share`. Real SDXL + dual ControlNet pipeline in [backend/transform.py](backend/transform.py). Set `DARDESIGN_LIGHT=1` for placeholder-PNG mode without a GPU.
+- **Backend lives in [backend/](backend/):** FastAPI, real SDXL + dual ControlNet pipeline in [backend/transform.py](backend/transform.py), `DARDESIGN_LIGHT=1` for placeholder-PNG mode without a GPU. See "Backend" below for the module map and the two-host split. (`/upload`, `/transform`, `/status`, `/result`, `/retry` still exist but are the **retired** async flow — the live path is `/redesign`.)
 - **Theme/language persist via localStorage** (`dd-theme`, `dd-language` keys): a blocking inline script in `layout.tsx` reads them and sets `data-theme`/`lang`/`dir` on `<html>` before first paint (avoids a flash of the wrong theme), and `ThemeLanguageProvider` restores the same keys into React state on mount, gated so it can't stomp the inline script's value. Keep the storage keys in sync between the two if either changes.
 - **No next/image:** Using `<img>` elements because blob URLs and SVG data URIs are incompatible with Next.js image optimization. ESLint warnings for this are expected.
 - **All client components:** Every page and component uses `"use client"` since they depend on context providers.
@@ -334,11 +378,42 @@ A 4th culture, `persian` (فارسي), is **prompt-only** and restyle-only — i
 
 ---
 
+## Backend (`backend/`)
+
+One FastAPI app (`backend/main.py`, ~1970 lines) that can be run in two very different roles, plus a placeholder mode.
+
+**Two backends, one codebase — this is the fact that explains the most surprising code.** `NEXT_PUBLIC_API_URL` is the **render host** (Kaggle T4 behind a rotating tunnel; holds no durable state, wiped between sessions); `NEXT_PUBLIC_DATA_API_URL` is the **data host** (SQLite at `backend/dardesign.db` + `images/`, normally your own machine). Unset, the data URL follows the render URL and one backend does everything. `src/lib/api.ts` routes each call deliberately: renders and room compute (`/redesign`, `/restyle`, `/render-scene`, `/api/furniture/*`) go to `API_URL`; accounts, history, feedback, subscription and admin go to `DATA_API_URL`. **The GPU host has no users table and is sent no session cookie** — that is why `/api/usage/consume` is a separate endpoint instead of a check inside `/redesign`, and why anything touching auth must go through `DATA_API_URL`.
+
+**`DARDESIGN_LIGHT=1` is a first-class mode, not a mock.** `backend/transform.py` is canonical and has a placeholder branch; nothing else is stubbed. The whole test suite and the local data backend run in it. Consequences to expect rather than debug: the synthetic room has no ADE20K floor (floor recolour correctly reports "not detected"), and `placeholder: true` propagates to `object_map` / `seg_regions` / `room_analysis` so the frontend's truth gates suppress them.
+
+| module | role |
+|---|---|
+| `main.py` | the entire HTTP surface + pydantic models. Endpoint families: render (`/redesign`, `/restyle`, `/render-scene`), retired async job flow (`/upload`, `/transform`, `/status`, `/result`, `/retry`), share, auth, history, feedback, subscription + usage, `/api/admin/*`, `/api/furniture/*`, `/audit`, `/healthz` |
+| `transform.py` | SDXL + dual ControlNet, lazy per-culture LoRA, OOM→SD1.5 fallback, `DARDESIGN_LIGHT` branch. `_generate(control_override=None)` is what `/render-scene` rides |
+| `room_analysis.py` · `projection.py` | one depth+seg pass → floor/occupied masks, top-down object map, seg bounding boxes |
+| `prompt_builder.py` | `ontology/ontology.json` → bilingual positive/negative prompts; seedable |
+| `placement.py` · `furniture.py` · `compositing.py` | furniture recommendation, candidate positions, validation, and compositing into a finished render |
+| `recolor.py` · `recolor_api.py` | masked HSV wall/floor recolour (`/api/color/*` router) |
+| `quality.py` · `evaluation.py` | SSIM/LPIPS/CLIP scoring and the `/api/admin/evaluation` aggregation |
+| `db.py` | all SQLite (~1300 lines). Holds storage only — every policy number is passed in |
+| `auth.py` · `subscriptions.py` · `mailer.py` | sessions; plan policy + expiry service; decision emails |
+| `jobs.py` · `ttl_cleanup.py` · `audit.py` · `share.py` | in-memory job registry, TTL sweeper, append-only JSONL audit, HMAC share tokens |
+| `validators.py` · `errors.py` · `guardrails.py` | upload validation; **every `HTTPException` carries `{code, message_en, message_ar}`** — there is no client-side error mapping table |
+
+Two invariants that are easy to break:
+
+- **`_GEN_LOCK` serialises every generation.** The cached diffusers pipeline and its LoRA fuse state are not concurrency-safe; a second request arriving mid-hot-swap corrupts the accelerate offload hooks (`_hf_hook` AttributeError on the T4). Any new generating endpoint must take that lock.
+- **Long endpoints stream keepalives.** `_stream_keepalive()` yields whitespace every 10s while the work runs, then the JSON body — free tunnels 524 anything that waits ~100s for its first byte. Leading whitespace is a valid JSON prefix, so `res.json()` is unchanged. The catch: **once the stream starts the 200 is already sent**, so post-start failures come back in-band as an `ApiError`-shaped `detail` body — which is why `src/lib/api.ts` validates response *shape*, not just status.
+
+`ARCHITECTURE.md` is **stale** — its diagram and tables describe the retired `/upload`+`/transform`+`/status` flow and `style-selector.tsx`, which no longer exists. Prefer this file and the code; treat ARCHITECTURE.md's "Key design decisions" list as the only part still broadly true.
+
+---
+
 ## Studio flow + `/redesign` (Week 1 wiring)
 
 Demo path: `/` (DarCinema landing, CTA → `/studio`) → **`/studio`** (upload → all three redesigns).
 
-- **`POST /redesign`** (synchronous, ~1–2 min): multipart `file`; returns `{ original, lebanese, khaleeji, moroccan }` as base64 PNG **data URLs**, plus `object_map` (top-down projection), `seg_regions` (on-image highlighter bboxes from `seg_bounding_boxes()` in `backend/projection.py`), and `depth_map` (grayscale depth PNG data URL for DepthOrbit) — all from one depth+seg pass, null on failure, `placeholder: true` in LIGHT mode. Client = `redesignRoom()` in `src/lib/api.ts` (≥180s timeout, `AbortController`, typed bilingual errors, response-shape validation). Replaces the old async `/upload`+`/transform`+`/status`+`/result` polling flow.
+- **`POST /redesign`** (one shot, ~1–2 min, keepalive-streamed): multipart `file` + optional `styles` (comma-separated subset — defaults to all three; asking for one is ~3x faster because the depth+seg pass and room analysis run once regardless, which makes the iterate-and-retest loop practical without changing the default). Returns `{ original, lebanese, khaleeji, moroccan }` as base64 PNG **data URLs**, plus `object_map` (top-down projection), `seg_regions` (on-image highlighter bboxes from `seg_bounding_boxes()` in `backend/projection.py`), `depth_map` (grayscale depth PNG data URL for DepthOrbit), `room_analysis` (the Build Mode shell source), and `job_id` / `duration_s` / `ssim` — all from one depth+seg pass, null on failure, `placeholder: true` in LIGHT mode. The depth/seg block is best-effort in its own `try`: a failure there must never cost the user their three designs. Client = `redesignRoom()` in `src/lib/api.ts` (≥180s timeout, `AbortController`, typed bilingual errors, response-shape validation — the shape check is what catches an in-band error arriving under a streamed 200). Replaces the old async `/upload`+`/transform`+`/status`+`/result` polling flow.
 - **`/studio`** (`src/app/studio/page.tsx`): drag-drop (`UploadZone`) → cinematic loading scene (indeterminate ring + measured elapsed time + scope label — **no percentage**, because `/redesign` returns once and has no intermediate state to report) → the reveal: a `BeforeAfterSlider` wipe over the featured culture, a design-directions rail, then a six-tab working area. Bilingual error + retry. RTL/Tajawal, gold-on-charcoal.
 - **Result tabs** (`ResultTab` in `studio/page.tsx`): **Result** (all generated tiles + per-image download) · **Design Story** · **Culture DNA** · **Inside DAR** · **Understand** (highlighter, 2D map, DepthOrbit, narration) · **Edit** (colour, furniture, intensity). The three narrative tabs are **conditionally mounted**, not CSS-hidden like the tool tabs — `GenerationStory` runs a timed chapter loop and `DesignStory` measures natural image ratios, both of which would otherwise run offscreen. `TOOL_TABS` is what keeps the shared Understand/Edit wrapper from leaking into the narrative tabs; it is the thing to update if a tab is ever added.
 - **`/transform` and `/result`** are retired — they now `redirect("/studio")`.

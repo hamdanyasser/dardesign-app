@@ -123,18 +123,12 @@ export function DesignCard({
               isArabic ? "ar" : "en-GB",
             )}
           </time>
-          {caption}
+          {tag && (
+            <span className="font-editorial-mono text-[9.5px] text-[var(--dd-text-secondary)]">
+              {tag}
+            </span>
+          )}
         </div>
-        {actions && (
-          <div
-            className={cn(
-              "flex items-center gap-2",
-              isArabic && "flex-row-reverse",
-            )}
-          >
-            {actions}
-          </div>
-        )}
       </div>
 
       {rating && <div className="mt-2.5">{rating}</div>}
