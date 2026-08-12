@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **DarDesign** is a bilingual (English/Arabic) AI interior design web app. Users upload a room photo, choose an Arabic architectural style (Lebanese, Khaleeji, or Moroccan), and get an AI-generated redesign. The app has a gold-on-dark luxury aesthetic with full RTL support.
 
-**Stack:** Next.js 14 App Router, React 18, TypeScript 5, Tailwind CSS 3.4, shadcn/ui (radix-nova style), Lucide icons
+**Stack:** Next.js 16 App Router (Turbopack), React 19, TypeScript 5, Tailwind CSS 3.4, shadcn/ui (radix-nova style), Lucide icons. Upgraded from Next 14 / React 18 on 2026-08-12 as part of the visual overhaul.
 
 ---
 
@@ -19,16 +19,18 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ```bash
 npm run dev                       # next dev on :3000
 npm run dev:tunnel <url>          # write .env.local + probe /healthz + next dev — the normal session start
-npm run build                     # production build; type check + lint included. Must pass with zero errors
-npm run lint                      # ESLint only
+npm run build                     # production build; type check included. Must pass with zero errors
+npm run lint                      # BROKEN under Next 16 — see below
 ```
+
+**`npm run lint` does not work.** Next 16 removed the `next lint` command, so the script fails with `Invalid project directory provided, no such directory: …\lint`. CI never ran it (the frontend job is `npm run build` alone), so nothing is silently unchecked that used to be checked — but `npm run build` is currently the only frontend gate. Fixing it means migrating to the ESLint 9 flat config (`eslint.config.mjs`) that `eslint-config-next` v16 expects; the repo still has the eslintrc-format `.eslintrc.json`.
 
 `npm run dev:tunnel` refuses to fall back off :3000 — the backend's default CORS allowlist is `localhost:3000` only, and Next's silent :3001 fallback would break every `/redesign` call. Flags need npm's separator: `-- --set-only`, `-- --no-check`, `-- --any-port`.
 
 ### Backend + tests
 
 ```bash
-python -m pytest tests -q                          # full suite (202 tests, no GPU)
+python -m pytest tests -q                          # full suite (531 tests, no GPU, ~20s)
 python -m pytest tests/test_subscriptions.py -q    # one file
 python -m pytest tests/test_api.py -k redesign -q  # one test / pattern
 python -m uvicorn backend.main:app --port 8000     # serve the API
