@@ -85,10 +85,15 @@ export default function HandoffPanel({
   isArabic,
   onClose,
   capture,
+  renderIntent,
 }: {
   scene: DesignScene;
   isArabic: boolean;
   onClose: () => void;
+  /** What the planner understood that the generator can act on: a room type
+   *  the prompt builder knows, and the LoRA scale /restyle already exposes.
+   *  Both optional — a hand-built room simply renders on the defaults. */
+  renderIntent?: { roomType: string; intensity: number | null };
   /** Renders the live 3D scene into ControlNet conditioning. Absent only if
    *  the canvas has not mounted, in which case rendering is not offered. */
   capture?: (w: number, h: number) => Conditioning;
@@ -116,7 +121,8 @@ export default function HandoffPanel({
     const tick = setInterval(() => setElapsed(Math.round((Date.now() - t0) / 1000)), 1000);
     try {
       const r = await renderScene(c.depth, c.seg, culture, {
-        room: "living room",
+        room: renderIntent?.roomType || "living room",
+        scale: renderIntent?.intensity ?? null,
       });
       setResult(r);
     } catch (e) {

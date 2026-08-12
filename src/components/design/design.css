@@ -677,3 +677,41 @@ html[lang="ar"] .dar-build .handoff-title { font-family: var(--f-display-ar); }
 .dar-build .plan-dropped li { font-size: 0.71rem; opacity: 0.62; line-height: 1.5; }
 
 .dar-build .plan-foot { margin-top: 9px; font-size: 0.68rem; line-height: 1.5; opacity: 0.55; }
+
+/* DAR understood — the brief read back as design decisions. Editorial, not
+   conversational: a hairline block of facts, no bubbles, no JSON. */
+.dar-build .und {
+  border: 1px solid var(--hairline-2);
+  border-radius: 6px;
+  padding: 10px 11px;
+  margin-bottom: 11px;
+}
+.dar-build .und .insp-sub { margin-bottom: 6px; }
+.dar-build .und-line {
+  font-size: 0.8rem;
+  line-height: 1.5;
+  margin: 0 0 3px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+.dar-build .und-dot { opacity: 0.4; }
+.dar-build .und-mut { opacity: 0.62; font-size: 0.74rem; }
+.dar-build .und-warn { color: var(--brass); }
+.dar-build .und-mat { display: inline-flex; align-items: center; gap: 5px; margin-inline-end: 10px; }
+.dar-build .und-sw {
+  width: 11px;
+  height: 11px;
+  border-radius: 2px;
+  border: 1px solid var(--hairline-2);
+  display: inline-block;
+}
+.dar-build .und-reqs { list-style: none; padding: 0; margin: 6px 0 3px; display: flex; flex-wrap: wrap; gap: 4px; }
+.dar-build .und-reqs li {
+  border: 1px solid var(--hairline-2);
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 0.68rem;
+  opacity: 0.8;
+}

@@ -22,8 +22,53 @@
 import type { PlannedItem } from "@/lib/api";
 import { catalogItem } from "./catalog";
 import { MATERIALS } from "./materials";
-import { evaluatePlacement, findSpot, rectOf, snapPosition } from "./placement";
-import type { DesignScene, PlacedObject } from "./types";
+import { evaluatePlacement, findSpot, overlaps, rectOf, snapPosition } from "./placement";
+import type { WallOpening } from "./roomModel";
+import type { DesignScene, PlacedObject, RoomShell } from "./types";
+
+/* ------------------------------------------------------------------
+   Circulation: the floor a door or window needs left alone.
+
+   "Don't block the balcony door" is only meaningful if DAR knows where
+   the door is — and it does, but only when a photograph was analysed
+   (`openings` is `[]` for the default room, which the panel says out
+   loud rather than implying knowledge it lacks).
+
+   The zone is derived the same way scene3d.ts:280-302 positions the
+   opening itself, so the rectangle we protect is the one drawn.
+   ------------------------------------------------------------------ */
+
+/** How far into the room a door's swing and approach is kept clear. */
+const DOOR_CLEAR_CM = 90;
+/** A window only needs its sill kept free of tall furniture. */
+const WINDOW_CLEAR_CM = 40;
+
+export function openingZone(o: WallOpening, room: RoomShell) {
+  const depth = o.kind === "door" ? DOOR_CLEAR_CM : WINDOW_CLEAR_CM;
+  const halfW = room.widthCm / 2;
+  const halfD = room.depthCm / 2;
+  // t runs along the wall; north/south run along x, east/west along z.
+  if (o.wall === "north" || o.wall === "south") {
+    const x = -halfW + o.t * room.widthCm;
+    const z = o.wall === "north" ? -halfD + depth / 2 : halfD - depth / 2;
+    return { x, z, w: o.widthCm, d: depth, rot: 0 };
+  }
+  const z = -halfD + o.t * room.depthCm;
+  const x = o.wall === "west" ? -halfW + depth / 2 : halfW - depth / 2;
+  return { x, z, w: depth, d: o.widthCm, rot: 0 };
+}
+
+/** Would this footprint stand in the way of a door or a window? */
+function blockedOpening(
+  rect: ReturnType<typeof rectOf>,
+  openings: WallOpening[],
+  room: RoomShell,
+): WallOpening | null {
+  for (const o of openings) {
+    if (overlaps(rect, openingZone(o, room))) return o;
+  }
+  return null;
+}
 
 export interface AcceptedPlacement {
   catalogId: string;
@@ -37,6 +82,8 @@ export interface AcceptedPlacement {
   repaired: boolean;
   /** Advisory notes that did not block it — e.g. it replaces a found piece. */
   advisory: string[];
+  /** Set when the piece still stands in a detected door or window's way. */
+  blocksOpening: { kind: "door" | "window"; labelEn: string; labelAr: string } | null;
 }
 
 export interface DroppedPlacement {
@@ -82,7 +129,11 @@ function provisional(
  * Never throws and never mutates `scene`. Returns exactly what may be added
  * and exactly what was refused, so the panel can tell the truth about both.
  */
-export function gatePlan(items: PlannedItem[], scene: DesignScene): GatedPlan {
+export function gatePlan(
+  items: PlannedItem[],
+  scene: DesignScene,
+  openings: WallOpening[] = [],
+): GatedPlan {
   const placements: AcceptedPlacement[] = [];
   const dropped: DroppedPlacement[] = [];
 
@@ -126,7 +177,15 @@ export function gatePlan(items: PlannedItem[], scene: DesignScene): GatedPlan {
       uid,
     );
 
-    if (!verdict.ok) {
+    // Standing in a doorway is not a collision, so the SAT engine has nothing
+    // to say about it — this is a separate, equally deterministic check.
+    let blocking = blockedOpening(
+      rectOf({ x, z, widthCm: item.widthCm, depthCm: item.depthCm, rotationDeg: rotation }),
+      openings,
+      scene.room,
+    );
+
+    if (!verdict.ok || blocking) {
       // One repair attempt through the existing auto-placer.
       const spot = findSpot(
         { widthCm: item.widthCm, depthCm: item.depthCm, heightCm: item.heightCm },
@@ -146,6 +205,11 @@ export function gatePlan(items: PlannedItem[], scene: DesignScene): GatedPlan {
           scene.room,
           { mustTouchWall: item.mustTouchWall, heightCm: item.heightCm },
           uid,
+        );
+        blocking = blockedOpening(
+          rectOf({ x, z, widthCm: item.widthCm, depthCm: item.depthCm, rotationDeg: rotation }),
+          openings,
+          scene.room,
         );
       }
     }
@@ -174,6 +238,11 @@ export function gatePlan(items: PlannedItem[], scene: DesignScene): GatedPlan {
       reasonAr: planned.reasonAr,
       repaired,
       advisory: verdict.advisory,
+      // Reported, not refused: standing near a door is judgement, not physics,
+      // and the two-tier rule keeps judgement out of the blocking column.
+      blocksOpening: blocking
+        ? { kind: blocking.kind, labelEn: blocking.labelEn, labelAr: blocking.labelAr }
+        : null,
     });
 
     working.push(provisional(uid, planned.catalogId, x, z, rotation));

@@ -471,18 +471,31 @@ The loop: photo → `/redesign` → **Design it yourself** → move/add furnitur
 
 Empty room → the user writes what they want → an LLM plans the furniture → it appears in Build Mode → they edit it → **Render with DAR**. Added 2026-08-12.
 
-**The model is a design planner, never a renderer and never a source of facts.** It picks pieces from the cultural catalogue and proposes where they stand. It emits **no dimensions at all** — those come from `ontology/furniture.json`. Five gates, each one a place a hallucination dies:
+The model also **reads the brief**: one call returns an `understood` block (culture, room type, capacity, cultural intensity, wall/floor material, requirements, requested pieces) beside the placements. There is deliberately no separate "interpret, then plan" round trip — it would double latency and cost for information the one response already carries.
+
+**Every field in `understood` is validated against a vocabulary DAR already owns**, so nothing in it is free text: `roomType` is `prompt_builder.py`'s own `room_ar_map` keys, `intensity` is the `/restyle` `scale` with the same 0–1 clamp, and wall/floor are `materials.ts`'s `WALL_CHOICES`/`FLOOR_CHOICES`. An unknown value becomes `null`, never a plausible guess, and `null` always means "not said — leave the room alone".
+
+**Colour intent goes to Build Mode materials, never to Colour Control.** `/api/color/*` repaints a **finished PNG** and needs a `job_id`, a rendered image and the cached segmentation from a `/redesign` pass; a Build Mode scene that was never rendered has none of those. The scene's real colour system is `RoomShell.wallMaterialKey`/`floorMaterialKey` via `setShellMaterial`. Two systems, no overlap — do not wire them together.
+
+**Capacity is DAR's arithmetic, not the model's claim.** The ontology has no seat counts, so `seats_of()` derives them from real widths (a sofa seats `width / 60`, an armchair/chair/pouf seats one) and the panel prints *"Seats about 6"* as an estimate. When the plan falls short of a requested capacity the panel says so (*"· 6 asked for"*) instead of quietly claiming success.
+
+**The model is a design planner, never a renderer and never a source of facts.** It picks pieces from the cultural catalogue and proposes where they stand. It emits **no dimensions at all** — those come from `ontology/furniture.json`. Six gates, each one a place a hallucination dies:
 
 1. **Closed vocabulary.** `catalogId` is a JSON-Schema `enum` of exactly that culture's 9 ids, so structured outputs (`output_config.format`) make an invented id *unrepresentable*, not merely unlikely.
 2. **No invented dimensions.** Sizes come from the catalogue via `catalogItem(id)`.
 3. **Backend validation** (`validate_items`): unknown id, non-finite or absurd coordinate, unknown material → dropped **and reported**, never quietly rounded into something plausible.
 4. **Client re-validation** (`src/lib/design/planner.ts` → `gatePlan`): every placement runs `evaluatePlacement()`, the same oriented-rect SAT that colours the drag ghost and refuses a human drop. Blocking → one repair attempt through `findSpot` → else dropped. Items are validated **in order against the scene as it is being built**, so the second piece is judged against the first.
 5. **Advisory verdicts still pass.** Standing a sofa where the photo found the old one is the most likely act of redesign.
+6. **Culture coherence.** The model is handed all 27 pieces (it cannot know the culture before reading the brief, and a second call to find out is not worth it), so it can also *mix* them. Any item whose culture ≠ `understood.culture` is dropped and named. One room, one culture, unless "all" was asked for.
+
+**Openings are enforced, not requested.** `WallOpening` already existed but only `DesignCanvas` ever saw it; it is now threaded to the planner as prompt facts *and* checked deterministically in `gatePlan` — a door gets a 90 cm keep-clear zone (window 40 cm), derived exactly as `scene3d.ts:280-302` positions the opening. A piece landing in one gets a `findSpot` repair, then is kept with a visible advisory. **Advisory, not blocking**: standing near a door is judgement, not physics. With no handoff `openings` is `[]`, and the panel says *"No door or window detected"* rather than implying knowledge. Opening heights are constant priors (door 210 / window 140) and are never presented as measured.
 
 Rules that are easy to violate:
 
 - **`format` and `effort` are sibling keys inside ONE `output_config`.** Two separate `output_config` kwargs silently overwrite each other. Pinned by `test_format_and_effort_are_siblings_in_one_output_config`.
-- **Apply a plan with `beginGesture` → N × `addAt` → `endGesture`, never `replace`.** `replace` wipes `undo`/`redo` (`store.ts:301-309`), so an AI plan would be unundoable. Gestures collapse N adds into one entry — **one Ctrl+Z removes the whole plan** (verified: 7 → 0).
+- **Apply a plan with `beginGesture` → N × `addAt` → `endGesture`, never `replace`.** `replace` wipes `undo`/`redo` (`store.ts:301-309`), so an AI plan would be unundoable. Gestures collapse N adds into one entry — **one Ctrl+Z removes the whole plan**, wall and floor materials included (verified: 4 objects + 2 materials → 0 in one undo).
+- **`scene.culture` is deliberately never changed by a plan**, even when the brief asks for a different culture. Switching it goes through `setCulture`, which dispatches `replace` and would wipe history mid-gesture. The plan expresses culture through the pieces it places and the shell materials it sets — which is what is actually visible.
+- **Cultural intensity and room type live in page state (`renderIntent`), not in `DesignScene`.** A new scene field bumps `SCENE_VERSION`, and `loadScene` silently drops any scene whose version does not match — i.e. it would throw away every room a user had saved. From there `roomType` reaches `/render-scene`'s existing `room` param (it was hardcoded `"living room"`) and `intensity` its new optional `scale`, which is a pass-through to the `lora_scale` `render_scene()` already accepted. **Omitted, the render path is byte-for-byte what it was** — the same discipline as `control_override`.
 - `addAt` takes an optional `materialKey` (added for this feature); omitted, the ontology's own default for the piece stands.
 - The planner endpoint is on **`DATA_API_URL`, not `API_URL`** — the model key belongs on a machine the user controls, never on a throwaway Kaggle GPU container. It is also **behind `_require_user`**, because every call spends real money.
 - The room rectangle is **sent by the client**. `RoomAnalysis.summary()` returns no width/depth/height at all — only `free_floor_m2` and ratios. `deriveRoom()` backs the rectangle out client-side.

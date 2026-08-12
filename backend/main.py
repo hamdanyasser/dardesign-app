@@ -142,6 +142,7 @@ from .design_planner import (
     is_configured as planner_is_configured,
     model_name as planner_model_name,
     plan as planner_plan,
+    provider as planner_provider,
 )
 from .guardrails import (
     clamp_params,
@@ -1872,6 +1873,12 @@ class DesignPlanRequest(BaseModel):
     # What DAR already found in the photograph, so the planner designs around it
     # instead of on top of it. Optional: an empty room legitimately has none.
     existing: list[dict] = []
+    # Doors and windows DAR detected, so "don't block the door" can mean
+    # something spatially. Empty is the honest answer for a default room.
+    openings: list[dict] = []
+    # "measured" | "estimated" | "default" — the planner is told when the
+    # dimensions are DAR's own default rather than anything from a photograph.
+    shell_source: str | None = None
 
 
 @app.post("/api/design/plan")
@@ -1906,10 +1913,12 @@ async def design_plan(
     # to_thread: the SDK call is blocking, and the event loop also serves the
     # keepalive streams that /redesign depends on.
     result = await asyncio.to_thread(
-        planner_plan, room, req.culture, req.brief, req.existing
+        planner_plan, room, req.culture, req.brief, req.existing,
+        req.openings, req.shell_source,
     )
     log_event(
         "design_plan", ok=True, culture=req.culture, source=result.get("source"),
+        chose=result.get("understood", {}).get("culture"),
         items=len(result.get("items", [])), light=_light_mode(),
     )
     return JSONResponse(result)
@@ -1921,6 +1930,7 @@ async def design_planner_status() -> JSONResponse:
     return JSONResponse({
         "configured": planner_is_configured(),
         "model": planner_model_name() if planner_is_configured() else None,
+        "provider": planner_provider(),
     })
 
 
@@ -1953,6 +1963,7 @@ async def render_scene_endpoint(
     seg: UploadFile,
     style: str = Form(...),
     room: str = Form("living room"),
+    scale: float | None = Form(None),
 ) -> JSONResponse:
     """Render a Build Mode scene photorealistically.
 
@@ -1969,6 +1980,12 @@ async def render_scene_endpoint(
     """
     if style not in StylePack:
         _raise(ERR_BAD_STYLE)
+
+    # Cultural intensity, the same 0..1 LoRA scale /restyle already exposes and
+    # clamps. Omitted is the default: `None` reaches render_scene exactly as it
+    # did before this parameter existed, so the shipped path is unchanged.
+    if scale is not None:
+        scale = max(0.0, min(1.0, float(scale)))
 
     from PIL import Image
 
@@ -1996,6 +2013,7 @@ async def render_scene_endpoint(
                 out_path=out_path,
                 seed=int(job.id[:8], 16),
                 room=room,
+                lora_scale=scale,
             )
     except PipelineError as e:
         jobs.transition(
