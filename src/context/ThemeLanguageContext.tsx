@@ -258,8 +258,7 @@ const translations = {
         },
         moroccan: {
           name: "Moroccan",
-          selectorDescription:
-            "Zellige tiles · Carved plaster · Vibrant color",
+          selectorDescription: "Zellige tiles · Carved plaster · Vibrant color",
           origin: "Moroccan Heritage · التراث المغربي",
           landingDescription:
             "Zellige, carved plaster, and vivid tones channel the layered craftsmanship of Marrakech riads and Andalusian courtyards.",
@@ -498,9 +497,9 @@ interface ThemeLanguageContextType {
   toggleTheme: () => void;
 }
 
-const ThemeLanguageContext = createContext<ThemeLanguageContextType | undefined>(
-  undefined
-);
+const ThemeLanguageContext = createContext<
+  ThemeLanguageContextType | undefined
+>(undefined);
 
 function getNestedString(source: Record<string, unknown>, key: string): string {
   const value = key.split(".").reduce<unknown>((current, segment) => {
@@ -529,39 +528,11 @@ export function ThemeLanguageProvider({
   // blocking inline script in layout.tsx has already applied them to <html>
   // before first paint, so the user never sees the wrong theme.
   const [language, setLanguage] = useState<Language>("en");
-  const [theme, setTheme] = useState<Theme>("dark");
-  const [restored, setRestored] = useState(false);
-  const themeAnimTimer = useRef<number | undefined>(undefined);
+  const [theme, setTheme] = useState<Theme>("light");
 
-  // Don't leave a pending timer (or a stuck data-theme-anim) behind on unmount.
-  useEffect(
-    () => () => {
-      window.clearTimeout(themeAnimTimer.current);
-      document.documentElement.removeAttribute("data-theme-anim");
-    },
-    []
-  );
-
-  // Restore once, on mount, before the browser paints (see
-  // useIsomorphicLayoutEffect above). Never read localStorage during
-  // render — it breaks SSR.
-  useIsomorphicLayoutEffect(() => {
-    try {
-      const storedTheme = window.localStorage.getItem(THEME_STORAGE_KEY);
-      if (storedTheme === "dark" || storedTheme === "light") {
-        setTheme(storedTheme);
-      } else if (window.matchMedia?.("(prefers-color-scheme: light)").matches) {
-        setTheme("light");
-      }
-
-      const storedLanguage = window.localStorage.getItem(LANGUAGE_STORAGE_KEY);
-      if (storedLanguage === "en" || storedLanguage === "ar") {
-        setLanguage(storedLanguage);
-      }
-    } catch {
-      // Private mode / storage disabled — fall back to the defaults above.
-    }
-    setRestored(true);
+  useEffect(() => {
+    const savedTheme = window.localStorage.getItem("dardesign-theme");
+    if (savedTheme === "dark" || savedTheme === "light") setTheme(savedTheme);
   }, []);
 
   // Mirror to <html> and persist. Gated on `restored` so this effect cannot
@@ -573,14 +544,8 @@ export function ThemeLanguageProvider({
     html.setAttribute("lang", language);
     html.setAttribute("dir", language === "ar" ? "rtl" : "ltr");
     html.setAttribute("data-theme", theme);
-
-    try {
-      window.localStorage.setItem(THEME_STORAGE_KEY, theme);
-      window.localStorage.setItem(LANGUAGE_STORAGE_KEY, language);
-    } catch {
-      // Persistence is best-effort; the in-memory state still drives the UI.
-    }
-  }, [language, theme, restored]);
+    window.localStorage.setItem("dardesign-theme", theme);
+  }, [language, theme]);
 
   const toggleLanguage = useCallback(() => {
     setLanguage((current) => (current === "en" ? "ar" : "en"));
@@ -604,7 +569,7 @@ export function ThemeLanguageProvider({
 
   const t = useCallback(
     (key: string) => getNestedString(copy as Record<string, unknown>, key),
-    [copy]
+    [copy],
   );
 
   const value = useMemo(
@@ -617,7 +582,7 @@ export function ThemeLanguageProvider({
       toggleLanguage,
       toggleTheme,
     }),
-    [copy, language, t, theme, toggleLanguage, toggleTheme]
+    [copy, language, t, theme, toggleLanguage, toggleTheme],
   );
 
   return (
@@ -632,7 +597,7 @@ export function useThemeLanguage() {
 
   if (!context) {
     throw new Error(
-      "useThemeLanguage must be used within a ThemeLanguageProvider"
+      "useThemeLanguage must be used within a ThemeLanguageProvider",
     );
   }
 

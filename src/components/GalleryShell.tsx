@@ -11,7 +11,6 @@
    ============================================================ */
 
 import type { ReactNode } from "react";
-import CinemaChrome from "@/components/cinema/CinemaChrome";
 import IslamicPattern from "@/components/islamic-pattern";
 import { useThemeLanguage } from "@/context/ThemeLanguageContext";
 import { cn } from "@/lib/utils";
@@ -32,38 +31,29 @@ export default function GalleryShell({
 
   return (
     <main
-      className="relative min-h-screen"
-      style={{ background: "var(--bg)" }}
+      className="app-page relative min-h-screen"
       dir={isArabic ? "rtl" : "ltr"}
     >
-      {/* Same wrapper /studio uses — this is what the chrome CSS is scoped to. */}
-      <div className="cinema">
-        <CinemaChrome />
-      </div>
+      <IslamicPattern opacity={0.018} />
 
-      <IslamicPattern opacity={0.03} />
-
-      <section className="relative z-10 mx-auto max-w-5xl px-4 pb-24 pt-32">
+      <section className="app-page-container relative z-10">
         <header
           className={cn(
-            "mb-10 border-b border-[var(--dd-border)] pb-7",
+            "app-page-header",
             isArabic ? "text-right" : "text-left",
           )}
         >
-          {eyebrow && (
-            <div className="font-editorial-mono text-[10.5px] text-[var(--dd-gold)]">
-              {eyebrow}
-            </div>
-          )}
           <h1
             className={cn(
-              "mt-1.5 text-[2.5rem] leading-[1.05] tracking-tight text-[var(--dd-text)]",
-              isArabic ? "font-editorial-ar font-normal" : "font-editorial font-normal",
+              "app-page-title",
+              isArabic ? "font-arabic" : "font-display",
             )}
           >
             {title}
           </h1>
-          <p className="mt-2 text-sm text-[var(--dd-text-secondary)]">{subtitle}</p>
+          <p className="mt-1.5 text-sm text-[var(--dd-text-secondary)]">
+            {subtitle}
+          </p>
         </header>
         {children}
       </section>
@@ -122,29 +112,29 @@ export function DesignCard({
           isArabic && "flex-row-reverse",
         )}
       >
-        <div className={cn("flex items-baseline gap-2", isArabic && "flex-row-reverse")}>
-          {title && (
-            <div
-              className={cn(
-                "text-2xl leading-none text-[var(--dd-text)]",
-                isArabic ? "font-editorial-ar font-normal" : "font-editorial font-normal",
-              )}
-            >
-              {title}
-            </div>
+        <div
+          className={cn(
+            "flex items-center gap-3",
+            isArabic && "flex-row-reverse",
           )}
-          {tag && (
-            <span className="font-editorial-mono text-[9.5px] text-[var(--dd-text-secondary)]">
-              {tag}
-            </span>
-          )}
+        >
+          <time className="text-xs text-[var(--dd-text-secondary)]">
+            {new Date(createdAt * 1000).toLocaleString(
+              isArabic ? "ar" : "en-GB",
+            )}
+          </time>
+          {caption}
         </div>
-        <time className="font-editorial-mono text-[10px] text-[var(--dd-text-secondary)]">
-          {new Date(createdAt * 1000).toLocaleDateString(isArabic ? "ar" : "en-GB", {
-            day: "2-digit",
-            month: "short",
-          })}
-        </time>
+        {actions && (
+          <div
+            className={cn(
+              "flex items-center gap-2",
+              isArabic && "flex-row-reverse",
+            )}
+          >
+            {actions}
+          </div>
+        )}
       </div>
 
       {rating && <div className="mt-2.5">{rating}</div>}

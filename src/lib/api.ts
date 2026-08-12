@@ -122,8 +122,8 @@ async function safeFetch(input: RequestInfo, init?: RequestInit): Promise<Respon
     throw new ApiError(
       {
         code: "network_unreachable",
-        message_en: e instanceof Error ? e.message : "Cannot reach server",
-        message_ar: "تعذّر الاتصال بالخادم. تأكد من تشغيل الخدمة.",
+        message_en: `Cannot reach the data service at ${DATA_API_URL}. Start the local backend or configure NEXT_PUBLIC_DATA_API_URL.`,
+        message_ar: "تعذّر الاتصال بخدمة البيانات. شغّل الخادم المحلي أو اضبط NEXT_PUBLIC_DATA_API_URL.",
       },
       0,
     );
@@ -498,9 +498,13 @@ export interface FurnitureItem {
   cultural_tags: string[];
   material_tags: string[];
   color_tags: string[];
-  /** Present on recommendations: ranking score and why it was suggested. */
+  /** Present on recommendations: ranking score and why it was suggested.
+   *  Both languages always ship together — a justification that exists in only
+   *  one of them is a blank space in the other. Ordered most-distinguishing
+   *  first, so `reasons[0]` is the line worth putting on a card. */
   score?: number;
   reasons?: string[];
+  reasons_ar?: string[];
 }
 
 /** An open spot the room analysis found (normalized image coords). */

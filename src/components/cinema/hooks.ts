@@ -35,7 +35,7 @@ function webglAvailable(): boolean {
 }
 
 interface UseSceneResult {
-  containerRef: React.RefObject<HTMLDivElement>;
+  containerRef: React.RefObject<HTMLDivElement | null>;
   handleRef: React.MutableRefObject<SceneHandle | null>;
   /** True when WebGL is suppressed — render the static fallback instead. */
   suppressed: boolean;
@@ -51,7 +51,7 @@ export function useScene<O>(
   factory: (el: HTMLElement, opts: O) => SceneHandle,
   opts: O,
   resetKey: ReadonlyArray<unknown> = [],
-  enabled = true
+  enabled = true,
 ): UseSceneResult {
   const containerRef = useRef<HTMLDivElement>(null);
   const handleRef = useRef<SceneHandle | null>(null);
@@ -119,7 +119,7 @@ export function useScrollValue(compute: () => number): number {
 /** Hero dolly progress: scrollY / (viewport * 1.4), clamped 0..1. */
 export function useHeroProgress(): number {
   return useScrollValue(() =>
-    Math.min(1, window.scrollY / (window.innerHeight * 1.4))
+    Math.min(1, window.scrollY / (window.innerHeight * 1.4)),
   );
 }
 
@@ -139,7 +139,7 @@ export function useSectionScroll(ref: React.RefObject<HTMLElement>): number {
 export function useInView(
   ref: React.RefObject<Element>,
   threshold = 0.3,
-  once = true
+  once = true,
 ): boolean {
   const [inView, setInView] = useState(false);
   useEffect(() => {
@@ -156,7 +156,7 @@ export function useInView(
           }
         });
       },
-      { threshold: [0, threshold, 1] }
+      { threshold: [0, threshold, 1] },
     );
     obs.observe(el);
     return () => obs.disconnect();

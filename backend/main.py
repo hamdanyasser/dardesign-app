@@ -128,6 +128,7 @@ from .furniture import (
     all_items as furniture_all_items,
     get_item as furniture_get_item,
     items_for_culture as furniture_items_for_culture,
+    max_results as furniture_max_results,
     recommend as furniture_recommend,
 )
 from .guardrails import (
@@ -1572,9 +1573,13 @@ async def furniture_recommendations(
     existing: str | None = None,   # comma-separated categories already in the room
     colors: str | None = None,     # comma-separated colour tags detected in the room
     materials: str | None = None,  # comma-separated material tags detected in the room
-    limit: int = 6,
+    limit: int = furniture_max_results(),
 ) -> JSONResponse:
-    """Ranked 3-6 items for this culture and room.
+    """Ranked items for this culture and room — the whole culture by default.
+
+    The default is the catalogue's own cap rather than a number written here, so
+    the two cannot drift: a hard-coded 6 kept the panel at six pieces after the
+    cap moved to nine, which looks exactly like a broken catalogue.
 
     Only `culture` is required. Every other parameter sharpens the ranking but its
     absence never fails the request — the room-analysis pass that supplies

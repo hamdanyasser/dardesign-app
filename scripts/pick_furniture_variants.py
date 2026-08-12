@@ -46,6 +46,46 @@ PICKS: dict[str, int] = {
     # v1 rendered nearly blank and v3 has a bowl and plant on the tabletop, which
     # would composite into the room along with the table. v2 is the only clean one.
     "mor-table-001": 2,
+
+    # --- v0.2 catalogue expansion ------------------------------------------
+    # Lebanese
+    # v1 is clipped at the left edge and carries a stray scatter cushion.
+    "leb-armchair-001": 2,
+    # v1 rendered as a tabletop with no legs; v2's legs are malformed.
+    "leb-console-001": 3,
+    # All three are clean; v2 has the turned legs the description calls for.
+    "leb-ottoman-001": 2,
+    # v1 and v2 baked a cast shadow into the alpha, which would fight the
+    # compositor's own contact shadow. v3 is the only clean three-panel screen.
+    "leb-screen-001": 3,
+    # Khaleeji
+    # v3's backrest was punched through by rembg — transparent in the middle.
+    "khal-armchair-001": 1,
+    # v1 and v2 are near-cylindrical; at 70x42 cm the item is low and wide, and
+    # v3's proportions are the only ones that read as an ottoman rather than a drum.
+    "khal-ottoman-001": 3,
+    "khal-cabinet-001": 1,
+    # Moroccan
+    # v2 has transparency holes punched through the cushions.
+    "mor-sofa-001": 1,
+    # v2 is the ochre-and-blue brocade the entry describes.
+    "mor-armchair-001": 2,
+    # v2's domed crest reads as a shrine rather than living-room furniture.
+    "mor-cabinet-001": 1,
+
+    # The two consoles took a second pass. Every variant of the first run put
+    # something on the tabletop — a vase, a plant, a bowl — even though the
+    # generator's NEGATIVE forbids exactly that. A flat surface is the one shape
+    # SDXL insists on styling, and anything resting on the piece composites into
+    # the room along with it. The fix was to state emptiness in the *positive*
+    # prompt ("bare … empty top") rather than only denying it in the negative;
+    # both entries in furniture.json carry the reworded prompt.
+    # Second run: v2/v3 grew an arched mirror above the console, v3 put the
+    # flowers back. v1 is the only bare one.
+    "khal-console-001": 1,
+    # Second run: v1 kept a small lantern on the right end, v3 is cropped and has
+    # a bowl. v2 is bare, complete and symmetric.
+    "mor-console-001": 2,
 }
 
 
