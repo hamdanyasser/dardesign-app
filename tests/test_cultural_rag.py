@@ -542,6 +542,60 @@ def test_schema_is_unchanged_by_rag():
     }
 
 
+# --------------------------------------------------------------------------
+# end to end — the evidence crosses the HTTP boundary too
+# --------------------------------------------------------------------------
+
+def test_endpoint_returns_evidence_to_the_client(tmp_path, monkeypatch):
+    """The endpoint hands back `result` verbatim, so prove the shape survives it.
+
+    Its own SQLite file, like every other test that registers an account: the
+    suite otherwise writes into backend/dardesign.db, which is somebody's real
+    data on a dev machine.
+    """
+    import asyncio
+
+    import httpx
+
+    from backend import db
+    from backend.main import _reset_for_tests, app
+
+    db.close()
+    monkeypatch.setattr(db, "DB_PATH", tmp_path / "test.db")
+    db.connect(tmp_path / "test.db")
+
+    async def _go():
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
+            reg = await c.post("/api/auth/register", json={
+                "fullName": "RAG Tester", "email": "rag-e2e@example.com",
+                "password": "secret123", "phoneNumber": "070000000",
+            })
+            assert reg.status_code == 200, reg.text
+            return await c.post("/api/design/plan", json={
+                "width_cm": 520, "depth_cm": 420, "culture": "moroccan",
+                "brief": EVAL_MOROCCAN,
+            })
+
+    _reset_for_tests()
+    try:
+        r = asyncio.run(_go())
+        assert r.status_code == 200, r.text
+        body = r.json()
+        # No provider key in this suite, so it is the rule-based path — which is
+        # exactly the case where `injected` must be False while evidence is
+        # still reported.
+        assert body["source"] == "rules"
+        assert body["evidence"], "cultural evidence reached the client"
+        assert body["evidenceMeta"]["injected"] is False
+        assert body["evidenceMeta"]["culture"] == "moroccan"
+        first = body["evidence"][0]
+        assert {"id", "elementEn", "evidenceState", "source", "verified"} <= set(first)
+    finally:
+        _reset_for_tests()
+        db.close()
+
+
 def test_retrieval_failure_does_not_break_the_plan(monkeypatch):
     """A corpus that explodes costs evidence, never the room."""
     def boom(*a, **k):
