@@ -189,3 +189,23 @@
     padding-inline: 14px !important;
   }
 }
+
+/* Real renders now fill the framed slots. A very slow Ken Burns drift keeps a
+   still photograph from reading as a dead placeholder without competing with
+   the scroll choreography — 28s, tiny amplitude, and it yields entirely to
+   prefers-reduced-motion below. */
+.dar-cinema .dd-slot-img {
+  animation: ddSlotDrift 28s ease-in-out infinite alternate;
+  transform-origin: 50% 55%;
+  will-change: transform;
+}
+@keyframes ddSlotDrift {
+  from { transform: scale(1.04) translate3d(0, 0, 0); }
+  to   { transform: scale(1.11) translate3d(0, -1.4%, 0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .dar-cinema .dd-slot-img {
+    animation: none;
+    transform: scale(1.04);
+  }
+}

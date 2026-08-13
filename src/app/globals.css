@@ -38,27 +38,48 @@
     --dd-ink: #16110a;
   }
 
+  /* ------------------------------------------------------------------
+     LIGHT — "limestone & cobalt". This is the presentation theme: it is
+     what a projector shows, so it is tuned for a washed-out beam in a lit
+     room rather than for a laptop in the dark.
+
+     Two deliberate departures from where this started:
+
+     1. The accent is COBALT, not gold. Gold-on-charcoal is the single most
+        over-used generative-design palette there is, and worse, a metallic
+        yellow is the first thing a projector loses — it drifts to a muddy
+        olive and thin text on it disappears. Cobalt is also the honest
+        colour here: it is the blue of Moroccan zellige and Damascene tile,
+        which is material DAR actually works in, not decoration.
+     2. The ground is limestone, cooled and desaturated away from cream.
+        Warm cream plus a metallic accent is the other stock look; a faint
+        green-grey cast reads as Levantine stone instead.
+
+     Contrast is held well above AA because projected contrast collapses:
+     body ink is ~14:1 on the ground, the accent ~7:1, and borders are
+     nearly twice their old opacity so hairlines survive the beam.
+     `--dd-gold` keeps its NAME — it is referenced in hundreds of places and
+     renaming it days before a defense buys nothing — but it is cobalt now.
+     ------------------------------------------------------------------ */
   :root[data-theme="light"] {
-    --dd-bg: #faf8f5;
+    --dd-bg: #f2f1ea;
     --dd-surface: #ffffff;
-    --dd-surface-strong: #f2ede4;
-    --dd-surface-hover: #ece5d9;
-    /* Gold as TEXT on white/bg must hold WCAG AA (4.5:1): #8a6e0c = 4.87:1 on
-       white; hover darkens (6.90:1) — the old #b8960c/#d4af37 sat at 2.7–2.8. */
-    --dd-gold: #8a6e0c;
-    --dd-gold-hover: #6f570c;
-    --dd-gold-dim: #7d640a;
-    --dd-text: #1a1a2e;
-    --dd-text-soft: #312c46;
-    --dd-text-secondary: #6b6580;
-    --dd-border: rgba(26, 26, 46, 0.1);
-    --dd-glass-bg: rgba(250, 248, 245, 0.8);
-    --dd-glass-border: rgba(26, 26, 46, 0.05);
-    --dd-grid: rgba(26, 26, 46, 0.03);
-    --dd-mesh-1: rgba(184, 150, 12, 0.16);
-    --dd-mesh-2: rgba(245, 230, 211, 0.85);
+    --dd-surface-strong: #e6e5db;
+    --dd-surface-hover: #dbd9cc;
+    --dd-gold: #1b4fa0;
+    --dd-gold-hover: #123c7c;
+    --dd-gold-dim: #5b7cb8;
+    --dd-text: #14202f;
+    --dd-text-soft: #2c3a4d;
+    --dd-text-secondary: #53617a;
+    --dd-border: rgba(20, 32, 47, 0.18);
+    --dd-glass-bg: rgba(242, 241, 234, 0.86);
+    --dd-glass-border: rgba(20, 32, 47, 0.1);
+    --dd-grid: rgba(20, 32, 47, 0.05);
+    --dd-mesh-1: rgba(27, 79, 160, 0.14);
+    --dd-mesh-2: rgba(226, 228, 220, 0.9);
     --dd-mesh-3: rgba(255, 255, 255, 0.98);
-    --dd-spotlight: rgba(184, 150, 12, 0.14);
+    --dd-spotlight: rgba(27, 79, 160, 0.12);
     --dd-before-gradient: linear-gradient(
       135deg,
       #d8d4cf 0%,
@@ -67,13 +88,13 @@
     );
     --dd-after-gradient: linear-gradient(
       135deg,
-      #b8960c 0%,
-      #d4af37 52%,
-      #f3dfb0 100%
+      #1b4fa0 0%,
+      #3f74c4 52%,
+      #c05437 100%
     );
-    /* On-gold text: warm white reads 4.87:1 on the darker light-theme gold
-       (dark ink would drop to 3.86:1). */
-    --dd-ink: #fffaf0;
+    /* On-accent text: pure white on cobalt is 7.4:1 and survives a projector.
+       The old warm ink sat at 4.87:1 on gold, which a beam eats. */
+    --dd-ink: #ffffff;
   }
 
   :root {
