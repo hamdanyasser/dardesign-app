@@ -222,6 +222,30 @@ def test_tokenise_handles_mixed_scripts():
     assert "moroccan" in tokens and "زليج" in tokens and "room" in tokens
 
 
+@pytest.mark.parametrize("written,bare", [
+    ("بزليج", "زليج"),      # bi- (with)
+    ("الزليج", "زليج"),     # definite article
+    ("وزليج", "زليج"),      # wa- (and)
+    ("بالمجلس", "مجلس"),    # bi- + al-
+    ("للمجلس", "مجلس"),     # li-l-
+])
+def test_arabic_proclitics_are_stripped(written, bare):
+    """Arabic joins its prepositions to the word; without this "بزليج" misses zellige."""
+    assert knowledge.tokenise(written) == knowledge.tokenise(bare)
+
+
+def test_clitic_stripping_does_not_shred_short_words():
+    """بيت (house) must not become يت — the min-stem guard."""
+    assert knowledge.tokenise("بيت") == ["بيت"]
+
+
+def test_arabic_query_with_attached_preposition_retrieves():
+    """The regression this fix exists for: "بزليج" must reach zellige."""
+    r = retrieval.retrieve("غرفة معيشة مغربية بزليج وألوان هادئة", "lebanese")
+    assert r.culture == "moroccan"
+    assert any("zellige" in x.chunk.element_en.lower() for x in r.chunks)
+
+
 # --------------------------------------------------------------------------
 # intent detection
 # --------------------------------------------------------------------------

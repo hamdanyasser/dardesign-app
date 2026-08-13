@@ -108,16 +108,43 @@ def normalise(text: str) -> str:
     return text
 
 
-def tokenise(text: str) -> list[str]:
-    """Normalised word tokens. Latin and Arabic in one pass, no stemmer.
+# Arabic writes its prepositions, conjunctions and definite article as prefixes
+# joined to the word, so a brief asking for zellige says "بزليج" — بـ + زليج —
+# and a bare token match finds nothing. This is the standard light-stemming fix:
+# strip the clitic, longest first. Suffixes are deliberately left alone; the
+# prefixes are where nearly all the loss is on a noun-phrase corpus like this.
+_PROCLITICS = ("وال", "فال", "بال", "كال", "لل", "ال", "و", "ف", "ب", "ل", "ك")
 
-    No stemming on purpose: this corpus is a closed domain vocabulary of proper
-    nouns and craft terms — zellige, sadu, mashrabiya, liwan — where an English
-    stemmer does nothing useful and an Arabic one would need a dependency to
-    mangle words it does not know. Alias lists in the editorial layer carry the
-    morphological variation instead, which is inspectable.
+# Below this a "stem" is debris, not a word. The guard is what keeps بيت (house)
+# from being shredded into يت.
+_MIN_STEM = 3
+
+
+def _strip_clitics(token: str) -> str:
+    """Fold Arabic proclitics off a token.
+
+    Applied identically to documents and queries, which is the property that
+    matters: normalisation may legitimately over-strip — "ألوان" (colours)
+    normalises to "الوان" and then looks like ال + وان — and that is harmless
+    precisely because the stored side is folded the same way. An asymmetric
+    stemmer is the bug; a consistent one is just a coarser alphabet.
     """
-    return [t for t in _NON_WORD.split(normalise(text)) if t]
+    for clitic in _PROCLITICS:
+        if token.startswith(clitic) and len(token) - len(clitic) >= _MIN_STEM:
+            return token[len(clitic):]
+    return token
+
+
+def tokenise(text: str) -> list[str]:
+    """Normalised word tokens. Latin and Arabic in one pass.
+
+    English is not stemmed on purpose: the corpus is a closed vocabulary of
+    proper nouns and craft terms — zellige, sadu, mashrabiya, liwan — where a
+    Porter stemmer does nothing useful, and the editorial alias lists carry the
+    variation that matters, inspectably. Arabic gets clitic stripping only,
+    because without it the language's own orthography hides the words.
+    """
+    return [_strip_clitics(t) for t in _NON_WORD.split(normalise(text)) if t]
 
 
 # --------------------------------------------------------------------------
