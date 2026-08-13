@@ -51,8 +51,16 @@ logger = logging.getLogger("dardesign.planner")
 DEFAULT_MODEL = "claude-sonnet-5"
 # Gemini's free tier is what makes the model path testable at all while the
 # Anthropic account has no balance. Same schema, same validator, same fallback.
-DEFAULT_GEMINI_MODEL = "gemini-2.5-flash"
+# NOT gemini-2.5-flash: it is still listed by models.list() but returns 404
+# "no longer available to new users" on a freshly issued key, which is exactly
+# the kind of staleness a demo discovers at the worst moment.
+DEFAULT_GEMINI_MODEL = "gemini-3.5-flash"
 MAX_OUTPUT_TOKENS = 2000
+# Gemini 3.x counts its thinking against max_output_tokens. Measured on a real
+# plan: ~5k thinking tokens before ~1.1k of JSON, so the 2k that is ample for
+# Anthropic truncates the response mid-object and the plan silently degrades to
+# rules. Free tier, so the headroom costs nothing.
+MAX_OUTPUT_TOKENS_GEMINI = 12000
 MAX_ITEMS = 12
 
 # A paid endpoint deserves a ceiling that does not depend on anyone remembering.
@@ -629,10 +637,23 @@ def _gemini_key() -> str:
 def provider() -> str | None:
     """Which provider a call would use, or None for the rule-based path.
 
-    Anthropic first when both are present: it is the one whose structured
-    outputs this schema was written against. Read per call, so setting a key
-    and restarting is enough.
+    DARDESIGN_LLM_PROVIDER wins when set. That override exists because a
+    machine-wide ANTHROPIC_API_KEY silently outranks a project's own
+    .dardesign-llm: the planner then advertises a model it cannot actually
+    reach, fails on every call and degrades to rules while claiming to be an
+    AI planner. Naming the provider is the cure, and it is the same trap the
+    Anthropic CLI documents for shadowed credentials.
+
+    Otherwise Anthropic first when both are present: it is the one whose
+    structured outputs this schema was written against. Read per call, so
+    setting a key and restarting is enough.
     """
+    forced = (os.environ.get("DARDESIGN_LLM_PROVIDER") or "").strip().lower()
+    if forced == "gemini":
+        return "gemini" if _gemini_key() else None
+    if forced == "anthropic":
+        return "anthropic" if _anthropic_key() else None
+
     if _anthropic_key():
         return "anthropic"
     if _gemini_key():
@@ -692,6 +713,49 @@ def _call_anthropic(api: Any, model: str, room: dict, culture: str, brief: str,
     return json.loads(text)
 
 
+def gemini_schema(schema: Any) -> Any:
+    """Translate our JSON Schema into the subset Gemini's response_schema accepts.
+
+    Gemini takes an OpenAPI-flavoured subset, not full JSON Schema, and rejects
+    the whole request rather than ignoring what it does not know. Three
+    differences, each verified against the live API:
+
+      * `additionalProperties` -> 400 "Unknown name additional_properties".
+        Dropped. Anthropic still gets it (strict mode needs it), and it costs
+        nothing here because validate_items ignores unknown keys anyway.
+      * `type: ["string", "null"]` union -> not supported; Gemini spells an
+        optional field `nullable: true` with a single type.
+      * `null` inside an `enum` list -> not a valid enum member; the nullable
+        flag already carries that meaning.
+
+    The enum of catalogue ids survives untouched, so gate 1 — an invented id is
+    unrepresentable — holds on this provider exactly as it does on Anthropic.
+    """
+    if isinstance(schema, list):
+        return [gemini_schema(s) for s in schema]
+    if not isinstance(schema, dict):
+        return schema
+
+    out: dict = {}
+    for key, value in schema.items():
+        if key == "additionalProperties":
+            continue
+        if key == "type" and isinstance(value, list):
+            non_null = [t for t in value if t != "null"]
+            out["type"] = non_null[0] if non_null else "string"
+            if len(non_null) < len(value):
+                out["nullable"] = True
+            continue
+        if key == "enum" and isinstance(value, list):
+            members = [v for v in value if v is not None]
+            out["enum"] = members
+            if len(members) < len(value):
+                out["nullable"] = True
+            continue
+        out[key] = gemini_schema(value)
+    return out
+
+
 def _call_gemini(api: Any, model: str, room: dict, culture: str, brief: str,
                  existing: list, openings: list, shell_source: str | None) -> dict:
     """Same schema, same validator, same fallback — only the transport differs.
@@ -705,8 +769,8 @@ def _call_gemini(api: Any, model: str, room: dict, culture: str, brief: str,
         config={
             "system_instruction": _SYSTEM,
             "response_mime_type": "application/json",
-            "response_schema": plan_schema("all"),
-            "max_output_tokens": MAX_OUTPUT_TOKENS,
+            "response_schema": gemini_schema(plan_schema("all")),
+            "max_output_tokens": MAX_OUTPUT_TOKENS_GEMINI,
         },
     )
     usage = getattr(resp, "usage_metadata", None)

@@ -461,6 +461,45 @@ def test_gemini_answer_is_validated_exactly_like_anthropic():
     assert r["rejected"][0]["catalogId"] == "invented-001"
 
 
+def test_gemini_schema_drops_what_gemini_rejects():
+    """Each of these was a real 400 from the live API, not a precaution.
+
+    Gemini takes an OpenAPI subset and rejects the whole request rather than
+    ignoring unknown keys, so an untranslated schema meant every Gemini call
+    failed and silently degraded to rules.
+    """
+    g = planner.gemini_schema(planner.plan_schema("all"))
+    flat = json.dumps(g)
+    assert "additionalProperties" not in flat, "400 Unknown name additional_properties"
+    assert '"type": ["' not in flat, "union types are not supported; use nullable"
+
+    und = g["properties"]["understood"]["properties"]
+    assert und["capacity"] == {"type": "integer", "nullable": True}
+    # null must leave the enum and become the nullable flag instead
+    assert None not in und["wallMaterialKey"]["enum"]
+    assert und["wallMaterialKey"]["nullable"] is True
+
+
+def test_gemini_schema_keeps_gate_one_intact():
+    """Translation must not weaken the closed vocabulary."""
+    g = planner.gemini_schema(planner.plan_schema("all"))
+    enum = g["properties"]["items"]["items"]["properties"]["catalogId"]["enum"]
+    assert len(enum) == 27 and "leb-sofa-001" in enum
+    assert g["properties"]["items"]["items"]["required"], "required must survive"
+
+
+def test_gemini_gets_a_bigger_token_budget_than_anthropic():
+    """Gemini 3.x counts thinking against max_output_tokens — measured ~5k
+    thinking before ~1.1k of JSON, so Anthropic's 2k truncates it mid-object."""
+    assert planner.MAX_OUTPUT_TOKENS_GEMINI >= 8000
+    assert planner.MAX_OUTPUT_TOKENS_GEMINI > planner.MAX_OUTPUT_TOKENS
+
+
+def test_default_gemini_model_is_not_the_retired_one():
+    """gemini-2.5-flash still appears in models.list() but 404s for new keys."""
+    assert planner.DEFAULT_GEMINI_MODEL != "gemini-2.5-flash"
+
+
 def test_provider_is_none_without_a_key():
     assert planner.provider() is None and not planner.is_configured()
 
