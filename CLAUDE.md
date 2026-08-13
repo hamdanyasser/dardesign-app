@@ -463,9 +463,16 @@ The loop: photo → `/redesign` → **Design it yourself** → move/add furnitur
 
 **Verified end-to-end on a real GPU (2026-08-13).** Against a live render host (`/healthz` → `light_mode: false`), a Build Mode scene — 10 `found` objects from a real `object_map` plus 3 user-placed Khaleeji pieces — captured its conditioning and came back as a genuine render in **35.61 s**. The path works: `control_override` reaches the pipeline, both control images arrive, and no photo-derived annotator runs.
 
-**But the render quality confirms the doll's-house weakness below rather than refuting it.** The returned image read as a wooden-screen storage room, not a majlis: the model honoured the geometry it was given and invented unconvincing surface inside those silhouettes. So the honest claim is *"the conditioning path is verified"*, **not** *"Render with DAR produces good rooms."* Layout-preservation **quality** remains unmeasured — there is still no side-by-side study — and the eye-level capture camera is now clearly the blocking fix, not a theoretical one.
+That first render read as a wooden-screen storage room rather than a majlis, which confirmed the doll's-house diagnosis below. **The capture camera was then rebuilt, and the same scene re-rendered as a believable room** (2026-08-13, A/B on the identical 13-object scene restored from `localStorage`).
 
-**Known weakness, highest impact first.** The capture camera is a *doll's house* — an open-topped box seen from outside and above. SDXL and both ControlNets were trained on interior photographs taken from inside rooms; we hand them a viewpoint no camera could occupy. An eye-level interior capture camera is the strongest next change. Second: coarse `found` footprints (a blob read as a 240cm cabinet conditions a 240cm cabinet) — worth letting users exclude found objects from conditioning.
+**The camera was the root cause, and it is fixed.** The capture used to clone the on-screen orbit camera: *outside* the room, ~30° above horizontal, 38° FOV. SDXL and both ControlNets were trained on interior photographs made from inside rooms at eye height with a wide lens, so every capture handed them a viewpoint no camera could occupy. `renderConditioning` now builds its own camera — inside the room, `CAPTURE_EYE_Y` 155 cm, `CAPTURE_FOV_DEG` 54 (a ~24mm interior lens), standing `CAPTURE_WALL_CLEARANCE` off the back wall. It keeps only the user's **azimuth**, the part that carries which way they were facing; the editor camera is untouched. Two consequences followed from being inside:
+
+- **All four walls now stay.** The exterior camera had to hide the walls it looked through, so the generator got a room with holes where its corners belonged. From inside, the near wall is simply behind the lens and the frame closes itself.
+- **A capture-only ceiling** in the real `ADE20K_CEILING` class, because an open top reads as sky from inside. Verified pixel-exact in the seg output: ceiling `120,120,80`, wall `120,120,120`.
+
+**Now the primary weakness, measured.** Found massing dominates the conditioning: in that scene **23.7% of the seg frame was `table` class (`255,6,82`) while true ADE20K floor survived in 0.6%** — coarse `object_map` footprints inflate into slabs that carpet the room, and the render turns them into odd platforms. Letting users exclude found objects from conditioning is the next change, and it is now the top one.
+
+**Still not claimed:** layout-preservation *quality* is unmeasured — there is no side-by-side study, and n=2 renders is an observation, not a result.
 
 ---
 
