@@ -46,6 +46,10 @@ const MAX_PHI = Math.PI / 2 - 0.04;
 const CAPTURE_EYE_Y = 155;
 const CAPTURE_FOV_DEG = 54;
 const CAPTURE_WALL_CLEARANCE = 45;
+/** Half the space a standing person occupies, plus enough that whatever is
+ *  beside them does not fill the lens. Used to reject camera spots that fall
+ *  inside or hard against a piece of furniture. */
+const CAPTURE_BODY_CM = 55;
 
 export class DesignWorld {
   readonly renderer: THREE.WebGLRenderer;
@@ -737,11 +741,48 @@ export class DesignWorld {
     // Distance from centre to the wall along that ray, then step off it.
     const reachX = Math.abs(dirX) > 1e-4 ? halfW / Math.abs(dirX) : Infinity;
     const reachZ = Math.abs(dirZ) > 1e-4 ? halfD / Math.abs(dirZ) : Infinity;
-    const standOff = Math.max(
-      Math.min(reachX, reachZ) - CAPTURE_WALL_CLEARANCE,
-      Math.min(halfW, halfD) * 0.35,
-    );
+    const maxStand = Math.min(reachX, reachZ) - CAPTURE_WALL_CLEARANCE;
+    const minStand = Math.min(halfW, halfD) * 0.35;
     const eyeY = Math.min(CAPTURE_EYE_Y, this.roomH - 40);
+
+    // A person does not stand inside the sofa. Placing the lens at a fixed
+    // distance off the wall works in an empty room and fails the moment the
+    // room is furnished: with a planned majlis the seating runs along exactly
+    // the wall the camera backs onto, so the capture ended up embedded in a
+    // piece of furniture and one slatted screen filled the entire frame.
+    //
+    // Walk in from the wall and stop at the first spot that is neither inside
+    // a piece nor pressed right up against one, judged against the objects'
+    // own world bounds. If the room is too full for any such spot the old
+    // wall-hugging position stands, which is no worse than before.
+    const solids: THREE.Box3[] = [];
+    this.objectIndex.forEach((mesh) => {
+      const b = new THREE.Box3().setFromObject(mesh);
+      if (Number.isFinite(b.min.x) && b.max.y > 12) solids.push(b);
+    });
+    const clearAt = (s: number): boolean => {
+      const px = this.target.x + s * dirX;
+      const pz = this.target.z + s * dirZ;
+      for (const b of solids) {
+        if (
+          px > b.min.x - CAPTURE_BODY_CM &&
+          px < b.max.x + CAPTURE_BODY_CM &&
+          pz > b.min.z - CAPTURE_BODY_CM &&
+          pz < b.max.z + CAPTURE_BODY_CM
+        ) {
+          return false;
+        }
+      }
+      return true;
+    };
+    let standOff = Math.max(maxStand, minStand);
+    for (let s = maxStand; s >= minStand; s -= 15) {
+      if (clearAt(s)) {
+        standOff = s;
+        break;
+      }
+    }
+
     cam.position.set(
       this.target.x + standOff * dirX,
       eyeY,

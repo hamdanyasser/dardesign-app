@@ -105,6 +105,25 @@ function isWallMounted(classKey: string): boolean {
   return WALL_MOUNTED_CLASSES.has(classKey.toLowerCase());
 }
 
+/** Soft furnishing that rests ON seating rather than on the floor.
+ *
+ *  Same failure as the wall-mounted set, from the other direction. The
+ *  segmenter finds every cushion along a bench and the projection merges the
+ *  run into ONE footprint, so a majlis photo yields a "cushion" 520cm wide --
+ *  the full width of the room -- extruded to 75cm as a solid volume. Measured
+ *  on the demo room: 33.8% of the floor from that single blob, on top of the
+ *  two sofas it is already sitting on, i.e. the same furniture conditioned
+ *  twice. Render with DAR then turns that slab into a wall-like screen across
+ *  the room, which is most of why its output read as a storage room.
+ *
+ *  Dropping them loses nothing: the seating they belong to is detected
+ *  separately, and a cushion is not something you position in a floor plan. */
+const ON_FURNITURE_CLASSES = new Set(["cushion", "pillow"]);
+
+function isOnFurniture(classKey: string): boolean {
+  return ON_FURNITURE_CLASSES.has(classKey.toLowerCase());
+}
+
 /** Plausible maximum footprint per class, in cm.
  *
  *  The projection's NORMALISED footprint is real data, but converting it to
@@ -250,7 +269,7 @@ export function deriveRoom(
         openings.push(openingFrom(o, i, shell));
         continue;
       }
-      if (isWallMounted(o.classKey)) continue;
+      if (isWallMounted(o.classKey) || isOnFurniture(o.classKey)) continue;
       objects.push(foundObjectFrom(o, i, shell));
     }
   }

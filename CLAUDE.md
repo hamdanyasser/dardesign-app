@@ -470,9 +470,14 @@ That first render read as a wooden-screen storage room rather than a majlis, whi
 - **All four walls now stay.** The exterior camera had to hide the walls it looked through, so the generator got a room with holes where its corners belonged. From inside, the near wall is simply behind the lens and the frame closes itself.
 - **A capture-only ceiling** in the real `ADE20K_CEILING` class, because an open top reads as sky from inside. Verified pixel-exact in the seg output: ceiling `120,120,80`, wall `120,120,120`.
 
-**Now the primary weakness, measured.** Found massing dominates the conditioning: in that scene **23.7% of the seg frame was `table` class (`255,6,82`) while true ADE20K floor survived in 0.6%** — coarse `object_map` footprints inflate into slabs that carpet the room, and the render turns them into odd platforms. Letting users exclude found objects from conditioning is the next change, and it is now the top one.
+**Two follow-on defects, both found by measuring the conditioning and both fixed.**
 
-**Still not claimed:** layout-preservation *quality* is unmeasured — there is no side-by-side study, and n=2 renders is an observation, not a result.
+1. **A cushion the width of the room.** The segmenter finds every cushion along a bench and the projection merges the run into ONE footprint, so the demo majlis produced a `cushion` **520 × 142 × 75 cm** — the full room width, extruded solid, 33.8% of the floor, sitting on top of the two sofas it belongs to. `roomModel.ts` already drops wall-mounted classes for exactly this reason ("a painting standing in the middle of the room"); `ON_FURNITURE_CLASSES` now does the same for `cushion`/`pillow`. Found floor coverage **69.6% → 35.8%**, and seg `table` class **23.7% → 3.3%**.
+2. **The camera stood inside the sofa.** A fixed stand-off works in an empty room and fails in a furnished one — with a planned majlis the seating runs along the very wall the lens backs onto, and one slatted screen filled the whole frame. The capture now walks in from the wall and stops at the first spot clear of every object's world bounds by `CAPTURE_BODY_CM`, falling back to the old position if the room is too full.
+
+**Verification status, precisely.** The interior camera is GPU-verified (the 34.8s render above). The cushion and camera-occupancy fixes are verified **in the conditioning only** — measured class shares and an inspected beauty pass showing a proper corner view with clear centre floor — because the render tunnel expired before they could be re-rendered. **Re-run one Render with DAR when a GPU host is next up.**
+
+**Still not claimed:** layout-preservation *quality* is unmeasured — there is no side-by-side study, and a handful of renders is an observation, not a result.
 
 ---
 
