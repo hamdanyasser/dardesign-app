@@ -45,8 +45,19 @@ import os
 from typing import Any
 
 from .furniture import CULTURES, items_for_culture
+from .retrieval import DEFAULT_TOP_K, RetrievalResult, format_for_prompt, retrieve
 
 logger = logging.getLogger("dardesign.planner")
+
+# Cultural retrieval is on unless switched off. It is local, costs nothing and
+# adds no latency worth measuring, so the flag exists to prove the fallback in
+# tests and to kill the feature in one place if it ever misbehaves in a demo —
+# not because it is expected to be off. Read per call, like every other flag here.
+RAG_ENV = "DARDESIGN_RAG"
+
+
+def rag_enabled() -> bool:
+    return (os.environ.get(RAG_ENV) or "1").strip().lower() not in ("0", "false", "no")
 
 DEFAULT_MODEL = "claude-sonnet-5"
 # Gemini's free tier is what makes the model path testable at all while the
@@ -342,6 +353,7 @@ def build_user_message(
     existing: list[dict],
     openings: list[dict] | None = None,
     shell_source: str | None = None,
+    evidence: str = "",
 ) -> str:
     w, d = int(room["widthCm"]), int(room["depthCm"])
     lines = [
@@ -384,6 +396,14 @@ def build_user_message(
             "DAR has not detected any door or window in this room, so do not reason "
             "about where they are.",
         ]
+    # Cultural evidence sits between the room's facts and the person's words:
+    # after the catalogue so the model has already seen what it may place, and
+    # before the brief so the brief remains the last thing it reads. Empty when
+    # retrieval is off or found nothing, and the message is then byte-for-byte
+    # what it was before RAG existed — which is what keeps the no-evidence path
+    # a genuine fallback rather than a different prompt.
+    if evidence:
+        lines += ["", evidence]
     lines += ["", "What the person asked for:", brief.strip() or "A comfortable, well-proportioned room."]
     return "\n".join(lines)
 
@@ -693,14 +713,17 @@ def _client():
 
 
 def _call_anthropic(api: Any, model: str, room: dict, culture: str, brief: str,
-                    existing: list, openings: list, shell_source: str | None) -> dict:
+                    existing: list, openings: list, shell_source: str | None,
+                    evidence: str = "") -> dict:
     resp = api.messages.create(
         model=model,
         max_tokens=MAX_OUTPUT_TOKENS,
         system=_SYSTEM,
         messages=[{
             "role": "user",
-            "content": build_user_message(room, culture, brief, existing, openings, shell_source),
+            "content": build_user_message(
+                room, culture, brief, existing, openings, shell_source, evidence,
+            ),
         }],
         # format and effort are siblings inside ONE output_config.
         output_config={
@@ -757,7 +780,8 @@ def gemini_schema(schema: Any) -> Any:
 
 
 def _call_gemini(api: Any, model: str, room: dict, culture: str, brief: str,
-                 existing: list, openings: list, shell_source: str | None) -> dict:
+                 existing: list, openings: list, shell_source: str | None,
+                 evidence: str = "") -> dict:
     """Same schema, same validator, same fallback — only the transport differs.
 
     Gemini enforces `response_schema` with enums, which is what keeps gate 1
@@ -765,7 +789,9 @@ def _call_gemini(api: Any, model: str, room: dict, culture: str, brief: str,
     """
     resp = api.models.generate_content(
         model=model,
-        contents=build_user_message(room, culture, brief, existing, openings, shell_source),
+        contents=build_user_message(
+            room, culture, brief, existing, openings, shell_source, evidence,
+        ),
         config={
             "system_instruction": _SYSTEM,
             "response_mime_type": "application/json",
@@ -797,6 +823,9 @@ def _cache_key(room: dict, culture: str, brief: str,
         f"|{' '.join(brief.lower().split())}"
         f"|{json.dumps(existing or [], sort_keys=True)}"
         f"|{json.dumps(openings or [], sort_keys=True)}"
+        # Evidence changes the prompt, so it changes the answer. Without this a
+        # test that toggles the flag would be served the other mode's plan.
+        f"|rag={int(rag_enabled())}"
     )
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:32]
 
@@ -814,8 +843,55 @@ def _log_cost(model: str, usage: Any) -> None:
         pass
 
 
+def _evidence_payload(result: RetrievalResult | None, injected: bool) -> dict:
+    """The cultural-evidence half of a plan response.
+
+    `injected` is the honest field. Retrieval is local and free, so it runs on
+    every path — but only the model path actually *designs* with what it found.
+    A rule-based plan that displayed the same evidence would be claiming an
+    influence it never had, so the flag travels with the data and the panel is
+    expected to read it rather than assume.
+    """
+    if result is None:
+        return {
+            "evidence": [],
+            "evidenceMeta": {
+                "injected": False, "available": False, "culture": None,
+                "rooms": [], "reason": "retrieval disabled", "count": 0,
+            },
+        }
+    return {
+        "evidence": result.to_evidence(),
+        "evidenceMeta": {
+            "injected": injected and bool(result.chunks),
+            "available": result.available,
+            "culture": result.culture,
+            "rooms": list(result.rooms),
+            "reason": result.reason or None,
+            "count": len(result.chunks),
+        },
+    }
+
+
+def _retrieve_evidence(brief: str, culture: str) -> RetrievalResult | None:
+    """Cultural evidence for this brief, or None when RAG is switched off.
+
+    Wrapped rather than called inline because a retrieval failure must be
+    indistinguishable, from the planner's point of view, from retrieval being
+    disabled: both mean "design without evidence", and neither is an error.
+    """
+    if not rag_enabled():
+        return None
+    try:
+        return retrieve(brief, culture, top_k=DEFAULT_TOP_K)
+    except Exception:  # noqa: BLE001 — evidence is optional; the plan is not
+        logger.exception("[planner] retrieval failed — planning without evidence")
+        return None
+
+
 def _rule_result(room: dict, culture: str, brief: str, note_suffix: str,
-                 warning: str | None = None) -> dict:
+                 warning: str | None = None,
+                 retrieved: RetrievalResult | None = None) -> dict:
     """The deterministic plan, dressed in the same shape as a model plan.
 
     It still carries an `understood` block so the UI has one contract rather
@@ -845,6 +921,9 @@ def _rule_result(room: dict, culture: str, brief: str, note_suffix: str,
         "model": None,
         "provider": None,
         "rejected": [],
+        # injected=False: the rules did not read any of this. It is reported so
+        # the panel can show what DAR knows without pretending it was used.
+        **_evidence_payload(retrieved, injected=False),
         **({"warning": warning} if warning else {}),
     }
 
@@ -873,12 +952,18 @@ def plan(
         cached["cached"] = True
         return cached
 
+    # Retrieval happens before the provider is even resolved: it is local, it
+    # cannot fail the request, and the rule-based path reports what DAR knows
+    # even though it does not design with it.
+    retrieved = _retrieve_evidence(brief, culture)
+
     api = client if client is not None else _client()
     warning: str | None = None
 
     if api is None:
         result = _rule_result(
             room, culture, brief, " — no design model is configured.",
+            retrieved=retrieved,
         )
         _cache[key] = result
         return dict(result)
@@ -893,7 +978,11 @@ def plan(
         try:
             _calls_made += 1
             call = _call_gemini if which == "gemini" else _call_anthropic
-            data = call(api, model, room, culture, brief, existing, openings, shell_source)
+            evidence_block = format_for_prompt(retrieved) if retrieved else ""
+            data = call(
+                api, model, room, culture, brief, existing, openings,
+                shell_source, evidence_block,
+            )
 
             # The interpretation is validated first, because the culture it
             # settles on is what every item is then judged against.
@@ -913,6 +1002,10 @@ def plan(
                     "model": model,
                     "provider": which,
                     "rejected": rejected,
+                    # injected=True only if there were chunks to inject; the
+                    # payload itself decides, so an empty retrieval cannot
+                    # advertise an influence it did not have.
+                    **_evidence_payload(retrieved, injected=True),
                 }
                 _cache[key] = result
                 return dict(result)
@@ -921,7 +1014,7 @@ def plan(
             logger.exception("[planner] call failed")
             warning = f"{type(e).__name__}"
 
-    return _rule_result(room, culture, brief, ".", warning)
+    return _rule_result(room, culture, brief, ".", warning, retrieved=retrieved)
 
 
 def _reset_for_tests() -> None:
