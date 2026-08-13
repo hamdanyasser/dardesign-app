@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import json
 import math
+import re
 import sys
 from pathlib import Path
 
@@ -696,3 +697,39 @@ def test_a_piece_too_big_for_the_room_reports_no_space_rather_than_forcing_it():
 
     spots = candidate_positions(room, furniture.get_item("mor-sofa-001"), limit=3)
     assert spots == [], "a 220cm sofa was placed into a 20cm gap"
+
+
+# --------------------------------------------------------------------------
+# Build Mode geometry coverage
+# --------------------------------------------------------------------------
+
+
+def _built_categories() -> set[str]:
+    """The categories geometry.ts has a real shape builder for.
+
+    Parsed out of the TS source rather than duplicated here, so this test fails
+    when the map changes rather than when someone forgets to update a copy.
+    """
+    src = (ROOT / "src" / "lib" / "design" / "geometry.ts").read_text(encoding="utf-8")
+    block = re.search(r"const BUILDERS: Record<string, Builder> = \{(.*?)\n\};", src, re.S)
+    assert block, "BUILDERS map not found in geometry.ts"
+    return set(re.findall(r"^\s*([a-z_]+)\s*:", block.group(1), re.M))
+
+
+def test_every_catalogue_category_has_a_shape_builder():
+    """A catalogue piece with no builder silently renders as `found` massing.
+
+    buildObjectMesh falls through to buildFound() for an unknown category, and
+    that is the deliberately abstract translucent box reserved for objects read
+    off a PHOTOGRAPH. A piece the user chose and placed rendering as a survey
+    volume looks like a bug to them, and it degrades the segmentation the
+    renderer is conditioned on. This regressed once with nine of 27 items --
+    every armchair, console, cabinet and screen -- so it is pinned.
+    """
+    catalogue = json.loads((ROOT / "ontology" / "furniture.json").read_text(encoding="utf-8"))
+    items = catalogue if isinstance(catalogue, list) else [
+        it for v in catalogue.values() if isinstance(v, list) for it in v
+    ]
+    used = {it["category"] for it in items if it.get("category")}
+    missing = sorted(used - _built_categories())
+    assert not missing, f"catalogue categories with no geometry builder: {missing}"

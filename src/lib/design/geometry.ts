@@ -141,6 +141,109 @@ const buildChair: Builder = (w, h, d, mat, accent) => {
   return g;
 };
 
+/** Upholstered single seat. Deliberately not an alias of buildChair: a majlis
+ *  armchair is a soft, low, generous piece, and a dining chair's thin legs and
+ *  flat back read as the wrong object entirely at this scale. */
+const buildArmchair: Builder = (w, h, d, mat, accent) => {
+  const g = new THREE.Group();
+  const armW = Math.min(15, w * 0.17);
+  const backD = Math.min(15, d * 0.22);
+  const seatH = h * 0.45;
+  const baseH = seatH * 0.3;
+
+  g.add(place(softBox(w * 0.9, baseH, d * 0.9, accent), 0, baseH / 2, 0));
+  // Seat, then a plumper cushion sitting proud of it — the second volume is
+  // what separates an armchair from a box with arms.
+  const seatT = (seatH - baseH) * 0.6;
+  g.add(place(softBox(w - armW * 2, seatT, d - backD, mat), 0, baseH + seatT / 2, backD / 2));
+  g.add(place(softBox((w - armW * 2) * 0.94, seatH - baseH - seatT, (d - backD) * 0.94, mat), 0, baseH + seatT + (seatH - baseH - seatT) / 2, backD / 2));
+
+  const backH = h - baseH;
+  const back = softBox(w * 0.96, backH, backD, mat);
+  back.rotation.x = -0.05;
+  g.add(place(back, 0, baseH + backH / 2, -d / 2 + backD / 2));
+
+  const armH = h * 0.66;
+  for (const s of [-1, 1]) {
+    g.add(place(softBox(armW, armH - baseH, d * 0.92, mat), s * (w / 2 - armW / 2), baseH + (armH - baseH) / 2, backD / 4));
+  }
+  return g;
+};
+
+/** Tall storage. Plinth, carcass, cornice, a centre reveal between the doors
+ *  and two small pulls — the minimum that reads as joinery rather than a slab. */
+const buildCabinet: Builder = (w, h, d, mat, accent) => {
+  const g = new THREE.Group();
+  const plinthH = h * 0.055;
+  const cornH = h * 0.045;
+  const bodyH = h - plinthH - cornH;
+
+  g.add(place(softBox(w * 0.92, plinthH, d * 0.92, accent), 0, plinthH / 2, 0));
+  g.add(place(softBox(w, bodyH, d, mat), 0, plinthH + bodyH / 2, 0));
+  g.add(place(softBox(w * 1.04, cornH, d * 1.06, accent), 0, plinthH + bodyH + cornH / 2, 0));
+
+  // Door faces, set slightly proud, with a reveal down the middle.
+  const gap = Math.min(1.6, w * 0.02);
+  const doorW = (w - gap * 3) / 2;
+  const doorH = bodyH * 0.86;
+  for (const s of [-1, 1]) {
+    g.add(place(softBox(doorW, doorH, d * 0.06, accent), s * (doorW / 2 + gap / 2), plinthH + bodyH / 2, d / 2));
+    g.add(place(cyl(Math.min(1.1, w * 0.012), Math.min(1.1, w * 0.012), doorH * 0.16, 10, accent), s * gap * 1.6, plinthH + bodyH / 2, d / 2 + 1.2));
+  }
+  return g;
+};
+
+/** Wall console — a slim top on legs with a lower shelf. Its whole character
+ *  is the gap under the top, so the apron is kept shallow. */
+const buildConsole: Builder = (w, h, d, mat, accent) => {
+  const g = new THREE.Group();
+  const topT = Math.min(4.5, h * 0.07);
+  const legT = Math.min(5, w * 0.045);
+
+  g.add(place(softBox(w, topT, d, mat), 0, h - topT / 2, 0));
+  g.add(place(softBox(w * 0.9, topT * 0.8, d * 0.6, accent), 0, h - topT - topT * 0.4, 0));
+  legs(g, w, d, h - topT, legT, accent);
+  // Lower shelf, a third up, tying the legs together.
+  g.add(place(softBox(w * 0.86, topT * 0.7, d * 0.78, mat), 0, h * 0.3, 0));
+  return g;
+};
+
+/** Mashrabiya folding screen. Three hinged leaves in a zigzag, each a frame
+ *  filled with a turned lattice — the one catalogue piece whose entire value
+ *  is its openwork, so it is the one place worth spending geometry. */
+const buildScreen: Builder = (w, h, d, mat, accent) => {
+  const g = new THREE.Group();
+  const leaves = 3;
+  const leafW = w / leaves;
+  const frameT = Math.min(4, leafW * 0.09);
+  const barT = Math.max(0.9, frameT * 0.28);
+
+  for (let i = 0; i < leaves; i++) {
+    const leaf = new THREE.Group();
+    // frame
+    leaf.add(place(softBox(leafW, frameT, frameT, accent), 0, h - frameT / 2, 0));
+    leaf.add(place(softBox(leafW, frameT, frameT, accent), 0, frameT / 2, 0));
+    for (const s of [-1, 1]) {
+      leaf.add(place(softBox(frameT, h, frameT, accent), s * (leafW / 2 - frameT / 2), h / 2, 0));
+    }
+    // lattice
+    const innerW = leafW - frameT * 2;
+    const innerH = h - frameT * 2;
+    for (let c = 1; c <= 3; c++) {
+      leaf.add(place(softBox(barT, innerH, barT, mat), -innerW / 2 + (innerW * c) / 4, h / 2, 0));
+    }
+    for (let r = 1; r <= 6; r++) {
+      leaf.add(place(softBox(innerW, barT, barT, mat), 0, frameT + (innerH * r) / 7, 0));
+    }
+    // fold the leaves so the screen stands like a screen, not a flat wall
+    const angle = (i - 1) * 0.34;
+    leaf.position.set(-w / 2 + leafW / 2 + i * leafW, 0, Math.abs(i - 1) * d * 0.3 - d * 0.15);
+    leaf.rotation.y = angle;
+    g.add(leaf);
+  }
+  return g;
+};
+
 const buildOttoman: Builder = (w, h, d, mat, accent) => {
   const g = new THREE.Group();
   // Poufs are round; use the smaller plan dimension as the diameter so the
@@ -249,16 +352,30 @@ function buildFound(w: number, h: number, d: number, mat: THREE.Material): THREE
   return g;
 }
 
+/** Every category the catalogue actually ships. A missing entry is not a
+ *  cosmetic gap: buildObjectMesh falls through to buildFound(), the abstract
+ *  massing reserved for things read off a PHOTOGRAPH, so a piece the user
+ *  deliberately placed rendered as a translucent survey box. Nine of the 27
+ *  catalogue items — every armchair, console, cabinet and screen — looked
+ *  like that. A test pins this list against furniture.json. */
 const BUILDERS: Record<string, Builder> = {
   sofa: buildSofa,
   chair: buildChair,
+  armchair: buildArmchair,
   ottoman: buildOttoman,
   coffee_table: buildTable,
   side_table: buildSideTable,
+  cabinet: buildCabinet,
+  console: buildConsole,
+  screen: buildScreen,
   lamp: buildLamp,
   lantern: buildLantern,
   cultural_object: buildObject,
 };
+
+/** The categories BUILDERS covers, for the test that keeps it in step with
+ *  the ontology. */
+export const BUILT_CATEGORIES: readonly string[] = Object.keys(BUILDERS);
 
 /** Secondary material for legs/frames/plinths — a darker relative of the
  *  primary so pieces read as made of parts without a second colour choice. */
