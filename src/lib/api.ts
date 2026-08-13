@@ -1629,6 +1629,51 @@ export interface PlanUnderstood {
   requestedFurniture: Array<{ category: string; count: number }>;
 }
 
+/**
+ * One piece of cultural knowledge DAR retrieved for this brief.
+ *
+ * Knowledge only — an element, what it is for, how it is misused. It names no
+ * furniture and no dimensions, because the catalogue and the placement engine
+ * own those. See `backend/knowledge.py`.
+ */
+export interface CulturalEvidence {
+  id: string;
+  culture: string;
+  category: string;
+  elementEn: string;
+  elementAr: string;
+  guidanceEn: string;
+  guidanceAr: string;
+  verified: boolean;
+  /**
+   * Three states, never collapsed to a boolean:
+   * `verified-cited` — signed off AND traceable to a public source,
+   * `verified`       — signed off, no page-level reference recorded,
+   * `unverified`     — seed vocabulary awaiting review.
+   * Lebanese is currently 0/30 verified; Khaleeji and Moroccan are 30/30.
+   */
+  evidenceState: "verified-cited" | "verified" | "unverified";
+  /** A citation from ontology/sources.md, or null. Never fabricated. */
+  source: string | null;
+  score?: number;
+}
+
+export interface EvidenceMeta {
+  /**
+   * Whether this evidence actually went into the model's prompt. Retrieval is
+   * local and runs on every path, but only the model path DESIGNS with it — a
+   * rule-based plan reports what DAR knows with `injected: false` rather than
+   * claiming an influence it never had.
+   */
+  injected: boolean;
+  /** false = the corpus is missing or failed to load, distinct from "no match". */
+  available: boolean;
+  culture: string | null;
+  rooms: string[];
+  reason: string | null;
+  count: number;
+}
+
 export interface DesignPlan {
   understood: PlanUnderstood;
   items: PlannedItem[];
@@ -1643,6 +1688,9 @@ export interface DesignPlan {
   provider: string | null;
   /** Pieces the backend threw out, with why. Shown, never swallowed. */
   rejected: Array<{ catalogId: string | null; why: string }>;
+  /** Optional: a backend older than the RAG feature sends neither field. */
+  evidence?: CulturalEvidence[];
+  evidenceMeta?: EvidenceMeta;
   warning?: string;
   cached?: boolean;
 }

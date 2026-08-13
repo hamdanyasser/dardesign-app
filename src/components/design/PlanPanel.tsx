@@ -278,6 +278,52 @@ export default function PlanPanel({
             );
           })()}
 
+          {/* Cultural evidence — what DAR retrieved for this brief, and whether
+              the plan actually read it. Three things are kept apart on purpose:
+              retrieved knowledge (here), the model's interpretation (the notes
+              and per-piece reasons below) and DAR's spatial validation (the
+              "DAR adjusted the position" tags). Blurring them would turn an
+              honest pipeline into a claim. */}
+          {(() => {
+            const evidence = plan.evidence ?? [];
+            const meta = plan.evidenceMeta;
+            // A backend older than this feature sends neither field; showing an
+            // empty "evidence" heading would imply the lookup happened.
+            if (!meta || evidence.length === 0) return null;
+            return (
+              <section
+                className="und evid"
+                aria-label={isArabic ? "الأدلة الثقافية المستخدمة" : "Cultural evidence used"}
+              >
+                <div className="insp-sub">
+                  {isArabic ? "أدلة ثقافية" : "Cultural evidence"}
+                  {!meta.injected && (
+                    <span className="und-mut">
+                      {isArabic
+                        ? " · لم يعتمد عليها هذا التوزيع"
+                        : " · not used by this plan"}
+                    </span>
+                  )}
+                </div>
+                <ul className="evid-list">
+                  {evidence.map((e) => (
+                    <li key={e.id}>
+                      <span className="evid-el">
+                        {isArabic ? e.elementAr || e.elementEn : e.elementEn}
+                      </span>
+                      {e.evidenceState === "unverified" && (
+                        <span className="und-warn evid-flag">
+                          {isArabic ? "بانتظار التوثيق" : "unverified"}
+                        </span>
+                      )}
+                      {e.source && <span className="evid-src">{e.source}</span>}
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            );
+          })()}
+
           <p className="plan-notes">{isArabic ? plan.notesAr : plan.notesEn}</p>
 
           <ul className="plan-list">
