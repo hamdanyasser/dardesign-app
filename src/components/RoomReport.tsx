@@ -36,6 +36,12 @@ export interface RoomReportProps {
   mapObjects: MapObject[];
   /** True when regions/map are backend detections rather than demo data. */
   isLive: boolean;
+  /**
+   * True when /redesign answered `placeholder: true` — a DARDESIGN_LIGHT run,
+   * where no model rendered anything. The provenance footer must not name a
+   * pipeline that did not run.
+   */
+  placeholder?: boolean;
   jobId?: string;
   className?: string;
 }
@@ -232,8 +238,11 @@ async function composeReport(props: RoomReportProps, isArabic: boolean): Promise
   ctx.textAlign = "center";
   ctx.fillStyle = MUTED;
   ctx.font = `400 15px ${EN_FONT}`;
+  const job = props.jobId ? ` — job ${props.jobId}` : "";
   ctx.fillText(
-    `SDXL 1.0 + dual ControlNet (Depth Anything V2 · OneFormer ADE20K) + cultural LoRA${props.jobId ? ` — job ${props.jobId}` : ""}`,
+    props.placeholder
+      ? `Preview mode — no model rendered this image${job}`
+      : `SDXL 1.0 + dual ControlNet (Depth Anything V2 · OneFormer ADE20K) + cultural LoRA${job}`,
     W / 2,
     fy,
   );

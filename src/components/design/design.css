@@ -35,6 +35,14 @@
 }
 html[lang="ar"] .dar-build { font-family: var(--f-ui-ar); }
 
+/* Below 900px the shell hides .app-sidebar and swaps it for a drawer, so the
+   inset above would reserve 256px for something that is not on screen —
+   a third of a phone's width, with the 3D canvas shrunk to match. Mirror the
+   shell's own breakpoint exactly. */
+@media (max-width: 900px) {
+  .dar-build { inset-inline-start: 0; }
+}
+
 /* ---------- stage ---------- */
 .dar-build .stage { position: relative; min-height: 0; }
 .dar-build .stage canvas { display: block; width: 100%; height: 100%; }
