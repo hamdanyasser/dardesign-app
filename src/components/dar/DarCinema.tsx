@@ -567,7 +567,12 @@ export default function DarCinema() {
           position: "fixed",
           top: 0,
           right: 0,
-          left: 0,
+          // The landing predates the app sidebar and pinned itself to the
+          // viewport edge. Signed in, the sidebar is 256px of that edge, so
+          // the studio CTA and theme toggle were drawn straight over the
+          // DarDesign brand lock-up — on the first screen anyone sees. Same
+          // variable .dar-build already uses; 0 when there is no sidebar.
+          left: "var(--app-sidebar-width, 0px)",
           zIndex: 40,
           display: "flex",
           alignItems: "center",
