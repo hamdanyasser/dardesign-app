@@ -102,13 +102,34 @@ const SOULS: Record<Tradition, Soul> = {
 
 const ORDER: Tradition[] = ["lebanese", "khaleeji", "moroccan"];
 
-/** Decorative drop-target stand-in. On the landing these are framed
- *  placeholders; in production they carry real uploads / SDXL renders. */
-function ImageSlot({ placeholder }: { placeholder: string }) {
+/** One room, rendered by DAR's own pipeline into all three cultures. Used
+ *  across the landing so the arch, the scanner and the carousel are all
+ *  showing the SAME room — which is the entire argument the page is making.
+ *  These are real `/redesign` outputs shipped in public/demo, not stock
+ *  photography and not stand-ins: the landing should show what DAR does. */
+const DEMO_ROOM = "/demo/spacejoy-GQQyH0yNqLk-unsplash";
+
+/** A framed image slot. Falls back to the old lettered placeholder when no
+ *  source is given, so a missing asset degrades to a label rather than to a
+ *  broken-image icon. */
+function ImageSlot({ placeholder, src, alt }: { placeholder: string; src?: string; alt?: string }) {
+  if (!src) {
+    return (
+      <div className="dd-slot" style={{ position: "absolute", inset: 0 }}>
+        <span>{placeholder}</span>
+      </div>
+    );
+  }
   return (
-    <div className="dd-slot" style={{ position: "absolute", inset: 0 }}>
-      <span>{placeholder}</span>
-    </div>
+    /* eslint-disable-next-line @next/next/no-img-element */
+    <img
+      className="dd-slot-img"
+      src={src}
+      alt={alt ?? ""}
+      loading="lazy"
+      decoding="async"
+      style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" }}
+    />
   );
 }
 
@@ -750,7 +771,11 @@ export default function DarCinema() {
               >
                 <div style={{ position: "relative", width: "100%", height: "100%", borderRadius: "999px 999px 12px 12px", overflow: "hidden", background: "var(--surface)" }}>
                   <div style={{ position: "absolute", inset: 0, filter: "brightness(.85)" }}>
-                    <ImageSlot placeholder="الغرفة في آخر النفق — أسقط صورة غرفتك · drop your room at the end of the tunnel" />
+                    <ImageSlot
+                      placeholder="الغرفة في آخر النفق — أسقط صورة غرفتك · drop your room at the end of the tunnel"
+                      src={`${DEMO_ROOM}/original.png`}
+                      alt="غرفة حقيقية في نهاية النفق · a real room waiting at the end of the tunnel"
+                    />
                   </div>
                   <div
                     aria-hidden="true"
@@ -819,7 +844,11 @@ export default function DarCinema() {
               style={{ position: "relative", width: "min(680px, 88vw, 88vh)", aspectRatio: "4 / 3", transformStyle: "preserve-3d", transform: "rotateX(48deg)", borderRadius: 14, boxShadow: "0 60px 120px rgba(0,0,0,.6)" }}
             >
               <div style={{ position: "absolute", inset: 0, borderRadius: 14, overflow: "hidden", background: "radial-gradient(ellipse 90% 70% at 50% 40%, var(--scan), var(--panel))", border: "1px solid rgba(var(--gold-rgb),.45)" }}>
-                <ImageSlot placeholder="أسقط صورة الغرفة لتُقرأ · drop a room to be read" />
+                <ImageSlot
+                  placeholder="أسقط صورة الغرفة لتُقرأ · drop a room to be read"
+                  src={`${DEMO_ROOM}/original.png`}
+                  alt="الغرفة التي تقرأها دار · the room DAR is reading"
+                />
                 <div data-scan-grid="" aria-hidden="true" style={{ position: "absolute", inset: 0, pointerEvents: "none", backgroundImage: "repeating-linear-gradient(0deg, rgba(var(--glow-rgb),.22) 0 1px, transparent 1px 9%), repeating-linear-gradient(90deg, rgba(var(--glow-rgb),.22) 0 1px, transparent 1px 9%)", opacity: 0.9 }} />
                 <div data-scan-line="" aria-hidden="true" style={{ position: "absolute", top: 0, right: 0, left: 0, height: 3, background: "linear-gradient(90deg, transparent, var(--gold-light), transparent)", boxShadow: "0 0 28px 5px rgba(var(--glow-rgb),.6)", pointerEvents: "none" }} />
               </div>
@@ -891,7 +920,11 @@ export default function DarCinema() {
                     }}
                   >
                     <div style={{ flex: 1, border: `1px solid ${c.border}`, borderRadius: "999px 999px 10px 10px", overflow: "hidden", position: "relative", background: c.bg, boxShadow: "0 30px 80px rgba(0,0,0,.55)" }}>
-                      <ImageSlot placeholder={`الروح ${c.ar === "لبناني" ? "اللبنانية" : c.ar === "خليجي" ? "الخليجية" : "المغربية"} · the ${c.en} render`} />
+                      <ImageSlot
+                        placeholder={`الروح ${c.ar === "لبناني" ? "اللبنانية" : c.ar === "خليجي" ? "الخليجية" : "المغربية"} · the ${c.en} render`}
+                        src={`${DEMO_ROOM}/${c.id}.png`}
+                        alt={`نفس الغرفة بالطراز ${c.ar} · the same room rendered in the ${c.en} style`}
+                      />
                     </div>
                     <div style={{ display: "flex", alignItems: "baseline", justifyContent: "center", gap: 10 }}>
                       <span className="dd-display" style={{ fontSize: 26, lineHeight: 1.4, fontWeight: 600, color: "var(--ink)" }}>{c.ar}</span>
