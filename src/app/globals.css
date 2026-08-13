@@ -1004,6 +1004,18 @@ html[dir="rtl"] .app-drawer-close {
   }
 }
 
+/* The :where() rule above sits at zero specificity *inside* @layer base, so any
+   unlayered component rule outranks it twice over — by layer and by specificity.
+   Measured consequence: the Studio culture picker (.style-card) and its upload
+   input focused with outline-width 0, i.e. a keyboard user choosing a house had
+   no idea where they were. This unlayered rule restores the ring app-wide.
+   .cinema keeps its brass variant: cinema.css loads after globals.css at equal
+   specificity, so it still wins inside .cinema. */
+:is(a, button, [role="button"], input, textarea, select, summary, [tabindex]):focus-visible {
+  outline: 2px solid var(--dd-gold);
+  outline-offset: 2px;
+}
+
 /* Respect prefers-reduced-motion — neutralise entrance animations + smooth scroll. */
 @media (prefers-reduced-motion: reduce) {
   .animate-fade-in-up,

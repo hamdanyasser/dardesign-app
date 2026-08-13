@@ -621,6 +621,20 @@ export default function StudioPage() {
                     void acceptFile(e.dataTransfer.files?.[0]);
                   }}
                   onClick={() => !imagePreviewUrl && inputRef.current?.click()}
+                  /* The file input is display:none, which also removes it from the
+                     tab order — so without this the whole flow had no keyboard
+                     entry point at all. Only expose it while it can actually act,
+                     mirroring the onClick guard. */
+                  role={!imagePreviewUrl ? "button" : undefined}
+                  tabIndex={!imagePreviewUrl ? 0 : undefined}
+                  aria-label={!imagePreviewUrl ? tc.dropPrompt : undefined}
+                  onKeyDown={(e) => {
+                    if (imagePreviewUrl) return;
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      inputRef.current?.click();
+                    }
+                  }}
                 >
                   <span className="corner tl" />
                   <span className="corner tr" />
@@ -1136,6 +1150,7 @@ export default function StudioPage() {
                       regions={highlightRegions}
                       mapObjects={mapObjects}
                       isLive={hasRealRegions && hasRealMap}
+                      placeholder={result.placeholder === true}
                       jobId={backendMap?.jobId}
                     />
                     {/* The doorway into Build Mode. Without it /design can only
