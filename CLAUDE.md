@@ -112,7 +112,7 @@ Outside `src/`, the directories that are load-bearing rather than incidental:
 | path | what it is |
 |---|---|
 | `backend/` | the FastAPI service — see "Backend" below |
-| `ontology/` | **canonical** cultural vocabulary (`ontology.json`) + `furniture.json` dimensions. `src/data/ontology.json` is a second copy — keep them in step |
+| `ontology/` | **canonical** cultural vocabulary (`ontology.json`) + `furniture.json` dimensions + `knowledge/<culture>.json` (the RAG editorial layer). `src/data/ontology.json` is a second copy — keep them in step |
 | `configs/` | `pipeline.yaml` + `sweep_winners.json` — ControlNet weights are tuned here, not in code |
 | `scripts/` | training/eval/ops (`train_lora.py`, `controlnet_sweep.py`, `metrics.py`, `backfill_evaluation.py`, `dev-tunnel.mjs`, `run-local-backend.ps1`) |
 | `tests/` | pytest, backend only — there is **no frontend test runner**; `npm run build` is the frontend's gate |
@@ -519,6 +519,52 @@ Rules that are easy to violate:
 **Cost.** The catalogue is 9 items per culture, so a plan is ~1k tokens in / ~1.5k out — about $0.02 on `claude-sonnet-5` (the default; `DARDESIGN_LLM_MODEL` overrides). Do **not** send `furniture.json` wholesale (9.4k tokens); `catalogue_projection()` is the compact view. **Prompt caching is deliberately unused** — the minimum cacheable prefix is 1024 tokens on Sonnet 5 and 4096 on Haiku 4.5, so a prompt this small would silently fail to cache and pay the write premium for nothing. An in-process response cache keyed on `sha256(room + culture + normalised brief)` makes a repeated demo free, and `MAX_CALLS_PER_PROCESS = 200` bounds a runaway loop.
 
 Config: `.dardesign-llm` (gitignored; template in `.dardesign-llm.example`), loaded by `run-local-backend.ps1` exactly like `.dardesign-smtp`. Tests: [tests/test_design_planner.py](tests/test_design_planner.py) — 25 tests, **no live API calls**, fake client injected via `plan(..., client=…)`.
+
+---
+
+## Cultural RAG (`backend/knowledge.py` + `backend/retrieval.py`)
+
+Retrieval-Augmented Generation in front of the Design Planner, so the model designs **with evidence** rather than from pretrained memory. Added 2026-08-14.
+
+```
+brief → detect culture + room → retrieve top-k cultural chunks → planner prompt
+      → LLM plans → validate_items → gatePlan → Build Mode → Render with DAR
+```
+
+**The division of labour is the whole architecture, and it is what keeps the feature honest:** RAG = cultural knowledge · the LLM = design reasoning · the catalogue/ontology = allowed vocabulary · the placement engine = spatial truth. RAG **never** names a catalogue id, states a dimension, or proposes a coordinate — a test asserts that no chunk contains any of them.
+
+**A chunk is assembled at load time, never stored.** Three files own one layer each, joined rather than copied, because CLAUDE.md already records the pain of `ontology.json` existing in two places and a knowledge base that re-stated the terms would be a third copy:
+
+| file | layer |
+|---|---|
+| `ontology/ontology.json` | canonical bilingual vocabulary — term, Arabic, `weight`, `verified`, `hex` |
+| `ontology/sources.md` | public citations, for the minority of terms that have one |
+| `ontology/knowledge/<culture>.json` | the editorial layer — how to *use* the element, how it is misused, which rooms suit it, and alias words a person might type |
+
+The consequence worth knowing: **the day Zainab flips Lebanese to `verified: true`, the evidence becomes verified with no edit to any code.**
+
+**Three evidence states, never collapsed to a boolean.** `verified-cited` · `verified` · `unverified`. As of writing **Khaleeji and Moroccan are 30/30 verified, Lebanese is 0/30**, and only **6 of 30 terms per culture carry a citation**. That asymmetry is a real fact about the project, reported rather than smoothed over — a Lebanese plan shows "unverified" labels in the panel and says `UNVERIFIED` in the prompt, and it should. Persian is deliberately **absent** from the KB (0/23 verified, no LoRA); offering it as cultural evidence would overstate what DAR has.
+
+**Retrieval is lexical BM25, not sentence embeddings.** This was a decision, not a shortcut:
+
+1. **CI installs `requirements-light.txt` alone** — no `sentence-transformers`, no `torch`, no `sklearn`. Embedding a *query* needs the model at runtime, so no amount of precomputing the corpus avoids a ~470MB download. "Tests stay green and the feature is free" and "the retriever needs a model download" cannot both be true.
+2. **The corpus is already a parallel en/ar dictionary**, so each chunk's retrieval surface carries both languages and an Arabic query reaches the Arabic surface of the same chunk with no translation step. On a closed vocabulary of craft proper nouns this is the *better* signal, not a compromise.
+3. **It is inspectable**, which is the point of the feature — a scored token match can be shown and argued about in a defence; a cosine distance cannot.
+
+`score_chunks` is the only place similarity is computed, so going dense later means replacing one function.
+
+Traps that are easy to reintroduce:
+
+- **Stopwords are load-bearing, not tidiness.** Once real prose entered the corpus, `"hello how are you"` scored five chunks because "you" appears in a sentence about keeping a liwan's floor clear. BM25's IDF damps a common term but cannot zero it across ~35 documents per culture.
+- **Arabic proclitics must be stripped or half the Arabic briefs miss.** `بزليج` is `بـ` + `زليج`; without light stemming a brief asking for zellige retrieves none. Strip identically on documents and queries — consistent over-stripping is harmless, asymmetric stemming is the bug.
+- **A negation in the brief does not filter the corpus.** *"Lebanese bedroom with no arches"* retrieves arch knowledge **on purpose**: RAG supplies what the culture is, the brief supplies the constraint, the planner reconciles them. Filtering on a negation would make the retriever a second designer.
+- **`evidenceMeta.injected` is the honesty flag.** Retrieval is local and free so it runs on every path, but only the model path *designs* with it. A rule-based plan reports evidence with `injected: false` and the panel says "not used by this plan" — never claim an influence that did not happen.
+- **`build_user_message` must stay byte-identical with no evidence.** A test asserts it. That is what makes the no-evidence path a genuine fallback rather than a second prompt that resembles the first — same discipline as `control_override` in `transform.py`.
+- **`DARDESIGN_RAG=0`** disables retrieval and is in the cache key, so toggling it cannot serve the other mode's plan.
+
+**Cost: zero.** Local BM25 over ~105 chunks, microseconds, no second model call. The evidence block adds roughly 300–600 tokens to a prompt that was already ~1k.
+
+Evaluation: **`python scripts/rag_eval.py`** (add `--prompt` to print the block the planner receives) — 11 briefs across both languages, each with a written expectation, printing every retrieved chunk with score and citation. Tests: [tests/test_cultural_rag.py](tests/test_cultural_rag.py) — 69 tests, no network, including `test_evidence_reaches_the_model_prompt`, which reads the prompt the fake provider was handed and finds the top-scoring element inside it.
 
 ---
 
