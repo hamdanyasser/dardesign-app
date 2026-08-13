@@ -176,3 +176,16 @@
     transition: none !important;
   }
 }
+
+/* The fixed top bar carries brand + tagline + studio CTA, none of which wrap.
+   Together they measure ~457px, so below roughly a phone's width the CTA was
+   pushed off the left edge. Drop the tagline (decoration, not navigation) and
+   tighten the gutters so the two things you can actually press still fit. */
+@media (max-width: 560px) {
+  .dar-cinema .dd-chrome-sub {
+    display: none;
+  }
+  .dar-cinema > header {
+    padding-inline: 14px !important;
+  }
+}
