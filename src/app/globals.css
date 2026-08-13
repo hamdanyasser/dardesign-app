@@ -882,6 +882,15 @@
 }
 
 @media (max-width: 900px) {
+  .app-shell {
+    /* The sidebar is gone below this breakpoint, so the width it reserves must
+       go with it. Leaving the variable at 256px only worked while .app-main was
+       the single consumer and zeroed its own margin; anything else positioning
+       against the variable — the landing's fixed header, .dar-build's shell —
+       was pushed a quarter of the screen off to the side with nothing there.
+       Zeroing it here fixes every consumer at once, including future ones. */
+    --app-sidebar-width: 0px;
+  }
   .app-sidebar {
     display: none;
   }

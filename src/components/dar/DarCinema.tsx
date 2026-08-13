@@ -585,7 +585,11 @@ export default function DarCinema() {
           <span className="dd-display" style={{ fontWeight: 600, fontSize: 22, color: "var(--gold)", whiteSpace: "nowrap" }}>
             دار ديزاين
           </span>
-          <span style={{ fontSize: 12, color: "var(--soft)", opacity: 0.8, whiteSpace: "nowrap" }}>
+          {/* Dropped on narrow screens: brand + tagline + CTA measure ~457px of
+              non-wrapping content, so on a 414px phone the studio button was
+              pushed 15px off the left edge. The tagline is the one part that
+              is decoration rather than navigation. */}
+          <span className="dd-chrome-sub" style={{ fontSize: 12, color: "var(--soft)", opacity: 0.8, whiteSpace: "nowrap" }}>
             سينما الدار · the cinematic house
           </span>
         </div>
