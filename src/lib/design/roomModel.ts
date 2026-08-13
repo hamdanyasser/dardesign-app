@@ -180,7 +180,27 @@ function totalFloorM2(result: RedesignResult): { m2: number | null; confident: b
     return { m2: null, confident: false };
   }
   const total = free / frac;
-  if (!Number.isFinite(total) || total <= 2 || total > 200) return { m2: null, confident: false };
+  if (!Number.isFinite(total)) return { m2: null, confident: false };
+
+  /* Plausibility band for a domestic living room / majlis.
+     A single photograph has no metric scale; room_analysis calibrates against
+     furniture of assumed size, and when that calibration is off it is off by a
+     lot in BOTH directions. Two real measurements from the same session:
+     one photo produced 130 m² (an 11 x 11 m room, furniture lost in a hall),
+     another produced 3.6 m² (clamped to the 260 cm minimum, where a planned
+     majlis could not fit and pieces were correctly dropped for lack of space).
+
+     Below MIN you cannot seat people around a table and still walk; above MAX
+     it is not a domestic room. Outside the band the estimate is not usable, so
+     we return null and the caller falls back to DEFAULT_ROOM, labelled
+     `shellSource: "default"`. That is the honest outcome: an ordinary room
+     DAR does not claim to have measured beats a measurement that is visibly
+     wrong. The old 2..200 band let both failures through. */
+  const MIN_PLAUSIBLE_M2 = 9;
+  const MAX_PLAUSIBLE_M2 = 90;
+  if (total < MIN_PLAUSIBLE_M2 || total > MAX_PLAUSIBLE_M2) {
+    return { m2: null, confident: false };
+  }
   return { m2: total, confident: (ra.scale_confidence ?? 0) >= 0.4 };
 }
 
