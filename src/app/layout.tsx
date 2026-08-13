@@ -134,7 +134,12 @@ export default function RootLayout({
           id="theme-language-restore"
           strategy="beforeInteractive"
           dangerouslySetInnerHTML={{
-            __html: `(function(){try{var h=document.documentElement;var t=localStorage.getItem('dd-theme');if(t!=='dark'&&t!=='light'){t=(window.matchMedia&&window.matchMedia('(prefers-color-scheme: light)').matches)?'light':'dark';}var l=localStorage.getItem('dd-language');if(l!=='en'&&l!=='ar'){l='en';}h.setAttribute('data-theme',t);h.setAttribute('lang',l);h.setAttribute('dir',l==='ar'?'rtl':'ltr');}catch(e){}})();`,
+            /* Unset falls to LIGHT, not to the OS preference. This is presented
+               from a projector: a demo machine that happens to sit in dark mode
+               would otherwise throw the whole app into the theme a beam handles
+               worst, on the one occasion it matters. An explicit choice still
+               wins and still persists. */
+            __html: `(function(){try{var h=document.documentElement;var t=localStorage.getItem('dd-theme');if(t!=='dark'&&t!=='light'){t='light';}var l=localStorage.getItem('dd-language');if(l!=='en'&&l!=='ar'){l='en';}h.setAttribute('data-theme',t);h.setAttribute('lang',l);h.setAttribute('dir',l==='ar'?'rtl':'ltr');}catch(e){}})();`,
           }}
         />
         <ThemeLanguageProvider>
