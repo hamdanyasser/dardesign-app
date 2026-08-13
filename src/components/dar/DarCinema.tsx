@@ -37,6 +37,40 @@ interface Soul {
   mats: [string, string][];
 }
 
+/** Inline SVG as a CSS background. encodeURIComponent rather than escaping by
+ *  hand: one unescaped `#` truncates the data URI and the surface silently
+ *  renders bare, which is a miserable thing to debug by eye. */
+const tile = (svg: string) =>
+  `url("data:image/svg+xml,${encodeURIComponent(`<svg xmlns='http://www.w3.org/2000/svg' ${svg}`)}")`;
+
+/* Real tessellations rather than repeating-linear-gradients. The gradients
+   were reading as argyle and barcode — a 46px conic tile is a harlequin
+   diamond, not zellige, and a striped rug is a barcode. These are drawn from
+   the same geometric vocabulary the rest of DAR uses: zellige as the eight-
+   pointed star built from a square plus the same square rotated 45deg. */
+const ZELLIGE = tile(
+  `width='34' height='34' viewBox='0 0 34 34'><rect width='34' height='34' fill='#efe5d2'/><path d='M17 1 L21 13 L33 17 L21 21 L17 33 L13 21 L1 17 L13 13 Z' fill='#2B50AA'/><path d='M17 6.5 L19.4 14.6 L27.5 17 L19.4 19.4 L17 27.5 L14.6 19.4 L6.5 17 L14.6 14.6 Z' fill='#efe5d2'/><circle cx='0' cy='0' r='2.6' fill='#a8442a'/><circle cx='34' cy='0' r='2.6' fill='#a8442a'/><circle cx='0' cy='34' r='2.6' fill='#a8442a'/><circle cx='34' cy='34' r='2.6' fill='#a8442a'/></svg>`,
+);
+const ENCAUSTIC = tile(
+  `width='44' height='44' viewBox='0 0 44 44'><rect width='44' height='44' fill='#e8dcc4'/><path d='M22 3 C30 10 34 14 41 22 C34 30 30 34 22 41 C14 34 10 30 3 22 C10 14 14 10 22 3 Z' fill='none' stroke='#c1603d' stroke-width='2.2'/><circle cx='22' cy='22' r='4.4' fill='#5c1a1b'/><path d='M0 0 L6 0 L0 6 Z' fill='#5c1a1b'/><path d='M44 44 L38 44 L44 38 Z' fill='#5c1a1b'/></svg>`,
+);
+const JUSS = tile(
+  `width='40' height='40' viewBox='0 0 40 40'><rect width='40' height='40' fill='#efe6d2'/><g fill='none' stroke='#b08a3e' stroke-width='1.5' opacity='.85'><path d='M20 4 L28 12 L36 20 L28 28 L20 36 L12 28 L4 20 L12 12 Z'/><path d='M20 12 L26 20 L20 28 L14 20 Z'/></g></svg>`,
+);
+const SADU = tile(
+  `width='30' height='26' viewBox='0 0 30 26'><rect width='30' height='26' fill='#e9dcc0'/><rect y='0' width='30' height='7' fill='#8a1f1f'/><rect y='11' width='30' height='3' fill='#181410'/><path d='M0 18 L5 22 L10 18 L15 22 L20 18 L25 22 L30 18' fill='none' stroke='#8a1f1f' stroke-width='2'/></svg>`,
+);
+const KILIM = tile(
+  `width='36' height='30' viewBox='0 0 36 30'><rect width='36' height='30' fill='#e8dcc4'/><rect y='0' width='36' height='6' fill='#5c1a1b'/><path d='M0 12 L6 8 L12 12 L18 8 L24 12 L30 8 L36 12 L36 18 L30 14 L24 18 L18 14 L12 18 L6 14 L0 18 Z' fill='#c45c2a'/><rect y='24' width='36' height='6' fill='#5c1a1b'/></svg>`,
+);
+const BERBER = tile(
+  `width='34' height='34' viewBox='0 0 34 34'><rect width='34' height='34' fill='#efe5d2'/><path d='M17 2 L24 17 L17 32 L10 17 Z' fill='none' stroke='#a8442a' stroke-width='2.4'/><path d='M0 17 L6 17 M28 17 L34 17' stroke='#2B50AA' stroke-width='2.4'/></svg>`,
+);
+/** Ashlar stone courses — fine joints, not 34px bands. */
+const ASHLAR = tile(
+  `width='72' height='34' viewBox='0 0 72 34'><rect width='72' height='34' fill='#cdb691'/><g stroke='#a8906a' stroke-width='1.2' opacity='.75'><path d='M0 17 H72 M0 34 H72 M18 0 V17 M54 0 V17 M36 17 V34'/></g></svg>`,
+);
+
 const SOULS: Record<Tradition, Soul> = {
   lebanese: {
     ar: "لبناني",
@@ -45,13 +79,13 @@ const SOULS: Record<Tradition, Soul> = {
     accentText: "#D8C3A5",
     glow: "rgba(62,92,68,.30)",
     line: "قناطر، أرز، وحجر جبل — بيت يتنفّس نحو البحر.",
-    wall: "linear-gradient(rgba(0,0,0,.10), rgba(0,0,0,.30)), repeating-linear-gradient(0deg, #cdb691 0 34px, #bfa67e 34px 37px)",
+    wall: `linear-gradient(rgba(255,246,226,.16), rgba(0,0,0,.26)), ${ASHLAR} 0 0 / 72px 34px`,
     archRadius: "999px 999px 0 0",
     archFill: "radial-gradient(ellipse at 50% 18%, rgba(227,195,106,.55), rgba(36,28,18,.96) 72%)",
     archFrame: "rgba(120,95,58,.9)",
     ceil: "repeating-linear-gradient(90deg, #4a3320 0 46px, #3a2818 46px 66px)",
-    floor: "conic-gradient(from 45deg, #e8dcc4 0 25%, #c1603d 0 50%, #e8dcc4 0 75%, #5c1a1b 0) 0 0 / 68px 68px, #e8dcc4",
-    rug: "repeating-linear-gradient(0deg, #5c1a1b 0 14px, #c45c2a 14px 22px, #e8dcc4 22px 26px)",
+    floor: `${ENCAUSTIC} 0 0 / 44px 44px, #e8dcc4`,
+    rug: `${KILIM} 0 0 / 36px 30px, #e8dcc4`,
     mats: [
       ["جدران حجر رملي", "sandstone courses"],
       ["سقف أرز محفور", "carved cedar ceiling"],
@@ -65,13 +99,13 @@ const SOULS: Record<Tradition, Soul> = {
     accentText: "var(--gold)",
     glow: "rgba(var(--gold-rgb),.22)",
     line: "مجلس، سدو، وجص محفور — بيت الضيافة.",
-    wall: "repeating-linear-gradient(90deg, rgba(176,138,62,.35) 0 12px, transparent 12px 30px) 0 14% / 100% 22px no-repeat, linear-gradient(rgba(0,0,0,.06), rgba(0,0,0,.22)), #efe6d2",
+    wall: `linear-gradient(rgba(255,246,226,.14), rgba(0,0,0,.24)), ${JUSS} 0 0 / 40px 40px, #efe6d2`,
     archRadius: "50% 50% 0 0 / 100% 100% 0 0",
     archFill: "radial-gradient(ellipse at 50% 16%, rgba(201,162,39,.5), rgba(31,42,58,.97) 70%)",
     archFrame: "rgba(176,138,62,.85)",
     ceil: "repeating-linear-gradient(0deg, #9a8460 0 9px, #84704c 9px 18px)",
     floor: "linear-gradient(rgba(0,0,0,.05), rgba(0,0,0,.18)), #d9c39a",
-    rug: "repeating-linear-gradient(0deg, #8a1f1f 0 13px, #181410 13px 19px, #e9dcc0 19px 27px, #8a1f1f 27px 31px)",
+    rug: `${SADU} 0 0 / 30px 26px, #e9dcc0`,
     mats: [
       ["جص محفور (جصّ)", "carved gypsum (jus)"],
       ["سقف جريد النخل", "palm-frond (jereed) ceiling"],
@@ -85,13 +119,15 @@ const SOULS: Record<Tradition, Soul> = {
     accentText: "#C1603D",
     glow: "rgba(43,80,170,.26)",
     line: "زليج، تادلاكت، وفانوس — بيت الرياض.",
-    wall: "linear-gradient(#efe5d2 0 52%, transparent 52%), conic-gradient(from 45deg, #2B50AA 0 25%, #efe5d2 0 50%, #a8442a 0 75%, #efe5d2 0) 0 0 / 46px 46px",
+    /* Tadelakt above, zellige dado below — which is exactly what this soul's
+       own material list claims, and previously was not what it drew. */
+    wall: `linear-gradient(rgba(255,246,226,.12), rgba(0,0,0,.2)), linear-gradient(#f2e9d8 0 54%, transparent 54%), ${ZELLIGE} 0 0 / 34px 34px, #efe5d2`,
     archRadius: "50% 50% 10px 10px / 62% 62% 10px 10px",
     archFill: "radial-gradient(ellipse at 50% 26%, rgba(227,169,47,.6), rgba(26,18,12,.97) 72%)",
     archFrame: "rgba(168,68,42,.85)",
     ceil: "radial-gradient(ellipse at 50% 50%, rgba(227,169,47,.4), #15100b 72%)",
-    floor: "repeating-linear-gradient(45deg, transparent 0 40px, rgba(24,20,16,.45) 40px 42px), repeating-linear-gradient(-45deg, transparent 0 40px, rgba(24,20,16,.45) 40px 42px), #efe8d8",
-    rug: "repeating-linear-gradient(90deg, #a8442a 0 16px, #efe5d2 16px 21px, #2B50AA 21px 25px)",
+    floor: "repeating-linear-gradient(45deg, transparent 0 40px, rgba(24,20,16,.3) 40px 41px), repeating-linear-gradient(-45deg, transparent 0 40px, rgba(24,20,16,.3) 40px 41px), #efe8d8",
+    rug: `${BERBER} 0 0 / 34px 34px, #efe5d2`,
     mats: [
       ["زليج هندسي", "zellige mosaic dado"],
       ["تادلاكت مصقول", "polished tadelakt"],
@@ -982,19 +1018,47 @@ export default function DarCinema() {
                         <div key={idx} style={{ position: "absolute", bottom: 0, left: `${leftPct}%`, width: "22%", height: idx === 1 ? "68%" : "62%", borderRadius: soul.archRadius, background: soul.archFill, boxShadow: `inset 0 0 0 5px ${soul.archFrame}` }} />
                       ))}
                     </div>
-                    {/* side walls */}
-                    <div style={{ position: "absolute", left: "50%", top: "50%", width: 480, height: 340, margin: "-170px 0 0 -240px", transform: "rotateY(90deg) translateZ(-280px)", background: soul.wall }} />
-                    <div style={{ position: "absolute", left: "50%", top: "50%", width: 480, height: 340, margin: "-170px 0 0 -240px", transform: "rotateY(-90deg) translateZ(-280px)", background: soul.wall }} />
+                    {/* Side walls, shaded apart from the back wall. Every face
+                        used to carry identical lighting, so the box read as
+                        unfolded cardboard; one light direction is most of what
+                        makes it read as a room at all. */}
+                    <div style={{ position: "absolute", left: "50%", top: "50%", width: 480, height: 340, margin: "-170px 0 0 -240px", transform: "rotateY(90deg) translateZ(-280px)", background: soul.wall, filter: "brightness(.78) saturate(.94)" }} />
+                    <div style={{ position: "absolute", left: "50%", top: "50%", width: 480, height: 340, margin: "-170px 0 0 -240px", transform: "rotateY(-90deg) translateZ(-280px)", background: soul.wall, filter: "brightness(.92)" }} />
                     {/* floor + rug */}
-                    <div style={{ position: "absolute", left: "50%", top: "50%", width: 560, height: 480, margin: "-240px 0 0 -280px", transform: "rotateX(90deg) translateZ(-170px)", background: soul.floor }}>
-                      <div style={{ position: "absolute", left: "50%", top: "54%", width: "62%", height: "40%", transform: "translate(-50%, -50%)", borderRadius: 8, background: soul.rug, boxShadow: "0 0 0 4px rgba(24,20,16,.25)" }} />
+                    <div style={{ position: "absolute", left: "50%", top: "50%", width: 560, height: 480, margin: "-240px 0 0 -280px", transform: "rotateX(90deg) translateZ(-170px)", background: soul.floor, filter: "brightness(.96)" }}>
+                      {/* Contact shadow under the rug — a rug lying flat with no
+                          shadow is the tell that a scene is a diagram. */}
+                      <div aria-hidden="true" style={{ position: "absolute", left: "50%", top: "54%", width: "70%", height: "48%", transform: "translate(-50%, -50%)", background: "radial-gradient(ellipse 50% 50% at 50% 50%, rgba(24,20,16,.34), transparent 70%)", filter: "blur(10px)" }} />
+                      <div style={{ position: "absolute", left: "50%", top: "54%", width: "62%", height: "40%", transform: "translate(-50%, -50%)", borderRadius: 8, background: soul.rug, boxShadow: "0 0 0 3px rgba(24,20,16,.3), 0 6px 18px rgba(0,0,0,.35)" }} />
                     </div>
                     {/* ceiling */}
                     <div style={{ position: "absolute", left: "50%", top: "50%", width: 560, height: 480, margin: "-240px 0 0 -280px", transform: "rotateX(90deg) translateZ(170px)", background: soul.ceil }} />
                   </div>
                 </div>
               </div>
-              <span style={{ position: "absolute", bottom: 12, right: 16, fontSize: 12, color: "var(--soft)", opacity: 0.65, pointerEvents: "none" }}>↻ اسحب للدوران · drag to orbit — DepthOrbit يقوم بهذا على صورتك الحقيقية</span>
+              {/* One line, one place. This used to run full width along the
+                  bottom edge and collide with the room's own caption. */}
+              <span
+                style={{
+                  position: "absolute",
+                  bottom: 10,
+                  insetInline: 12,
+                  margin: "0 auto",
+                  width: "fit-content",
+                  maxWidth: "calc(100% - 24px)",
+                  padding: "5px 12px",
+                  borderRadius: 999,
+                  background: "rgba(12,10,8,.62)",
+                  fontSize: 12,
+                  color: "var(--soft)",
+                  pointerEvents: "none",
+                  whiteSpace: "nowrap",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                }}
+              >
+                ↻ اسحب للدوران · drag to orbit
+              </span>
             </div>
 
             {/* material legend */}
