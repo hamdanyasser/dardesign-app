@@ -461,9 +461,23 @@ The loop: photo → `/redesign` → **Design it yourself** → move/add furnitur
 
 **Verified without a GPU** (instrumented, not assumed): `control_override` is passed; depth and seg arrive at full size with correct ADE20K classes; `use_lora=True` with the selected culture; and **`_prepare_conditioning` is called 0 times — no silent fallback to photo-derived annotators.** Segmentation output is pixel-exact against the backend palette.
 
-**Not yet verified: a real GPU render.** As of 2026-08-11 no GPU backend was reachable (tunnel DNS did not resolve; the dev machine has no CUDA device), so the end-to-end quality of the final image is **unmeasured**. Do not claim layout preservation quality until that runs.
+**Verified end-to-end on a real GPU (2026-08-13).** Against a live render host (`/healthz` → `light_mode: false`), a Build Mode scene — 10 `found` objects from a real `object_map` plus 3 user-placed Khaleeji pieces — captured its conditioning and came back as a genuine render in **35.61 s**. The path works: `control_override` reaches the pipeline, both control images arrive, and no photo-derived annotator runs.
 
-**Known weakness, highest impact first.** The capture camera is a *doll's house* — an open-topped box seen from outside and above. SDXL and both ControlNets were trained on interior photographs taken from inside rooms; we hand them a viewpoint no camera could occupy. An eye-level interior capture camera is the strongest next change. Second: coarse `found` footprints (a blob read as a 240cm cabinet conditions a 240cm cabinet) — worth letting users exclude found objects from conditioning.
+That first render read as a wooden-screen storage room rather than a majlis, which confirmed the doll's-house diagnosis below. **The capture camera was then rebuilt, and the same scene re-rendered as a believable room** (2026-08-13, A/B on the identical 13-object scene restored from `localStorage`).
+
+**The camera was the root cause, and it is fixed.** The capture used to clone the on-screen orbit camera: *outside* the room, ~30° above horizontal, 38° FOV. SDXL and both ControlNets were trained on interior photographs made from inside rooms at eye height with a wide lens, so every capture handed them a viewpoint no camera could occupy. `renderConditioning` now builds its own camera — inside the room, `CAPTURE_EYE_Y` 155 cm, `CAPTURE_FOV_DEG` 54 (a ~24mm interior lens), standing `CAPTURE_WALL_CLEARANCE` off the back wall. It keeps only the user's **azimuth**, the part that carries which way they were facing; the editor camera is untouched. Two consequences followed from being inside:
+
+- **All four walls now stay.** The exterior camera had to hide the walls it looked through, so the generator got a room with holes where its corners belonged. From inside, the near wall is simply behind the lens and the frame closes itself.
+- **A capture-only ceiling** in the real `ADE20K_CEILING` class, because an open top reads as sky from inside. Verified pixel-exact in the seg output: ceiling `120,120,80`, wall `120,120,120`.
+
+**Two follow-on defects, both found by measuring the conditioning and both fixed.**
+
+1. **A cushion the width of the room.** The segmenter finds every cushion along a bench and the projection merges the run into ONE footprint, so the demo majlis produced a `cushion` **520 × 142 × 75 cm** — the full room width, extruded solid, 33.8% of the floor, sitting on top of the two sofas it belongs to. `roomModel.ts` already drops wall-mounted classes for exactly this reason ("a painting standing in the middle of the room"); `ON_FURNITURE_CLASSES` now does the same for `cushion`/`pillow`. Found floor coverage **69.6% → 35.8%**, and seg `table` class **23.7% → 3.3%**.
+2. **The camera stood inside the sofa.** A fixed stand-off works in an empty room and fails in a furnished one — with a planned majlis the seating runs along the very wall the lens backs onto, and one slatted screen filled the whole frame. The capture now walks in from the wall and stops at the first spot clear of every object's world bounds by `CAPTURE_BODY_CM`, falling back to the old position if the room is too full.
+
+**Verification status, precisely.** The interior camera is GPU-verified (the 34.8s render above). The cushion and camera-occupancy fixes are verified **in the conditioning only** — measured class shares and an inspected beauty pass showing a proper corner view with clear centre floor — because the render tunnel expired before they could be re-rendered. **Re-run one Render with DAR when a GPU host is next up.**
+
+**Still not claimed:** layout-preservation *quality* is unmeasured — there is no side-by-side study, and a handful of renders is an observation, not a result.
 
 ---
 
@@ -471,18 +485,31 @@ The loop: photo → `/redesign` → **Design it yourself** → move/add furnitur
 
 Empty room → the user writes what they want → an LLM plans the furniture → it appears in Build Mode → they edit it → **Render with DAR**. Added 2026-08-12.
 
-**The model is a design planner, never a renderer and never a source of facts.** It picks pieces from the cultural catalogue and proposes where they stand. It emits **no dimensions at all** — those come from `ontology/furniture.json`. Five gates, each one a place a hallucination dies:
+The model also **reads the brief**: one call returns an `understood` block (culture, room type, capacity, cultural intensity, wall/floor material, requirements, requested pieces) beside the placements. There is deliberately no separate "interpret, then plan" round trip — it would double latency and cost for information the one response already carries.
+
+**Every field in `understood` is validated against a vocabulary DAR already owns**, so nothing in it is free text: `roomType` is `prompt_builder.py`'s own `room_ar_map` keys, `intensity` is the `/restyle` `scale` with the same 0–1 clamp, and wall/floor are `materials.ts`'s `WALL_CHOICES`/`FLOOR_CHOICES`. An unknown value becomes `null`, never a plausible guess, and `null` always means "not said — leave the room alone".
+
+**Colour intent goes to Build Mode materials, never to Colour Control.** `/api/color/*` repaints a **finished PNG** and needs a `job_id`, a rendered image and the cached segmentation from a `/redesign` pass; a Build Mode scene that was never rendered has none of those. The scene's real colour system is `RoomShell.wallMaterialKey`/`floorMaterialKey` via `setShellMaterial`. Two systems, no overlap — do not wire them together.
+
+**Capacity is DAR's arithmetic, not the model's claim.** The ontology has no seat counts, so `seats_of()` derives them from real widths (a sofa seats `width / 60`, an armchair/chair/pouf seats one) and the panel prints *"Seats about 6"* as an estimate. When the plan falls short of a requested capacity the panel says so (*"· 6 asked for"*) instead of quietly claiming success.
+
+**The model is a design planner, never a renderer and never a source of facts.** It picks pieces from the cultural catalogue and proposes where they stand. It emits **no dimensions at all** — those come from `ontology/furniture.json`. Six gates, each one a place a hallucination dies:
 
 1. **Closed vocabulary.** `catalogId` is a JSON-Schema `enum` of exactly that culture's 9 ids, so structured outputs (`output_config.format`) make an invented id *unrepresentable*, not merely unlikely.
 2. **No invented dimensions.** Sizes come from the catalogue via `catalogItem(id)`.
 3. **Backend validation** (`validate_items`): unknown id, non-finite or absurd coordinate, unknown material → dropped **and reported**, never quietly rounded into something plausible.
 4. **Client re-validation** (`src/lib/design/planner.ts` → `gatePlan`): every placement runs `evaluatePlacement()`, the same oriented-rect SAT that colours the drag ghost and refuses a human drop. Blocking → one repair attempt through `findSpot` → else dropped. Items are validated **in order against the scene as it is being built**, so the second piece is judged against the first.
 5. **Advisory verdicts still pass.** Standing a sofa where the photo found the old one is the most likely act of redesign.
+6. **Culture coherence.** The model is handed all 27 pieces (it cannot know the culture before reading the brief, and a second call to find out is not worth it), so it can also *mix* them. Any item whose culture ≠ `understood.culture` is dropped and named. One room, one culture, unless "all" was asked for.
+
+**Openings are enforced, not requested.** `WallOpening` already existed but only `DesignCanvas` ever saw it; it is now threaded to the planner as prompt facts *and* checked deterministically in `gatePlan` — a door gets a 90 cm keep-clear zone (window 40 cm), derived exactly as `scene3d.ts:280-302` positions the opening. A piece landing in one gets a `findSpot` repair, then is kept with a visible advisory. **Advisory, not blocking**: standing near a door is judgement, not physics. With no handoff `openings` is `[]`, and the panel says *"No door or window detected"* rather than implying knowledge. Opening heights are constant priors (door 210 / window 140) and are never presented as measured.
 
 Rules that are easy to violate:
 
 - **`format` and `effort` are sibling keys inside ONE `output_config`.** Two separate `output_config` kwargs silently overwrite each other. Pinned by `test_format_and_effort_are_siblings_in_one_output_config`.
-- **Apply a plan with `beginGesture` → N × `addAt` → `endGesture`, never `replace`.** `replace` wipes `undo`/`redo` (`store.ts:301-309`), so an AI plan would be unundoable. Gestures collapse N adds into one entry — **one Ctrl+Z removes the whole plan** (verified: 7 → 0).
+- **Apply a plan with `beginGesture` → N × `addAt` → `endGesture`, never `replace`.** `replace` wipes `undo`/`redo` (`store.ts:301-309`), so an AI plan would be unundoable. Gestures collapse N adds into one entry — **one Ctrl+Z removes the whole plan**, wall and floor materials included (verified: 4 objects + 2 materials → 0 in one undo).
+- **`scene.culture` is deliberately never changed by a plan**, even when the brief asks for a different culture. Switching it goes through `setCulture`, which dispatches `replace` and would wipe history mid-gesture. The plan expresses culture through the pieces it places and the shell materials it sets — which is what is actually visible.
+- **Cultural intensity and room type live in page state (`renderIntent`), not in `DesignScene`.** A new scene field bumps `SCENE_VERSION`, and `loadScene` silently drops any scene whose version does not match — i.e. it would throw away every room a user had saved. From there `roomType` reaches `/render-scene`'s existing `room` param (it was hardcoded `"living room"`) and `intensity` its new optional `scale`, which is a pass-through to the `lora_scale` `render_scene()` already accepted. **Omitted, the render path is byte-for-byte what it was** — the same discipline as `control_override`.
 - `addAt` takes an optional `materialKey` (added for this feature); omitted, the ontology's own default for the piece stands.
 - The planner endpoint is on **`DATA_API_URL`, not `API_URL`** — the model key belongs on a machine the user controls, never on a throwaway Kaggle GPU container. It is also **behind `_require_user`**, because every call spends real money.
 - The room rectangle is **sent by the client**. `RoomAnalysis.summary()` returns no width/depth/height at all — only `free_floor_m2` and ratios. `deriveRoom()` backs the rectangle out client-side.

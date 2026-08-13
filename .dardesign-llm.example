@@ -1,25 +1,40 @@
-# Design Planner credentials — the LLM that plans an empty room's furniture.
+# Design Planner credentials — the LLM that reads a brief and plans a room.
 #
-# Copy this file to .dardesign-llm (gitignored) and fill it in, then restart
-# scripts\run-local-backend.ps1.
+# Copy this file to .dardesign-llm (gitignored) and fill in ONE of the two
+# providers, then restart scripts\run-local-backend.ps1.
 #
 # UNCONFIGURED IS A WORKING MODE. With no key the planner returns a layout
 # computed from DAR's own placement rules and labels it "Planned by DAR's
 # rules" in the UI. The demo, the tests and CI all run that path, so nothing
-# is dark without a key.
+# is dark without a key. The rule path also never claims to have understood
+# a culture, a capacity or a colour it did not read.
 #
-# A Pro/Plus web subscription is NOT API access. This key comes from
-# console.anthropic.com (pay-as-you-go).
-#
-# Cost: the catalogue is 9 items per culture, so a plan is roughly 1k tokens in
-# and 1.5k out — about $0.02 on Sonnet 5, less on Haiku. Repeated briefs are
-# served from an in-process cache and cost nothing. The backend also refuses to
-# make more than 200 calls per process, and logs the estimated cost of each.
+# A Pro/Plus/Max web subscription is NOT API access, for either provider.
 
-ANTHROPIC_API_KEY=sk-ant-...
+# ---------------------------------------------------------------------------
+# Option 1 — Google Gemini (free tier)
+# ---------------------------------------------------------------------------
+# aistudio.google.com/apikey issues a key with a free daily quota. Gemini
+# enforces `response_schema` with enums, which is what keeps the planner's
+# first grounding gate true: an invented catalogue id is unrepresentable.
+# Needs: pip install google-genai
+# GEMINI_API_KEY=...
 
-# Optional. Defaults to claude-sonnet-5.
-#   claude-haiku-4-5  — cheapest, ~$0.004 a plan
-#   claude-sonnet-5   — the default; best value for structured planning
-#   claude-opus-5     — strongest spatial reasoning, ~$0.02-0.05 a plan
-# DARDESIGN_LLM_MODEL=claude-sonnet-5
+# ---------------------------------------------------------------------------
+# Option 2 — Anthropic (pay as you go)
+# ---------------------------------------------------------------------------
+# console.anthropic.com. Used first when both keys are present, because the
+# planner's schema was written against its structured outputs.
+# Needs: pip install anthropic
+# ANTHROPIC_API_KEY=sk-ant-...
+
+# ---------------------------------------------------------------------------
+# Optional model override. Defaults: gemini-2.5-flash on Gemini,
+# claude-sonnet-5 on Anthropic.
+# ---------------------------------------------------------------------------
+# DARDESIGN_LLM_MODEL=gemini-2.5-flash
+
+# Cost, for the Anthropic path: the catalogue is 27 items, so a plan is
+# roughly 1.5k tokens in and 1.5k out — a couple of cents. Repeated briefs are
+# served from an in-process cache and cost nothing, the backend refuses more
+# than 200 calls per process, and each call's estimated cost is logged.

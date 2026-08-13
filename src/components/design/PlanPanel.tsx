@@ -17,8 +17,17 @@
 import { useEffect, useState } from "react";
 import { ApiError, fetchPlannerStatus, planLayout, type DesignPlan } from "@/lib/api";
 import { catalogItem } from "@/lib/design/catalog";
+import { getMaterial } from "@/lib/design/materials";
 import { gatePlan, type GatedPlan } from "@/lib/design/planner";
+import type { WallOpening } from "@/lib/design/roomModel";
 import type { DesignScene } from "@/lib/design/types";
+
+const CULTURE_LABEL: Record<string, { en: string; ar: string }> = {
+  lebanese: { en: "Lebanese", ar: "لبناني" },
+  khaleeji: { en: "Khaleeji", ar: "خليجي" },
+  moroccan: { en: "Moroccan", ar: "مغربي" },
+  all: { en: "All three", ar: "الثلاثة" },
+};
 
 const EXAMPLES_EN = [
   "A majlis for receiving guests",
@@ -29,12 +38,16 @@ const EXAMPLES_AR = ["مجلس لاستقبال الضيوف", "ركن هادئ 
 
 export default function PlanPanel({
   scene,
+  openings,
+  shellSource,
   isArabic,
   onApply,
 }: {
   scene: DesignScene;
+  openings: WallOpening[];
+  shellSource: string;
   isArabic: boolean;
-  onApply: (gated: GatedPlan) => void;
+  onApply: (gated: GatedPlan, plan: DesignPlan) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [brief, setBrief] = useState("");
@@ -67,6 +80,7 @@ export default function PlanPanel({
         culture: scene.culture,
         brief,
         // What DAR read from the photograph, so the plan designs around it.
+        shellSource,
         existing: scene.objects
           .filter((o) => o.origin === "found")
           .map((o) => ({
@@ -76,10 +90,19 @@ export default function PlanPanel({
             widthCm: Math.round(o.widthCm),
             depthCm: Math.round(o.depthCm),
           })),
+        // Only what DAR actually detected. Empty for a default room, and the
+        // panel says so rather than letting the model imagine a doorway.
+        openings: openings.map((o) => ({
+          kind: o.kind,
+          wall: o.wall,
+          t: Number(o.t.toFixed(2)),
+          widthCm: Math.round(o.widthCm),
+          label: o.labelEn,
+        })),
       });
       setPlan(result);
       // The gate: nothing is trusted until the collision engine has spoken.
-      setGated(gatePlan(result.items, scene));
+      setGated(gatePlan(result.items, scene, openings));
     } catch (e) {
       const msg =
         e instanceof ApiError
@@ -170,6 +193,91 @@ export default function PlanPanel({
             {plan.cached && (isArabic ? " · محفوظة" : " · cached")}
           </p>
 
+          {/* DAR understood — the brief read back as design decisions, not as
+              a transcript. Every value here was validated against a real DAR
+              vocabulary server-side, so nothing in this block is a guess. */}
+          {(() => {
+            const u = plan.understood;
+            const cult = CULTURE_LABEL[u.culture] ?? CULTURE_LABEL.all;
+            const wall = u.wallMaterialKey ? getMaterial(u.wallMaterialKey) : null;
+            const floor = u.floorMaterialKey ? getMaterial(u.floorMaterialKey) : null;
+            const seats = plan.seatingEstimate;
+            return (
+              <section className="und" aria-label={isArabic ? "ما فهمته دار" : "What DAR understood"}>
+                <div className="insp-sub">{isArabic ? "فهمت دار" : "DAR understood"}</div>
+
+                <p className="und-line">
+                  {isArabic ? cult.ar : cult.en}
+                  <span className="und-dot">·</span>
+                  {u.roomType}
+                  {u.capacity != null && (
+                    <>
+                      <span className="und-dot">·</span>
+                      {isArabic ? `${u.capacity} أشخاص` : `${u.capacity} people`}
+                    </>
+                  )}
+                </p>
+
+                {(wall || floor) && (
+                  <p className="und-line">
+                    {wall && (
+                      <span className="und-mat">
+                        <span className="und-sw" style={{ background: wall.hex }} aria-hidden />
+                        {isArabic ? wall.nameAr : wall.nameEn}
+                        <span className="und-mut">{isArabic ? " جدران" : " walls"}</span>
+                      </span>
+                    )}
+                    {floor && (
+                      <span className="und-mat">
+                        <span className="und-sw" style={{ background: floor.hex }} aria-hidden />
+                        {isArabic ? floor.nameAr : floor.nameEn}
+                        <span className="und-mut">{isArabic ? " أرضية" : " floor"}</span>
+                      </span>
+                    )}
+                  </p>
+                )}
+
+                {u.intensity != null && (
+                  <p className="und-line und-mut">
+                    {isArabic
+                      ? `شدّة ثقافية ${Math.round(u.intensity * 100)}٪`
+                      : `Cultural intensity ${Math.round(u.intensity * 100)}%`}
+                  </p>
+                )}
+
+                {/* DAR's own arithmetic over what was placed, not a claim by
+                    the model — and labelled an estimate because seat counts
+                    are derived from real widths, not stored in the ontology. */}
+                <p className="und-line und-mut">
+                  {isArabic ? `يتّسع لنحو ${seats}` : `Seats about ${seats}`}
+                  {u.capacity != null && seats < u.capacity && (
+                    <span className="und-warn">
+                      {isArabic ? ` · طُلب ${u.capacity}` : ` · ${u.capacity} asked for`}
+                    </span>
+                  )}
+                </p>
+
+                {u.requirements.length > 0 && (
+                  <ul className="und-reqs">
+                    {u.requirements.map((r, i) => (
+                      <li key={i}>{r}</li>
+                    ))}
+                  </ul>
+                )}
+
+                <p className="und-line und-mut">
+                  {openings.length > 0
+                    ? isArabic
+                      ? `${openings.length} فتحة معروفة (باب/نافذة) رُوعيت.`
+                      : `${openings.length} detected opening${openings.length === 1 ? "" : "s"} respected.`
+                    : isArabic
+                      ? "لم تُكتشف أبواب أو نوافذ في هذه الغرفة."
+                      : "No door or window detected in this room."}
+                </p>
+              </section>
+            );
+          })()}
+
           <p className="plan-notes">{isArabic ? plan.notesAr : plan.notesEn}</p>
 
           <ul className="plan-list">
@@ -181,9 +289,18 @@ export default function PlanPanel({
                     {isArabic ? item?.nameAr : item?.nameEn}
                   </span>
                   <span className="plan-why">{isArabic ? p.reasonAr : p.reasonEn}</span>
-                  {p.repaired && (
+                  {(p.repaired || p.blocksOpening) && (
                     <span className="plan-tag">
-                      {isArabic ? "عُدّل الموضع" : "position adjusted"}
+                      {p.repaired &&
+                        (isArabic ? "عدّلت دار الموضع" : "DAR adjusted the position")}
+                      {p.blocksOpening && (
+                        <span className="und-warn">
+                          {p.repaired ? " · " : ""}
+                          {isArabic
+                            ? `قريب من ${p.blocksOpening.labelAr}`
+                            : `close to the ${p.blocksOpening.labelEn}`}
+                        </span>
+                      )}
                     </span>
                   )}
                 </li>
@@ -215,7 +332,7 @@ export default function PlanPanel({
             className="plan-go"
             disabled={gated.placements.length === 0}
             onClick={() => {
-              onApply(gated);
+              onApply(gated, plan);
               setOpen(false);
             }}
           >

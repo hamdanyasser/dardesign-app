@@ -19,7 +19,7 @@
    ============================================================ */
 
 import * as THREE from "three";
-import { ADE20K_DOOR, ADE20K_FLOOR, ADE20K_WALL, ADE20K_WINDOW, ade20kHex } from "./ade20k";
+import { ADE20K_CEILING, ADE20K_DOOR, ADE20K_FLOOR, ADE20K_WALL, ADE20K_WINDOW, ade20kHex } from "./ade20k";
 import { buildObjectMesh, colorOf, standardMaterial } from "./geometry";
 import { cultureAccent, getMaterial } from "./materials";
 import type { WallOpening } from "./roomModel";
@@ -37,6 +37,19 @@ interface Spherical {
 
 const MIN_PHI = 0.12;
 const MAX_PHI = Math.PI / 2 - 0.04;
+
+/** Conditioning capture — a person standing in the room, not an orbit camera.
+ *  Eye height for an adult standing; a ~24mm interior lens (54deg vertical on
+ *  4:3 is ~68deg horizontal), which is the framing interior photography — and
+ *  therefore the ControlNets' training data — actually uses; and how far off
+ *  the back wall to stand so the near wall is behind the lens, not in it. */
+const CAPTURE_EYE_Y = 155;
+const CAPTURE_FOV_DEG = 54;
+const CAPTURE_WALL_CLEARANCE = 45;
+/** Half the space a standing person occupies, plus enough that whatever is
+ *  beside them does not fill the lens. Used to reject camera spots that fall
+ *  inside or hard against a piece of furniture. */
+const CAPTURE_BODY_CM = 55;
 
 export class DesignWorld {
   readonly renderer: THREE.WebGLRenderer;
@@ -700,41 +713,93 @@ export class DesignWorld {
       format: THREE.RGBAFormat,
     });
 
-    // The capture must use the user's current viewpoint at the generation
-    // aspect, not the on-screen aspect, or the render would be framed
-    // differently from the design that produced it.
+    // ---- the capture camera stands INSIDE the room, at eye level ----
+    //
+    // This used to clone the on-screen orbit camera: outside the room, ~30
+    // degrees above horizontal, 38mm-equivalent. That is a doll's house — an
+    // open-topped box seen from above and outside. SDXL and both ControlNets
+    // were trained on interior photographs made from inside rooms at eye
+    // height with a wide lens, so every capture handed them a viewpoint no
+    // camera could occupy, and the render came back reading as a model of a
+    // room rather than a room. Layout was honoured; believability was not.
+    //
+    // So the capture no longer borrows the editor's viewpoint. It keeps the
+    // one thing that carries the user's intent — the azimuth, i.e. which way
+    // they were facing — and replaces elevation, position and lens with a
+    // human standing in the room. The editor camera is untouched; only what
+    // the generator is shown changes.
     const cam = this.camera.clone() as THREE.PerspectiveCamera;
     cam.aspect = width / height;
-    cam.updateProjectionMatrix();
+    cam.fov = CAPTURE_FOV_DEG;
 
-    // Same angle the user chose, but pushed in until the room fills the frame.
-    // The on-screen view deliberately leaves the maquette floating on its
-    // plinth with air around it; captured as-is, ~40% of the conditioning was
-    // empty black, and unconstrained pixels are pixels SDXL invents. Keeping
-    // the azimuth and elevation preserves the viewpoint; only the distance
-    // changes, so the render frames the design the user is actually looking at.
-    const savedAspect = this.camera.aspect;
-    this.camera.aspect = cam.aspect;
-    this.camera.updateProjectionMatrix();
-    const radiusForCapture = this.fitRadius(this.sph.phi, this.sph.theta, 1.24);
-    this.camera.aspect = savedAspect;
-    this.camera.updateProjectionMatrix();
+    // Stand with your back to the wall the orbit camera was on, so you face
+    // the same part of the room the user was looking at.
+    const dirX = Math.cos(this.sph.theta);
+    const dirZ = Math.sin(this.sph.theta);
+    const halfW = this.roomW / 2;
+    const halfD = this.roomD / 2;
+    // Distance from centre to the wall along that ray, then step off it.
+    const reachX = Math.abs(dirX) > 1e-4 ? halfW / Math.abs(dirX) : Infinity;
+    const reachZ = Math.abs(dirZ) > 1e-4 ? halfD / Math.abs(dirZ) : Infinity;
+    const maxStand = Math.min(reachX, reachZ) - CAPTURE_WALL_CLEARANCE;
+    const minStand = Math.min(halfW, halfD) * 0.35;
+    const eyeY = Math.min(CAPTURE_EYE_Y, this.roomH - 40);
 
-    const sinPhi = Math.sin(this.sph.phi);
+    // A person does not stand inside the sofa. Placing the lens at a fixed
+    // distance off the wall works in an empty room and fails the moment the
+    // room is furnished: with a planned majlis the seating runs along exactly
+    // the wall the camera backs onto, so the capture ended up embedded in a
+    // piece of furniture and one slatted screen filled the entire frame.
+    //
+    // Walk in from the wall and stop at the first spot that is neither inside
+    // a piece nor pressed right up against one, judged against the objects'
+    // own world bounds. If the room is too full for any such spot the old
+    // wall-hugging position stands, which is no worse than before.
+    const solids: THREE.Box3[] = [];
+    this.objectIndex.forEach((mesh) => {
+      const b = new THREE.Box3().setFromObject(mesh);
+      if (Number.isFinite(b.min.x) && b.max.y > 12) solids.push(b);
+    });
+    const clearAt = (s: number): boolean => {
+      const px = this.target.x + s * dirX;
+      const pz = this.target.z + s * dirZ;
+      for (const b of solids) {
+        if (
+          px > b.min.x - CAPTURE_BODY_CM &&
+          px < b.max.x + CAPTURE_BODY_CM &&
+          pz > b.min.z - CAPTURE_BODY_CM &&
+          pz < b.max.z + CAPTURE_BODY_CM
+        ) {
+          return false;
+        }
+      }
+      return true;
+    };
+    let standOff = Math.max(maxStand, minStand);
+    for (let s = maxStand; s >= minStand; s -= 15) {
+      if (clearAt(s)) {
+        standOff = s;
+        break;
+      }
+    }
+
     cam.position.set(
-      this.target.x + radiusForCapture * sinPhi * Math.cos(this.sph.theta),
-      this.target.y + radiusForCapture * Math.cos(this.sph.phi),
-      this.target.z + radiusForCapture * sinPhi * Math.sin(this.sph.theta),
+      this.target.x + standOff * dirX,
+      eyeY,
+      this.target.z + standOff * dirZ,
     );
-    cam.lookAt(this.target);
+    // Level enough to keep verticals from converging the way a tilted lens
+    // would, but aimed a little below the eye so the floor and the furniture
+    // standing on it carry the frame rather than bare wall.
+    cam.lookAt(this.target.x, eyeY * 0.74, this.target.z);
+    cam.updateProjectionMatrix();
     cam.updateMatrixWorld(true);
 
-    // Depth range tight around the room, so the 8-bit ramp is spent on the
-    // room rather than on empty space behind it.
-    const radius = Math.hypot(this.roomW, this.roomD, this.roomH) / 2;
-    const dist = radiusForCapture;
-    const near = Math.max(1, dist - radius);
-    const far = dist + radius;
+    // Depth range spans the room as seen from inside it, so the 8-bit ramp is
+    // spent between the lens and the far corner instead of on approach space.
+    const near = 10;
+    const far =
+      Math.hypot(this.roomW, this.roomD, this.roomH) + CAPTURE_WALL_CLEARANCE;
 
     const hidden: THREE.Object3D[] = [];
     const hide = (o: THREE.Object3D) => {
@@ -761,19 +826,33 @@ export class DesignWorld {
       }
     });
 
-    // Walls the viewer is looking THROUGH must not come back as solid geometry.
-    // On screen cullWalls() fades the camera-facing walls to ~0.045 so you can
-    // see into the room; the conditioning passes replace every material with an
-    // opaque one, which would otherwise rebuild those walls as a solid slab
-    // directly in front of the lens — the room would be conditioned as a blank
-    // partition. Hiding them keeps the capture equal to the view that produced it.
-    for (const { mesh, attachments } of this.wallMeshes) {
-      const m = mesh.material as THREE.MeshStandardMaterial;
-      if (m.opacity < 0.5) {
-        hide(mesh);
-        for (const a of attachments) hide(a);
-      }
-    }
+    // Every wall stays. The old exterior camera had to hide the two walls it
+    // was looking through, which handed the generator a room with holes where
+    // its corners belonged — a large share of the frame unconstrained, and
+    // unconstrained pixels are pixels SDXL invents. From inside, the wall at
+    // the lens's back is simply behind the camera, so the frame closes itself
+    // and all four surfaces condition normally. cullWalls()' on-screen fade is
+    // a display state and is deliberately not consulted here.
+    //
+    // The maquette has no ceiling — correct on screen, wrong from inside,
+    // where an open top reads as sky and takes the top of the frame with it.
+    // A capture-only ceiling in the real ADE20K ceiling class closes the room
+    // for the segmentation ControlNet and is removed again below.
+    const ceiling = new THREE.Mesh(
+      new THREE.BoxGeometry(this.roomW, 8, this.roomD),
+      // Lit from above by the room's own lights, its underside would render
+      // black in the beauty pass and read as a hole rather than a ceiling.
+      // The emissive term is cosmetic — the depth and segmentation passes
+      // replace this material outright and never see it.
+      new THREE.MeshStandardMaterial({
+        color: 0xf2ede4,
+        roughness: 0.95,
+        emissive: 0x6f6a63,
+      }),
+    );
+    ceiling.position.set(0, this.roomH + 4, 0);
+    ceiling.userData.ade = ADE20K_CEILING;
+    this.shellGroup.add(ceiling);
 
     const prevTarget = this.renderer.getRenderTarget();
     const prevBg = this.scene.background;
@@ -888,6 +967,9 @@ export class DesignWorld {
     this.scene.background = prevBg;
     for (const o of hidden) o.visible = true;
     for (const o of restoredFound) o.visible = false;
+    this.shellGroup.remove(ceiling);
+    ceiling.geometry.dispose();
+    (ceiling.material as THREE.Material).dispose();
     rt.dispose();
     this.markDirty();
 

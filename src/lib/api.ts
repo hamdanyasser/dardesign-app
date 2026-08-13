@@ -1520,13 +1520,22 @@ export async function renderScene(
   depthDataUrl: string,
   segDataUrl: string,
   style: string,
-  { room = "living room", timeoutMs = 360_000, signal }: { room?: string; timeoutMs?: number; signal?: AbortSignal } = {},
+  {
+    room = "living room",
+    /** 0..1 cultural intensity — the LoRA scale. Omitted leaves the pipeline default. */
+    scale,
+    timeoutMs = 360_000,
+    signal,
+  }: { room?: string; scale?: number | null; timeoutMs?: number; signal?: AbortSignal } = {},
 ): Promise<SceneRenderResult> {
   const fd = new FormData();
   fd.append("depth", dataUrlToBlob(depthDataUrl), "depth.png");
   fd.append("seg", dataUrlToBlob(segDataUrl), "seg.png");
   fd.append("style", style);
   fd.append("room", room);
+  if (typeof scale === "number" && Number.isFinite(scale)) {
+    fd.append("scale", String(Math.max(0, Math.min(1, scale))));
+  }
 
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), timeoutMs);
@@ -1600,13 +1609,38 @@ export interface PlannedItem {
   reasonAr: string;
 }
 
+/**
+ * DAR's reading of the brief. Every field is validated server-side against a
+ * real vocabulary — a culture we have, a room type the prompt builder knows,
+ * a material on the actual swatch list — so `null` always means "not said"
+ * rather than "we guessed".
+ */
+export interface PlanUnderstood {
+  culture: string;
+  roomType: string;
+  capacity: number | null;
+  /** 0..1 — the same LoRA scale /restyle exposes. */
+  intensity: number | null;
+  wallMaterialKey: string | null;
+  floorMaterialKey: string | null;
+  conceptEn: string;
+  conceptAr: string;
+  requirements: string[];
+  requestedFurniture: Array<{ category: string; count: number }>;
+}
+
 export interface DesignPlan {
+  understood: PlanUnderstood;
   items: PlannedItem[];
+  /** DAR's own arithmetic over the placed pieces, estimated from real widths. */
+  seatingEstimate: number;
+  placedCounts: Record<string, number>;
   notesEn: string;
   notesAr: string;
   /** "llm" — a design model planned it. "rules" — DAR's placement rules did. */
   source: "llm" | "rules";
   model: string | null;
+  provider: string | null;
   /** Pieces the backend threw out, with why. Shown, never swallowed. */
   rejected: Array<{ catalogId: string | null; why: string }>;
   warning?: string;
@@ -1620,6 +1654,8 @@ export interface PlanRoomInput {
   culture: string;
   brief: string;
   existing?: Array<Record<string, unknown>>;
+  openings?: Array<Record<string, unknown>>;
+  shellSource?: string | null;
 }
 
 /** Ask the planner for a layout. ~10-20s with a model; instant without one. */
@@ -1648,6 +1684,8 @@ export async function planLayout(
         culture: input.culture,
         brief: input.brief,
         existing: input.existing ?? [],
+        openings: input.openings ?? [],
+        shell_source: input.shellSource ?? null,
       }),
       signal: ctrl.signal,
       ...WITH_CREDENTIALS,
@@ -1692,6 +1730,7 @@ export async function planLayout(
 export interface PlannerStatus {
   configured: boolean;
   model: string | null;
+  provider?: string | null;
 }
 
 /** Whether a design model is configured, so the panel can say so before asking. */

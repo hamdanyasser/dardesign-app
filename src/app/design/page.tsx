@@ -117,6 +117,13 @@ function BuildModeReady({
   const { isArabic, theme, toggleLanguage, toggleTheme } = useThemeLanguage();
   const [state, dispatch] = useReducer(designReducer, boot.scene, initialState);
   const [openings] = useState(boot.openings);
+  /* What the planner understood that the RENDERER can act on. Deliberately not
+     part of DesignScene: adding a field there bumps SCENE_VERSION, and
+     loadScene drops any scene whose version does not match. */
+  const [renderIntent, setRenderIntent] = useState<{
+    roomType: string;
+    intensity: number | null;
+  }>({ roomType: "living room", intensity: null });
   const [dockCollapsed, setDockCollapsed] = useState(false);
   const [drag, setDrag] = useState<DragPayload | null>(null);
   const [dragItem, setDragItem] = useState<CatalogItem | null>(null);
@@ -436,8 +443,10 @@ function BuildModeReady({
 
         <PlanPanel
           scene={scene}
+          openings={openings}
+          shellSource={scene.provenance.shellSource}
           isArabic={isArabic}
-          onApply={(gated) => {
+          onApply={(gated, plan) => {
             // One gesture, so a whole plan is one undo. `replace` would have
             // been fewer lines and would have wiped undo/redo entirely — an AI
             // plan you cannot take back is worse than no plan.
@@ -446,6 +455,17 @@ function BuildModeReady({
               labelEn: "Plan the room",
               labelAr: "تخطيط الغرفة",
             });
+            // Wall and floor first, so the room's surfaces are already right
+            // as the furniture lands. Both ride inside the same gesture, so a
+            // single undo takes the whole design decision back out — colour
+            // included, not just the objects.
+            const u = plan.understood;
+            if (u.wallMaterialKey) {
+              dispatch({ type: "setShellMaterial", surface: "wall", materialKey: u.wallMaterialKey });
+            }
+            if (u.floorMaterialKey) {
+              dispatch({ type: "setShellMaterial", surface: "floor", materialKey: u.floorMaterialKey });
+            }
             for (const p of gated.placements) {
               dispatch({
                 type: "addAt",
@@ -457,6 +477,12 @@ function BuildModeReady({
               });
             }
             dispatch({ type: "endGesture" });
+            // Carried to Render with DAR: the room type reaches the prompt
+            // builder's own vocabulary, and the intensity is the LoRA scale
+            // /restyle already uses. Held here rather than in DesignScene —
+            // a new scene field would bump SCENE_VERSION and silently discard
+            // every scene a user has already saved.
+            setRenderIntent({ roomType: u.roomType, intensity: u.intensity });
           }}
         />
 
@@ -562,6 +588,7 @@ function BuildModeReady({
             isArabic={isArabic}
             onClose={() => setHandoff(false)}
             capture={captureRef.current ?? undefined}
+            renderIntent={renderIntent}
           />
         )}
       </div>

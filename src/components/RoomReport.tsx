@@ -36,6 +36,12 @@ export interface RoomReportProps {
   mapObjects: MapObject[];
   /** True when regions/map are backend detections rather than demo data. */
   isLive: boolean;
+  /**
+   * True when /redesign answered `placeholder: true` — a DARDESIGN_LIGHT run,
+   * where no model rendered anything. The provenance footer must not name a
+   * pipeline that did not run.
+   */
+  placeholder?: boolean;
   jobId?: string;
   className?: string;
 }
@@ -79,11 +85,36 @@ function truncate(s: string, max: number): string {
 
 async function composeReport(props: RoomReportProps, isArabic: boolean): Promise<string> {
   const W = 1240;
-  const H = 1650;
   const M = 64; // page margin
 
   await document.fonts.ready;
   const [before, after] = await Promise.all([loadImage(props.beforeSrc), loadImage(props.afterSrc)]);
+
+  // Every block below advances by a known amount, so the page height is
+  // derivable rather than guessed. It used to be a fixed 1650, which left
+  // roughly 500px of empty board under the content of an ordinary room and
+  // made the export look like a page that had failed to finish drawing.
+  const colW = (W - M * 2 - 48) / 2;
+  const imgW = (W - M * 2 - 32) / 2;
+  const imgH = imgW * 0.75;
+  const planS = Math.min(colW, 420);
+  const sectionTop = M + 30 + 44 + 30 + 26 + 34 + imgH + 66;
+
+  const known = props.regions
+    .map((r) => ({ r, info: ONTOLOGY[r.classKey] }))
+    .filter((d) => d.info?.ar && d.info?.en)
+    .slice(0, 6);
+
+  const elementsBottom =
+    sectionTop +
+    36 +
+    (known.length === 0
+      ? 30
+      : known.reduce((acc, d) => acc + 26 + (d.info!.note ? 30 : 8), 0));
+  const planBottom = sectionTop + 12 + planS + 24;
+  // 190 = the gap under the content, the footer rule, its two lines and the
+  // bottom page margin.
+  const H = Math.round(Math.max(elementsBottom, planBottom) + 190);
 
   const canvas = document.createElement("canvas");
   canvas.width = W;
@@ -130,8 +161,6 @@ async function composeReport(props: RoomReportProps, isArabic: boolean): Promise
   y += 34;
 
   // ---- before / after -----------------------------------------------------
-  const imgW = (W - M * 2 - 32) / 2;
-  const imgH = imgW * 0.75;
   drawCover(ctx, before, M, y, imgW, imgH);
   drawCover(ctx, after, M + imgW + 32, y, imgW, imgH);
   ctx.fillStyle = GOLD_SOFT;
@@ -145,19 +174,12 @@ async function composeReport(props: RoomReportProps, isArabic: boolean): Promise
   y += imgH + 66;
 
   // ---- elements (left) + 2D plan (right) ----------------------------------
-  const colW = (W - M * 2 - 48) / 2;
-  const sectionTop = y;
-
   ctx.textAlign = isArabic ? "right" : "left";
   ctx.fillStyle = GOLD;
   ctx.font = `700 24px ${AR_FONT}`;
   ctx.fillText(isArabic ? "العناصر الثقافية · Elements" : "Cultural elements · العناصر", isArabic ? M + colW * 2 + 48 : M, y);
   y += 36;
 
-  const known = props.regions
-    .map((r) => ({ r, info: ONTOLOGY[r.classKey] }))
-    .filter((d) => d.info?.ar && d.info?.en)
-    .slice(0, 6);
   for (const { info } of known) {
     ctx.fillStyle = CREAM;
     ctx.font = `600 20px ${AR_FONT}`;
@@ -182,7 +204,6 @@ async function composeReport(props: RoomReportProps, isArabic: boolean): Promise
   // 2D plan panel (always drawn on the opposite column)
   const planX = isArabic ? M : M + colW + 48;
   const planY = sectionTop + 12;
-  const planS = Math.min(colW, 420);
   ctx.fillStyle = PANEL;
   ctx.fillRect(planX, planY, planS, planS);
   ctx.strokeStyle = GOLD;
@@ -192,30 +213,69 @@ async function composeReport(props: RoomReportProps, isArabic: boolean): Promise
   ctx.textAlign = "center";
   ctx.fillStyle = MUTED;
   ctx.font = `400 14px ${AR_FONT}`;
-  ctx.fillText(isArabic ? "الجدار البعيد" : "far wall", planX + planS / 2, planY + 20);
-  for (const o of props.mapObjects.slice(0, 14)) {
-    const info = ONTOLOGY[o.classKey];
+  // Draw every footprint, but label only what can carry a label. Previously
+  // all 14 got one at their centre with no test for space or for each other,
+  // so a dense room turned the plan into overlapping Arabic. A label is kept
+  // only if its box can hold it and it does not touch a label already drawn;
+  // the box is always still drawn, so nothing disappears from the plan.
+  const placedLabels: Array<{ x: number; y: number; w: number; h: number }> = [];
+  const boxes = props.mapObjects.slice(0, 14).map((o) => {
     const w = (o.w ?? 0.08) * planS;
     const h = (o.h ?? 0.08) * planS;
-    const cx = planX + o.cx * planS;
-    const cy = planY + o.cy * planS;
+    return {
+      o,
+      w,
+      h,
+      cx: planX + o.cx * planS,
+      cy: planY + o.cy * planS,
+      area: w * h,
+    };
+  });
+  for (const b of boxes) {
     ctx.strokeStyle = GOLD;
     ctx.globalAlpha = 0.9;
-    ctx.strokeRect(cx - w / 2, cy - h / 2, w, h);
+    ctx.strokeRect(b.cx - b.w / 2, b.cy - b.h / 2, b.w, b.h);
     ctx.globalAlpha = 0.12;
     ctx.fillStyle = GOLD;
-    ctx.fillRect(cx - w / 2, cy - h / 2, w, h);
+    ctx.fillRect(b.cx - b.w / 2, b.cy - b.h / 2, b.w, b.h);
     ctx.globalAlpha = 1;
-    if (info?.ar) {
-      ctx.fillStyle = CREAM;
-      ctx.font = `400 13px ${AR_FONT}`;
-      ctx.fillText(info.ar, cx, cy + 4);
-    }
   }
+  // Biggest first, so when two footprints compete the larger one keeps its name.
+  for (const b of [...boxes].sort((p, q) => q.area - p.area)) {
+    const info = ONTOLOGY[b.o.classKey];
+    if (!info?.ar) continue;
+    ctx.font = `400 13px ${AR_FONT}`;
+    const tw = ctx.measureText(info.ar).width;
+    if (tw + 8 > b.w || b.h < 18) continue;
+    const rect = { x: b.cx - tw / 2, y: b.cy - 8, w: tw, h: 16 };
+    const clash = placedLabels.some(
+      (p) =>
+        rect.x < p.x + p.w + 4 &&
+        rect.x + rect.w + 4 > p.x &&
+        rect.y < p.y + p.h + 4 &&
+        rect.y + rect.h + 4 > p.y,
+    );
+    if (clash) continue;
+    placedLabels.push(rect);
+    ctx.fillStyle = CREAM;
+    ctx.fillText(info.ar, b.cx, b.cy + 4);
+  }
+
+  // The orientation caption goes on last, over its own backing, because a
+  // footprint touching the top edge would otherwise be drawn straight through
+  // it. Bilingual like the rest of the page — it used to read bare English
+  // "far wall" above a plan labelled entirely in Arabic.
+  const farWall = "الجدار البعيد · far wall";
+  ctx.font = `400 14px ${AR_FONT}`;
+  const fwW = ctx.measureText(farWall).width;
+  ctx.fillStyle = PANEL;
+  ctx.fillRect(planX + planS / 2 - fwW / 2 - 10, planY + 4, fwW + 20, 22);
+  ctx.fillStyle = MUTED;
+  ctx.fillText(farWall, planX + planS / 2, planY + 20);
   ctx.fillStyle = MUTED;
   ctx.font = `400 14px ${AR_FONT}`;
   ctx.fillText(
-    isArabic ? "المخطط العلوي ثنائي الأبعاد" : "Top-down 2D plan",
+    "المخطط العلوي · Top-down 2D plan",
     planX + planS / 2,
     planY + planS + 24,
   );
@@ -232,8 +292,11 @@ async function composeReport(props: RoomReportProps, isArabic: boolean): Promise
   ctx.textAlign = "center";
   ctx.fillStyle = MUTED;
   ctx.font = `400 15px ${EN_FONT}`;
+  const job = props.jobId ? ` — job ${props.jobId}` : "";
   ctx.fillText(
-    `SDXL 1.0 + dual ControlNet (Depth Anything V2 · OneFormer ADE20K) + cultural LoRA${props.jobId ? ` — job ${props.jobId}` : ""}`,
+    props.placeholder
+      ? `Preview mode — no model rendered this image${job}`
+      : `SDXL 1.0 + dual ControlNet (Depth Anything V2 · OneFormer ADE20K) + cultural LoRA${job}`,
     W / 2,
     fy,
   );

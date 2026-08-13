@@ -64,6 +64,13 @@ type ResultTab = "result" | "story" | "dna" | "inside" | "understand" | "edit";
  *  so the narrative tabs render on their own rather than inheriting them. */
 const TOOL_TABS: readonly ResultTab[] = ["understand", "edit"];
 
+/** The explanation layers offered under a finished result. */
+const NARRATIVE_TABS = [
+  { key: "story" as const, en: "Design story", ar: "قصة التصميم" },
+  { key: "dna" as const, en: "Culture DNA", ar: "البصمة الثقافية" },
+  { key: "inside" as const, en: "Inside DAR", ar: "داخل دار" },
+];
+
 /** Defense Mode (?demo=1): pre-rendered canonical rooms served from
  *  /public/demo — the zero-backend fallback if the GPU tunnel dies mid-demo.
  *  Build the pack with `python scripts/make_demo_pack.py`. */
@@ -144,6 +151,9 @@ export default function StudioPage() {
      so an in-progress colour pick or furniture placement survives a tab
      switch. */
   const [resultTab, setResultTab] = useState<ResultTab>("result");
+  /* Which explanation layer is open, or null for none. Only the selected one
+     is mounted — see the note at the render site. */
+  const [narrative, setNarrative] = useState<null | "story" | "dna" | "inside">(null);
   const [demoRooms, setDemoRooms] = useState<DemoRoom[]>([]);
   // The renders exactly as generated, before any colour or furniture edit. Kept
   // so Save can say whether what it is storing is still the pipeline's own
@@ -611,6 +621,20 @@ export default function StudioPage() {
                     void acceptFile(e.dataTransfer.files?.[0]);
                   }}
                   onClick={() => !imagePreviewUrl && inputRef.current?.click()}
+                  /* The file input is display:none, which also removes it from the
+                     tab order — so without this the whole flow had no keyboard
+                     entry point at all. Only expose it while it can actually act,
+                     mirroring the onClick guard. */
+                  role={!imagePreviewUrl ? "button" : undefined}
+                  tabIndex={!imagePreviewUrl ? 0 : undefined}
+                  aria-label={!imagePreviewUrl ? tc.dropPrompt : undefined}
+                  onKeyDown={(e) => {
+                    if (imagePreviewUrl) return;
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      inputRef.current?.click();
+                    }
+                  }}
                 >
                   <span className="corner tl" />
                   <span className="corner tr" />
@@ -926,6 +950,12 @@ export default function StudioPage() {
           // runRedesign), but fall back to the original so a null can never reach
           // an <img src> or the report/orbit/furniture panel.
           const featuredSrc = result[featured] ?? result.original;
+          // adapters.ts is the truth gate: it excludes placeholder artifacts,
+          // never falls back to DEMO_REGIONS/DEMO_MAP, emits unmeasured values
+          // as `measured: false` rather than inventing them, and returns null
+          // outright when the original or the selected output is missing. Null
+          // simply means the explanation layer is not offered.
+          const storyData = createDesignStoryData(result, featured);
           return (
             <>
               <div className="cinema studio-workspace">
@@ -1120,8 +1150,14 @@ export default function StudioPage() {
                       regions={highlightRegions}
                       mapObjects={mapObjects}
                       isLive={hasRealRegions && hasRealMap}
+                      placeholder={result.placeholder === true}
                       jobId={backendMap?.jobId}
                     />
+                    {/* The doorway into Build Mode. Without it /design can only
+                    ever open on the default sandbox room, so the room DAR just
+                    understood — its measured shell, the furniture it found and
+                    the openings it detected — never reaches the 3D editor. */}
+                    <EnterBuildMode result={result} culture={featured} variant="link" />
                     <button
                       onClick={startOver}
                       className={cn(
@@ -1242,6 +1278,84 @@ export default function StudioPage() {
                     },
                   )}
                 </div>
+
+                {/* ---------------------------------------------------------
+                    The narrative layer: how DAR read this room, the culture it
+                    drew on, and how the system works. These explain the AI and
+                    are what separate DAR from an image generator, so they are
+                    surfaced here rather than buried.
+
+                    Exactly ONE panel is mounted at a time. That is deliberate,
+                    not a styling choice: GenerationStory runs a timed chapter
+                    loop and DesignStory measures natural image ratios, so
+                    CSS-hiding them would leave timers and measurement running
+                    offscreen for the whole session.
+
+                    The panels' CSS modules are authored to a 1480px measure,
+                    which this narrower results column would collapse — hence
+                    the symmetric negative margin-inline. Logical properties,
+                    because `left` resolves against the inline start and would
+                    throw the panel off the page in RTL.
+                    --------------------------------------------------------- */}
+                {storyData && (
+                  <section className="mt-12 border-t border-gold/15 pt-8">
+                    <div
+                      className={cn(
+                        "mb-5 flex flex-wrap items-center gap-1.5",
+                        isArabic && "flex-row-reverse",
+                      )}
+                      role="tablist"
+                      aria-label={isArabic ? "طبقات الشرح" : "Explanation layers"}
+                    >
+                      {NARRATIVE_TABS.map((tab) => {
+                        const active = narrative === tab.key;
+                        return (
+                          <button
+                            key={tab.key}
+                            role="tab"
+                            aria-selected={active}
+                            onClick={() => setNarrative(active ? null : tab.key)}
+                            className={cn(
+                              "rounded-md border px-3 py-1.5 text-xs transition",
+                              isArabic ? "font-arabic" : "font-ui",
+                              active
+                                ? "border-gold bg-gold/10 text-gold"
+                                : "border-cream-muted/30 text-cream-muted hover:border-gold/60 hover:text-gold",
+                            )}
+                          >
+                            {isArabic ? tab.ar : tab.en}
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    {narrative && (
+                      <div
+                        style={{
+                          width: "min(1480px, calc(100vw - 2rem))",
+                          marginInline: "calc((100% - min(1480px, calc(100vw - 2rem))) / 2)",
+                        }}
+                      >
+                        {narrative === "story" && <DesignStory data={storyData} />}
+                        {narrative === "dna" && <CultureDNA culture={featured} />}
+                        {narrative === "inside" && (
+                          <GenerationStory
+                            inputImage={result.original}
+                            culture={featured}
+                            status={{
+                              state: "done",
+                              jobId: result.job_id ?? null,
+                              // Real measured duration, or omitted entirely —
+                              // the component renders an em dash rather than a
+                              // fabricated zero.
+                              elapsedSeconds: result.duration_s ?? undefined,
+                            }}
+                          />
+                        )}
+                      </div>
+                    )}
+                  </section>
+                )}
 
                 {/* Cultural elements + 2D layout — scaffold preview (sample data). */}
                 <div className="mt-12 border-t border-gold/15 pt-8">

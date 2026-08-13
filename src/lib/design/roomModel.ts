@@ -105,6 +105,25 @@ function isWallMounted(classKey: string): boolean {
   return WALL_MOUNTED_CLASSES.has(classKey.toLowerCase());
 }
 
+/** Soft furnishing that rests ON seating rather than on the floor.
+ *
+ *  Same failure as the wall-mounted set, from the other direction. The
+ *  segmenter finds every cushion along a bench and the projection merges the
+ *  run into ONE footprint, so a majlis photo yields a "cushion" 520cm wide --
+ *  the full width of the room -- extruded to 75cm as a solid volume. Measured
+ *  on the demo room: 33.8% of the floor from that single blob, on top of the
+ *  two sofas it is already sitting on, i.e. the same furniture conditioned
+ *  twice. Render with DAR then turns that slab into a wall-like screen across
+ *  the room, which is most of why its output read as a storage room.
+ *
+ *  Dropping them loses nothing: the seating they belong to is detected
+ *  separately, and a cushion is not something you position in a floor plan. */
+const ON_FURNITURE_CLASSES = new Set(["cushion", "pillow"]);
+
+function isOnFurniture(classKey: string): boolean {
+  return ON_FURNITURE_CLASSES.has(classKey.toLowerCase());
+}
+
 /** Plausible maximum footprint per class, in cm.
  *
  *  The projection's NORMALISED footprint is real data, but converting it to
@@ -180,7 +199,27 @@ function totalFloorM2(result: RedesignResult): { m2: number | null; confident: b
     return { m2: null, confident: false };
   }
   const total = free / frac;
-  if (!Number.isFinite(total) || total <= 2 || total > 200) return { m2: null, confident: false };
+  if (!Number.isFinite(total)) return { m2: null, confident: false };
+
+  /* Plausibility band for a domestic living room / majlis.
+     A single photograph has no metric scale; room_analysis calibrates against
+     furniture of assumed size, and when that calibration is off it is off by a
+     lot in BOTH directions. Two real measurements from the same session:
+     one photo produced 130 m² (an 11 x 11 m room, furniture lost in a hall),
+     another produced 3.6 m² (clamped to the 260 cm minimum, where a planned
+     majlis could not fit and pieces were correctly dropped for lack of space).
+
+     Below MIN you cannot seat people around a table and still walk; above MAX
+     it is not a domestic room. Outside the band the estimate is not usable, so
+     we return null and the caller falls back to DEFAULT_ROOM, labelled
+     `shellSource: "default"`. That is the honest outcome: an ordinary room
+     DAR does not claim to have measured beats a measurement that is visibly
+     wrong. The old 2..200 band let both failures through. */
+  const MIN_PLAUSIBLE_M2 = 9;
+  const MAX_PLAUSIBLE_M2 = 90;
+  if (total < MIN_PLAUSIBLE_M2 || total > MAX_PLAUSIBLE_M2) {
+    return { m2: null, confident: false };
+  }
   return { m2: total, confident: (ra.scale_confidence ?? 0) >= 0.4 };
 }
 
@@ -230,7 +269,7 @@ export function deriveRoom(
         openings.push(openingFrom(o, i, shell));
         continue;
       }
-      if (isWallMounted(o.classKey)) continue;
+      if (isWallMounted(o.classKey) || isOnFurniture(o.classKey)) continue;
       objects.push(foundObjectFrom(o, i, shell));
     }
   }
