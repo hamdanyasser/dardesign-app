@@ -29,10 +29,16 @@
 # ANTHROPIC_API_KEY=sk-ant-...
 
 # ---------------------------------------------------------------------------
-# Optional model override. Defaults: gemini-2.5-flash on Gemini,
+# Optional model override. Defaults: gemini-3.5-flash on Gemini,
 # claude-sonnet-5 on Anthropic.
+#
+# Do NOT set this to gemini-2.5-flash. models.list() still advertises it, but a
+# freshly issued key gets 404 "no longer available to new users" — the planner
+# then degrades to rules while the panel still says a model planned the room,
+# which is the kind of staleness a demo discovers at the worst moment. Leaving
+# it unset is correct; design_planner.DEFAULT_GEMINI_MODEL is the source of truth.
 # ---------------------------------------------------------------------------
-# DARDESIGN_LLM_MODEL=gemini-2.5-flash
+# DARDESIGN_LLM_MODEL=
 
 # Cost, for the Anthropic path: the catalogue is 27 items, so a plan is
 # roughly 1.5k tokens in and 1.5k out — a couple of cents. Repeated briefs are
