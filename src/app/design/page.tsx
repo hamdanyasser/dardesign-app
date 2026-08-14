@@ -29,6 +29,7 @@ import PlanMinimap from "@/components/design/PlanMinimap";
 import PlanPanel from "@/components/design/PlanPanel";
 import SourceCard from "@/components/design/SourceCard";
 import "@/components/design/design.css";
+import { CATALOG, CULTURE_LABEL, catalogItem } from "@/lib/design/catalog";
 import { TIMES_OF_DAY, TIME_LABEL, type TimeOfDay } from "@/lib/design/lighting";
 import { cultureAccent } from "@/lib/design/materials";
 import { SNAP_ROTATION_DEG } from "@/lib/design/placement";
@@ -137,6 +138,7 @@ function BuildModeReady({
      scene field bumps SCENE_VERSION and loadScene drops every saved room that
      does not match. */
   const [timeOfDay, setTimeOfDay] = useState<TimeOfDay>("afternoon");
+  const [restyleNote, setRestyleNote] = useState<string | null>(null);
   const [viewNonce, setViewNonce] = useState<{ preset: ViewPreset; n: number } | null>(null);
   const [focusNonce, setFocusNonce] = useState<{ uid: string; n: number } | null>(null);
   const nonce = useRef(0);
@@ -158,27 +160,47 @@ function BuildModeReady({
     return () => clearTimeout(t);
   }, [scene]);
 
-  /* ---- switching the catalogue culture re-themes the shell too ---- */
-  const setCulture = useCallback(
-    (c: SceneCulture) => {
-      if (c === scene.culture) return;
-      const fresh = createScene(boot.result, c);
-      dispatch({
-        type: "replace",
-        scene: {
-          ...scene,
-          culture: c,
-          // Keep the user's design and room size; adopt the new palette only.
-          room: {
-            ...scene.room,
-            floorMaterialKey: fresh.scene.room.floorMaterialKey,
-            wallMaterialKey: fresh.scene.room.wallMaterialKey,
-          },
-        },
-      });
-    },
-    [boot.result, scene],
-  );
+  /* ---- switching the catalogue culture re-themes the shell too ----
+     Now one ordinary reducer action, so it is a single undo. It used to build
+     a whole scene and dispatch `replace`, which wipes undo and redo — a
+     culture switch destroyed every step before it and could not be taken
+     back. */
+  const setCulture = useCallback((c: SceneCulture) => {
+    dispatch({ type: "setCulture", culture: c });
+  }, []);
+
+  /* How many placed pieces belong to a different culture than the room. This
+     is the number that makes "Restyle" worth offering — and offering it only
+     when there is something to restyle. */
+  const foreignCount = useMemo(() => {
+    if (scene.culture === "all") return 0;
+    return scene.objects.filter((o) => {
+      if (o.origin === "found" || !o.catalogId) return false;
+      const item = catalogItem(o.catalogId);
+      return !!item && item.culture !== scene.culture;
+    }).length;
+  }, [scene.objects, scene.culture]);
+
+  /* Explicitly asked for, never automatic. Reports what it could not
+     translate rather than quietly dropping it: category coverage is
+     asymmetric across the three catalogues. */
+  const restyle = useCallback(() => {
+    if (scene.culture === "all") return;
+    const unmatched = scene.objects.filter((o) => {
+      if (o.origin === "found" || !o.catalogId) return false;
+      const item = catalogItem(o.catalogId);
+      if (!item || item.culture === scene.culture) return false;
+      return !CATALOG.some((c) => c.culture === scene.culture && c.category === item.category);
+    });
+    dispatch({ type: "restyleTo", culture: scene.culture });
+    setRestyleNote(
+      unmatched.length
+        ? isArabic
+          ? `${unmatched.length} قطعة لا مقابل لها في هذه اللغة التصميمية، وبقيت كما هي.`
+          : `${unmatched.length} piece${unmatched.length > 1 ? "s have" : " has"} no counterpart in this design language and stayed as ${unmatched.length > 1 ? "they were" : "it was"}.`
+        : null,
+    );
+  }, [scene.objects, scene.culture, isArabic]);
 
   /* ---- catalogue drag ---- */
   const beginDrag = useCallback((item: CatalogItem, clientX: number, clientY: number) => {
@@ -401,6 +423,25 @@ function BuildModeReady({
           ))}
         </div>
 
+        {/* Offered only when there is something to translate. Switching the
+            culture re-themes the room but deliberately leaves the user's
+            furniture alone; this is the explicit "and the furniture too". */}
+        {foreignCount > 0 && scene.culture !== "all" && (
+          <button
+            className="tool warn"
+            onClick={restyle}
+            title={
+              isArabic
+                ? `استبدال ${foreignCount} قطعة بما يقابلها في الطراز ${CULTURE_LABEL[scene.culture].ar} — تراجع واحد يعيدها`
+                : `Swap ${foreignCount} piece${foreignCount > 1 ? "s" : ""} for their ${CULTURE_LABEL[scene.culture].en} counterparts. One undo puts them back.`
+            }
+          >
+            {isArabic
+              ? `تنسيق ${foreignCount} قطعة`
+              : `Restyle ${foreignCount}`}
+          </button>
+        )}
+
         <button
           className={"tool" + (roomSelected ? " active" : "")}
           onClick={() => {
@@ -543,6 +584,15 @@ function BuildModeReady({
           <div className="verdict good" role="status">
             <span aria-hidden>✓</span>
             {isArabic ? "أفلت للوضع · R للتدوير" : "Release to place · R to rotate"}
+          </div>
+        )}
+        {/* What the restyle could NOT translate. Category coverage is
+            asymmetric across the three catalogues, and saying so is better
+            than leaving the user to notice a piece did not change. */}
+        {restyleNote && (
+          <div className="verdict note" role="status" onClick={() => setRestyleNote(null)}>
+            <span aria-hidden>◆</span>
+            {restyleNote}
           </div>
         )}
 
