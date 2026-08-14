@@ -14,6 +14,7 @@
    something it did not.
    ============================================================ */
 
+import culturePaletteData from "../../../ontology/culture_palette.json";
 import type { StyleId } from "@/context/ImageContext";
 import type { SceneCulture } from "./types";
 
@@ -136,6 +137,74 @@ export function materialForTags(tags: string[], fallback = "cedar"): string {
     if (hit) return hit;
   }
   return fallback;
+}
+
+/* ------------------------------------------------------------------
+   Reading a generic tag in a culture's own terms.
+
+   TAG_TO_MATERIAL above is culture-blind by construction: `fabric`
+   becomes linen, `wood` becomes cedar, `stone` becomes limestone, for
+   everyone. That is fine for a SPECIFIC tag — velvet means velvet in
+   any culture — and wrong for a generic one, because "fabric" in a
+   Moroccan room is a terracotta kilim wool and in a Khaleeji majlis is
+   deep velvet.
+
+   Measured consequence before this existed: the Moroccan sedari
+   (tagged brocade, fabric, cedar, wood) resolved to linen #c9b99a —
+   pixel-identical to the Lebanese sofa — and five of Moroccan's nine
+   pieces came out plain cedar brown. Converting a room to Moroccan
+   changed its data and nothing a person could see, which is exactly
+   what it was reported as.
+
+   The table is ontology/culture_palette.json so it sits with the rest
+   of the cultural vocabulary rather than in frontend code.
+   ------------------------------------------------------------------ */
+
+interface CulturePaletteFile {
+  generic_tags: string[];
+  upholstered_categories: string[];
+  upholstery_materials: string[];
+  palettes: Record<string, Record<string, string>>;
+}
+
+const PALETTE = culturePaletteData as CulturePaletteFile;
+const GENERIC_TAGS = new Set(PALETTE.generic_tags);
+const UPHOLSTERED = new Set(PALETTE.upholstered_categories);
+const UPHOLSTERY = new Set(PALETTE.upholstery_materials);
+
+/** Every material a piece's tags could justify, in the ontology's tag order. */
+function candidatesFor(tags: string[], culture: string): string[] {
+  const palette = PALETTE.palettes[culture] ?? {};
+  const out: string[] = [];
+  for (const t of tags) {
+    // A specific tag means itself. A generic one is read in the culture's terms.
+    const specific = GENERIC_TAGS.has(t) ? undefined : TAG_TO_MATERIAL[t];
+    const resolved = specific ?? palette[t] ?? TAG_TO_MATERIAL[t];
+    if (resolved && MATERIALS[resolved]) out.push(resolved);
+  }
+  return out;
+}
+
+/**
+ * The material a catalogue piece is rendered in, read in its own culture.
+ *
+ * `category` matters as well as culture: a piece that is upholstered takes an
+ * upholstery material even when the ontology happens to list its frame first.
+ * The Moroccan "Brocade armchair" is tagged `cedar, brocade, fabric, wood`, and
+ * honouring tag order alone made it a plain wooden chair.
+ */
+export function materialForCulture(
+  tags: string[],
+  culture: string,
+  category: string,
+  fallback = "cedar",
+): string {
+  const candidates = candidatesFor(tags, culture);
+  if (UPHOLSTERED.has(category)) {
+    const soft = candidates.find((c) => UPHOLSTERY.has(c));
+    if (soft) return soft;
+  }
+  return candidates[0] ?? PALETTE.palettes[culture]?.default ?? fallback;
 }
 
 export function getMaterial(key: string): MaterialSpec {

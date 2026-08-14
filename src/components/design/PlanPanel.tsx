@@ -18,9 +18,14 @@ import { useEffect, useState } from "react";
 import { ApiError, fetchPlannerStatus, planLayout, type DesignPlan } from "@/lib/api";
 import { catalogItem } from "@/lib/design/catalog";
 import { getMaterial } from "@/lib/design/materials";
-import { gatePlan, type GatedPlan } from "@/lib/design/planner";
+import { gatePlan, planOperationCount, type GatedPlan } from "@/lib/design/planner";
+import {
+  conversionOps,
+  planCultureConversion,
+  type CultureConversion,
+} from "@/lib/design/culture";
 import type { WallOpening } from "@/lib/design/roomModel";
-import type { DesignScene } from "@/lib/design/types";
+import type { DesignScene, SceneCulture } from "@/lib/design/types";
 
 const CULTURE_LABEL: Record<string, { en: string; ar: string }> = {
   lebanese: { en: "Lebanese", ar: "لبناني" },
@@ -29,12 +34,48 @@ const CULTURE_LABEL: Record<string, { en: string; ar: string }> = {
   all: { en: "All three", ar: "الثلاثة" },
 };
 
+/* The examples teach the vocabulary. Two of each kind, because the panel can
+   now do both and nothing else on screen says so: furnish a room from a
+   description, or edit the room you are looking at. */
 const EXAMPLES_EN = [
   "A majlis for receiving guests",
-  "A quiet corner for reading",
-  "Somewhere to eat and talk",
+  "Make this a Moroccan room",
+  "Add 5 chairs and one table",
+  "Move the furniture apart",
 ];
-const EXAMPLES_AR = ["مجلس لاستقبال الضيوف", "ركن هادئ للقراءة", "مكان للأكل والحديث"];
+const EXAMPLES_AR = [
+  "مجلس لاستقبال الضيوف",
+  "اجعلها غرفة مغربية",
+  "أضف ٥ كراسٍ وطاولة واحدة",
+  "باعد بين قطع الأثاث",
+];
+
+/** A category name a person would recognise, for the requested-vs-placed line. */
+const CATEGORY_LABEL: Record<string, { en: string; ar: string }> = {
+  sofa: { en: "sofa", ar: "أريكة" },
+  armchair: { en: "armchair", ar: "كرسي وثير" },
+  chair: { en: "chair", ar: "كرسي" },
+  coffee_table: { en: "coffee table", ar: "طاولة قهوة" },
+  side_table: { en: "side table", ar: "طاولة جانبية" },
+  console: { en: "console", ar: "كونسول" },
+  cabinet: { en: "cabinet", ar: "خزانة" },
+  ottoman: { en: "ottoman", ar: "بوف" },
+  lamp: { en: "lamp", ar: "مصباح" },
+  lantern: { en: "lantern", ar: "فانوس" },
+  screen: { en: "screen", ar: "مشربية" },
+  cultural_object: { en: "piece", ar: "قطعة" },
+};
+
+function categoryLabel(key: string, isArabic: boolean): string {
+  const label = CATEGORY_LABEL[key];
+  if (label) return isArabic ? label.ar : label.en;
+  return key.replace(/_/g, " ");
+}
+
+/** The category that actually stood in for a requested one, if any. */
+function substituteFor(plan: DesignPlan, requested: string): string | null {
+  return (plan.substitutions ?? []).find((s) => s.requested === requested)?.category ?? null;
+}
 
 export default function PlanPanel({
   scene,
@@ -55,6 +96,8 @@ export default function PlanPanel({
   const [error, setError] = useState<string | null>(null);
   const [plan, setPlan] = useState<DesignPlan | null>(null);
   const [gated, setGated] = useState<GatedPlan | null>(null);
+  const [converted, setConverted] = useState<CultureConversion[]>([]);
+  const [elapsed, setElapsed] = useState(0);
   const [status, setStatus] = useState<{ configured: boolean; model: string | null } | null>(null);
 
   useEffect(() => {
@@ -67,11 +110,26 @@ export default function PlanPanel({
     };
   }, []);
 
+  /* A real plan is 11-35s against the live model (measured 2026-08-14 across
+     six briefs). "Planning…" alone for half a minute reads as a hung button,
+     and someone waiting on a demo machine presses it again. Elapsed seconds
+     are the honest thing to show: /api/design/plan returns once and has no
+     intermediate state, so a percentage would be an invented animation —
+     the same reason Studio's loading scene shows time and not progress. */
+  useEffect(() => {
+    if (!busy) return;
+    setElapsed(0);
+    const started = Date.now();
+    const t = setInterval(() => setElapsed(Math.floor((Date.now() - started) / 1000)), 250);
+    return () => clearInterval(t);
+  }, [busy]);
+
   async function run() {
     setBusy(true);
     setError(null);
     setPlan(null);
     setGated(null);
+    setConverted([]);
     try {
       const result = await planLayout({
         widthCm: scene.room.widthCm,
@@ -99,10 +157,67 @@ export default function PlanPanel({
           widthCm: Math.round(o.widthCm),
           label: o.labelEn,
         })),
+        // The room as it stands. Without this the planner has never been shown
+        // the furniture it is being asked to rearrange, so "move these apart"
+        // and "remove one chair" can only come back as a second living room
+        // stacked on the first. Uids travel with it; the backend enums them so
+        // a target that is not in this list is unrepresentable.
+        objects: scene.objects.map((o) => ({
+          uid: o.uid,
+          origin: o.origin,
+          catalogId: o.catalogId,
+          category: o.category,
+          label: o.labelEn,
+          xCm: Math.round(o.x),
+          zCm: Math.round(o.z),
+          rotationDeg: Math.round(o.rotationDeg),
+          widthCm: Math.round(o.widthCm),
+          depthCm: Math.round(o.depthCm),
+          locked: !!o.locked,
+        })),
       });
       setPlan(result);
+
+      /* ---- culture conversion -------------------------------------------
+         A brief that changes the culture has to change the FURNITURE, not
+         just the label: the identity of a room lives in its pieces, and a
+         Moroccan room full of Lebanese seating is neither. The model
+         sometimes replaces them itself and sometimes does not, so DAR does
+         it deterministically rather than hoping.
+
+         Anything the model already dealt with is skipped, so a piece is
+         never removed twice or moved and replaced at once. A piece the
+         model MOVED is converted at its new spot — the user asked for both
+         and the two are not in conflict. */
+      const target = result.understood.culture as SceneCulture;
+      const modelMoves = result.moves ?? [];
+      const modelRemovals = result.removals ?? [];
+      const handled = new Set(modelRemovals.map((r) => r.targetUid));
+      const movedTo = new Map(modelMoves.map((m) => [m.targetUid, m]));
+
+      const { conversions } = planCultureConversion(scene.objects, target, {
+        skipUids: handled,
+      });
+      // Convert at the moved position where the model also moved the piece.
+      const placed = conversions.map((c) => {
+        const m = movedTo.get(c.uid);
+        return m ? { ...c, x: m.xCm, z: m.zCm, rotationDeg: m.rotationDeg } : c;
+      });
+      const convertedUids = new Set(placed.map((c) => c.uid));
+      const ops = conversionOps(placed);
+
+      setConverted(placed);
       // The gate: nothing is trusted until the collision engine has spoken.
-      setGated(gatePlan(result.items, scene, openings));
+      // Conversion additions go FIRST so they claim the spots their originals
+      // held before any newly designed piece competes for the same floor.
+      setGated(
+        gatePlan([...ops.items, ...result.items], scene, openings, {
+          removals: [...modelRemovals, ...ops.removals],
+          // A converted piece is being replaced, so the model's move for it is
+          // already expressed by where the replacement stands.
+          moves: modelMoves.filter((m) => !convertedUids.has(m.targetUid)),
+        }),
+      );
     } catch (e) {
       const msg =
         e instanceof ApiError
@@ -171,12 +286,20 @@ export default function PlanPanel({
       <button className="plan-go" onClick={run} disabled={busy}>
         {busy
           ? isArabic
-            ? "يخطّط…"
-            : "Planning…"
+            ? `يخطّط… ${elapsed}ث`
+            : `Planning… ${elapsed}s`
           : isArabic
             ? "خطِّط الغرفة"
             : "Plan the room"}
       </button>
+
+      {busy && (
+        <p className="plan-foot" style={{ marginTop: 6 }}>
+          {isArabic
+            ? "يقرأ نموذج التصميم غرفتك ووصفك — عادةً من ١٠ إلى ٣٥ ثانية."
+            : "The design model is reading your room and your brief — usually 10-35s."}
+        </p>
+      )}
 
       {error && <p className="plan-err">{error}</p>}
 
@@ -192,6 +315,19 @@ export default function PlanPanel({
                 : "Planned by DAR's rules"}
             {plan.cached && (isArabic ? " · محفوظة" : " · cached")}
           </p>
+
+          {/* WHY it is rule-based, when a model was supposed to answer.
+              The backend has always computed this; the panel used to drop it,
+              so a provider outage was indistinguishable from a deliberate
+              layout — you got the same seven pieces whatever you typed and
+              nothing on screen admitted your brief had not been read. */}
+          {!byModel && status?.configured && (
+            <p className="plan-warn" role="status">
+              {isArabic
+                ? `لم يُقرأ وصفك: تعذّر الوصول إلى نموذج التصميم${plan.warning ? ` (${plan.warning})` : ""}. هذا التوزيع من قواعد دار وحدها — أعد المحاولة.`
+                : `Your brief was not read: the design model could not be reached${plan.warning ? ` (${plan.warning})` : ""}. This layout is DAR's placement rules alone — try again.`}
+            </p>
+          )}
 
           {/* DAR understood — the brief read back as design decisions, not as
               a transcript. Every value here was validated against a real DAR
@@ -256,6 +392,49 @@ export default function PlanPanel({
                     </span>
                   )}
                 </p>
+
+                {/* Counts you stated, checked. DAR tops a short plan up to the
+                    number asked for and trims a long one, so `requested` and
+                    `planned` normally agree — when they cannot, because the
+                    floor ran out, the shortfall is stated rather than quietly
+                    delivered as "some chairs". */}
+                {(plan.counts ?? []).length > 0 && (
+                  <ul className="und-counts">
+                    {(plan.counts ?? []).map((c) => {
+                      // The gate can only ever place fewer than were planned,
+                      // never more, so the honest number is the gated one.
+                      const placed = gated.placements.filter((p) => {
+                        const cat = catalogItem(p.catalogId)?.category;
+                        return cat === c.category || cat === substituteFor(plan, c.category);
+                      }).length;
+                      const short = placed < c.requested;
+                      return (
+                        <li key={c.category}>
+                          {isArabic
+                            ? `${placed} من ${c.requested} ${categoryLabel(c.category, true)}`
+                            : `${placed} of ${c.requested} ${categoryLabel(c.category, false)}${c.requested === 1 ? "" : "s"}`}
+                          {short && (
+                            <span className="und-warn">
+                              {isArabic ? " · لم تتّسع الغرفة للبقية" : " · the floor ran out"}
+                            </span>
+                          )}
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+
+                {/* A culture that has no such piece. Khaleeji has no chair —
+                    its seat is the majlis armchair — so five chairs there are
+                    five armchairs, and saying so is the difference between a
+                    substitution and a quiet swap. */}
+                {(plan.substitutions ?? []).map((s) => (
+                  <p className="und-line und-mut" key={s.requested}>
+                    {isArabic
+                      ? `لا يوجد ${categoryLabel(s.requested, true)} في كتالوج ${CULTURE_LABEL[s.culture]?.ar ?? s.culture} — استُخدم ${catalogItem(s.catalogId)?.nameAr ?? s.nameEn} بدلاً منه.`
+                      : `${CULTURE_LABEL[s.culture]?.en ?? s.culture} has no ${categoryLabel(s.requested, false)} in DAR's catalogue — the ${(catalogItem(s.catalogId)?.nameEn ?? s.nameEn).toLowerCase()} stood in.`}
+                  </p>
+                ))}
 
                 {u.requirements.length > 0 && (
                   <ul className="und-reqs">
@@ -326,6 +505,85 @@ export default function PlanPanel({
 
           <p className="plan-notes">{isArabic ? plan.notesAr : plan.notesEn}</p>
 
+          {/* Culture conversion, stated piece by piece. This is the most
+              consequential thing a plan can do to a room you built — it
+              replaces furniture you chose — so it is named in full before the
+              Apply button, never discovered afterwards. */}
+          {converted.length > 0 && (
+            <section
+              className="und"
+              aria-label={isArabic ? "تحويل ثقافي" : "Culture conversion"}
+            >
+              <div className="insp-sub">
+                {isArabic
+                  ? `حُوّلت ${converted.length} قطعة إلى ${CULTURE_LABEL[plan.understood.culture]?.ar ?? plan.understood.culture}`
+                  : `${converted.length} piece${converted.length === 1 ? "" : "s"} converted to ${CULTURE_LABEL[plan.understood.culture]?.en ?? plan.understood.culture}`}
+              </div>
+              <ul className="conv-list">
+                {converted.map((c) => (
+                  <li key={c.uid}>
+                    <span className="conv-from">{isArabic ? c.fromNameAr : c.fromNameEn}</span>
+                    <span className="conv-arrow" aria-hidden>
+                      {isArabic ? "←" : "→"}
+                    </span>
+                    <span className="conv-to">{isArabic ? c.toNameAr : c.toNameEn}</span>
+                    {c.substituted && (
+                      <span className="und-warn conv-sub">
+                        {isArabic ? "أقرب بديل" : "nearest equivalent"}
+                      </span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+              <p className="und-line und-mut">
+                {isArabic
+                  ? "تبقى كل قطعة في مكانها ودورانها — يتغيّر الطراز لا التوزيع."
+                  : "Each piece keeps its position and rotation — the style changes, not your layout."}
+              </p>
+            </section>
+          )}
+
+          {/* What this plan does to pieces that are ALREADY in the room. Kept
+              above the additions because taking something out or standing it
+              somewhere else is the more surprising half of an edit, and the
+              user should see it before they press a button that does it. */}
+          {gated.removals.length > 0 && (
+            <>
+              <div className="insp-sub">{isArabic ? "سيُزال" : "Taken out"}</div>
+              <ul className="plan-list">
+                {gated.removals.map((r) => (
+                  <li key={r.uid}>
+                    <span className="plan-name">{isArabic ? r.labelAr : r.labelEn}</span>
+                    <span className="plan-why">{isArabic ? r.reasonAr : r.reasonEn}</span>
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+
+          {gated.moves.length > 0 && (
+            <>
+              <div className="insp-sub">{isArabic ? "سيُنقل" : "Moved"}</div>
+              <ul className="plan-list">
+                {gated.moves.map((m) => (
+                  <li key={m.uid}>
+                    <span className="plan-name">{isArabic ? m.labelAr : m.labelEn}</span>
+                    <span className="plan-why">{isArabic ? m.reasonAr : m.reasonEn}</span>
+                    {m.repaired && (
+                      <span className="plan-tag">
+                        {isArabic ? "عدّلت دار الموضع" : "DAR adjusted the position"}
+                      </span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+
+          {gated.placements.length > 0 && (gated.moves.length > 0 || gated.removals.length > 0) && (
+            <div className="insp-sub">{isArabic ? "سيُضاف" : "Added"}</div>
+          )}
+
           <ul className="plan-list">
             {gated.placements.map((p, i) => {
               const item = catalogItem(p.catalogId);
@@ -374,18 +632,46 @@ export default function PlanPanel({
             </div>
           )}
 
-          <button
-            className="plan-go"
-            disabled={gated.placements.length === 0}
-            onClick={() => {
-              onApply(gated, plan);
-              setOpen(false);
-            }}
-          >
-            {isArabic
-              ? `ضَع ${gated.placements.length} قطعة`
-              : `Place ${gated.placements.length} piece${gated.placements.length === 1 ? "" : "s"}`}
-          </button>
+          {/* The label names what will actually happen. "Place 7 pieces" on a
+              plan whose whole job was to move two of them was the panel's own
+              version of the bug this feature had. */}
+          {(() => {
+            const total = planOperationCount(gated);
+            const parts: string[] = [];
+            if (gated.placements.length) {
+              parts.push(
+                isArabic
+                  ? `إضافة ${gated.placements.length}`
+                  : `add ${gated.placements.length}`,
+              );
+            }
+            if (gated.moves.length) {
+              parts.push(isArabic ? `نقل ${gated.moves.length}` : `move ${gated.moves.length}`);
+            }
+            if (gated.removals.length) {
+              parts.push(
+                isArabic ? `إزالة ${gated.removals.length}` : `remove ${gated.removals.length}`,
+              );
+            }
+            return (
+              <button
+                className="plan-go"
+                disabled={total === 0}
+                onClick={() => {
+                  onApply(gated, plan);
+                  setOpen(false);
+                }}
+              >
+                {total === 0
+                  ? isArabic
+                    ? "لا تغييرات"
+                    : "Nothing to change"
+                  : isArabic
+                    ? `طبّق: ${parts.join(" · ")}`
+                    : `Apply: ${parts.join(" · ")}`}
+              </button>
+            );
+          })()}
           <p className="plan-foot">
             {isArabic
               ? "كل موضع تحقّقت منه محرّكة التصادم نفسها التي تحكم السحب اليدوي. يمكنك تعديل كل شيء بعد الوضع."

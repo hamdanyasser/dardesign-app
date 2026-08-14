@@ -11,7 +11,7 @@
 
 import furnitureOntology from "../../../ontology/furniture.json";
 import type { StyleId } from "@/context/ImageContext";
-import { materialForTags } from "./materials";
+import { materialForCulture } from "./materials";
 import type { CatalogItem, SceneCulture } from "./types";
 
 interface RawItem {
@@ -108,9 +108,19 @@ export function sortByCategory(items: CatalogItem[]): CatalogItem[] {
 }
 
 /** The default material for a catalogue item, from its own ontology tags. */
+/**
+ * The material a piece renders in — read in its own culture.
+ *
+ * This used to be `materialForTags`, which is culture-blind: `fabric` became
+ * linen and `wood` became cedar for everyone, so a Moroccan sedari came out the
+ * same cream as a Lebanese sofa and five of Moroccan's nine pieces came out
+ * plain cedar brown. Converting a room to Moroccan then changed its data and
+ * nothing anyone could see. `materialForCulture` reads a generic tag through
+ * `ontology/culture_palette.json` instead; a specific tag still means itself.
+ */
 export function defaultMaterialFor(item: CatalogItem): string {
   const fallback = item.category === "lamp" || item.category === "lantern" ? "brass" : "cedar";
-  return materialForTags(item.materialTags, fallback);
+  return materialForCulture(item.materialTags, item.culture, item.category, fallback);
 }
 
 export const CULTURE_LABEL: Record<SceneCulture, { en: string; ar: string }> = {

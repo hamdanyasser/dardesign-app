@@ -1607,6 +1607,54 @@ export interface PlannedItem {
   materialKey: string | null;
   reasonEn: string;
   reasonAr: string;
+  /**
+   * DAR added this piece itself to make a stated count true ("add five chairs"
+   * when the model placed three). No coordinate was invented for it — the
+   * client sends it straight to `findSpot`, the same auto-placer a click-to-
+   * place uses.
+   */
+  autoPlaced?: boolean;
+}
+
+/** Reposition a piece already in the scene. `targetUid` is always a real uid —
+ *  the backend enums it against the scene the client sent. */
+export interface PlannedMove {
+  targetUid: string;
+  xCm: number;
+  zCm: number;
+  rotationDeg: number;
+  reasonEn: string;
+  reasonAr: string;
+}
+
+/** Take a piece out of the scene. Only ever a piece the user placed. */
+export interface PlannedRemoval {
+  targetUid: string;
+  reasonEn: string;
+  reasonAr: string;
+}
+
+/**
+ * A piece that stood in for a category the chosen culture does not have.
+ *
+ * The catalogue is nine pieces per culture but not the same nine: Khaleeji has
+ * no `chair`, so "add five chairs" there is answered with five majlis
+ * armchairs. Reported so the panel can say so — the user is never told they
+ * got a chair.
+ */
+export interface PlanSubstitution {
+  requested: string;
+  catalogId: string;
+  category: string;
+  nameEn: string;
+  culture: string;
+}
+
+/** Requested vs planned, per category — DAR's arithmetic over a stated count. */
+export interface PlanCount {
+  category: string;
+  requested: number;
+  planned: number;
 }
 
 /**
@@ -1617,6 +1665,12 @@ export interface PlannedItem {
  */
 export interface PlanUnderstood {
   culture: string;
+  /**
+   * "furnish" — design the room being described. "edit" — change the room
+   * that is already on screen. Getting this wrong is what makes a planner
+   * answer "move these chairs" by adding a second set of furniture.
+   */
+  intent?: "furnish" | "edit";
   roomType: string;
   capacity: number | null;
   /** 0..1 — the same LoRA scale /restyle exposes. */
@@ -1676,7 +1730,16 @@ export interface EvidenceMeta {
 
 export interface DesignPlan {
   understood: PlanUnderstood;
+  /** Pieces to add. */
   items: PlannedItem[];
+  /** Pieces already in the scene to reposition. Absent on an older backend. */
+  moves?: PlannedMove[];
+  /** Pieces already in the scene to take out. Absent on an older backend. */
+  removals?: PlannedRemoval[];
+  /** Where a culture had no such category and its nearest piece stood in. */
+  substitutions?: PlanSubstitution[];
+  /** Requested vs planned counts, when the brief stated a number. */
+  counts?: PlanCount[];
   /** DAR's own arithmetic over the placed pieces, estimated from real widths. */
   seatingEstimate: number;
   placedCounts: Record<string, number>;
@@ -1688,6 +1751,12 @@ export interface DesignPlan {
   provider: string | null;
   /** Pieces the backend threw out, with why. Shown, never swallowed. */
   rejected: Array<{ catalogId: string | null; why: string }>;
+  /**
+   * Why a plan is rule-based when a model IS configured — "ServerError 503",
+   * "planner call cap reached", "the model returned no usable placement". The
+   * panel must render this: a silent fallback looks like a deliberate design,
+   * and the user has no way to tell that their brief was never read.
+   */
   /** Optional: a backend older than the RAG feature sends neither field. */
   evidence?: CulturalEvidence[];
   evidenceMeta?: EvidenceMeta;
@@ -1704,6 +1773,8 @@ export interface PlanRoomInput {
   existing?: Array<Record<string, unknown>>;
   openings?: Array<Record<string, unknown>>;
   shellSource?: string | null;
+  /** The scene as it stands, with uids — what makes an edit brief answerable. */
+  objects?: Array<Record<string, unknown>>;
 }
 
 /** Ask the planner for a layout. ~10-20s with a model; instant without one. */
@@ -1734,6 +1805,7 @@ export async function planLayout(
         existing: input.existing ?? [],
         openings: input.openings ?? [],
         shell_source: input.shellSource ?? null,
+        objects: input.objects ?? [],
       }),
       signal: ctrl.signal,
       ...WITH_CREDENTIALS,

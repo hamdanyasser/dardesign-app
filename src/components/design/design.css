@@ -650,6 +650,52 @@ html[lang="ar"] .dar-build .handoff-title { font-family: var(--f-display-ar); }
 
 .dar-build .plan-err { margin-top: 9px; font-size: 0.76rem; color: #e85d4a; }
 
+/* Why a plan is rule-based when a model was meant to answer. A left rule
+   rather than a red block: the layout is still usable, it just is not the one
+   that was asked for, and overstating that would be its own dishonesty. */
+.dar-build .plan-warn {
+  margin: 0 0 9px;
+  padding-inline-start: 9px;
+  border-inline-start: 2px solid var(--brass);
+  font-size: 0.73rem;
+  line-height: 1.45;
+  opacity: 0.85;
+}
+
+/* Culture conversion — old piece → new piece, one row each. The arrow is the
+   whole point of the row, so it gets the accent and the names stay plain. */
+.dar-build .conv-list { list-style: none; padding: 0; margin: 6px 0 4px; }
+.dar-build .conv-list li {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: 0.73rem;
+  padding: 2px 0;
+  border-bottom: 1px solid var(--hairline-2);
+}
+.dar-build .conv-list li:last-child { border-bottom: 0; }
+.dar-build .conv-from { opacity: 0.55; text-decoration: line-through; }
+.dar-build .conv-arrow { color: var(--brass); }
+.dar-build .conv-to { font-weight: 500; }
+.dar-build .conv-sub {
+  font-family: var(--f-mono);
+  font-size: 0.5rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+/* Requested vs placed, one line per stated count. Mono on the figures only —
+   they are measurements, and the house rule keeps mono off everything else. */
+.dar-build .und-counts { list-style: none; padding: 0; margin: 5px 0 3px; }
+.dar-build .und-counts li {
+  font-family: var(--f-mono);
+  font-size: 0.66rem;
+  letter-spacing: 0.04em;
+  opacity: 0.85;
+  padding: 1px 0;
+}
+
 .dar-build .plan-result { margin-top: 13px; }
 .dar-build .plan-badge {
   font-family: var(--f-mono);

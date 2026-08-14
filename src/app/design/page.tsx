@@ -30,6 +30,7 @@ import PlanPanel from "@/components/design/PlanPanel";
 import SourceCard from "@/components/design/SourceCard";
 import "@/components/design/design.css";
 import { cultureAccent } from "@/lib/design/materials";
+import { planCultureConversion } from "@/lib/design/culture";
 import { SNAP_ROTATION_DEG } from "@/lib/design/placement";
 import { HANDOFF_KEY } from "@/lib/design/handoff";
 import { createScene, type WallOpening } from "@/lib/design/roomModel";
@@ -152,24 +153,48 @@ function BuildModeReady({
     return () => clearTimeout(t);
   }, [scene]);
 
-  /* ---- switching the catalogue culture re-themes the shell too ---- */
+  /* ---- switching the catalogue culture converts the room with it ----
+
+     This used to adopt the new palette and leave every piece of furniture
+     exactly as it was, so switching to Moroccan gave you a Moroccan-labelled
+     room full of Lebanese seating — and a room's cultural identity is carried
+     by its pieces, not its label. It now converts each one to its counterpart
+     at the same position and rotation: the style changes, the layout you built
+     does not.
+
+     It also stopped using `replace`, which wipes undo/redo. That was tolerable
+     when the action was a palette swap; it is not when the action replaces
+     furniture the user chose. One gesture, so one Ctrl+Z puts the whole room
+     back — including the pieces. */
   const setCulture = useCallback(
     (c: SceneCulture) => {
       if (c === scene.culture) return;
       const fresh = createScene(boot.result, c);
+      const { conversions } = planCultureConversion(scene.objects, c);
+
+      dispatch({ type: "beginGesture", labelEn: "Change culture", labelAr: "تغيير الثقافة" });
       dispatch({
-        type: "replace",
-        scene: {
-          ...scene,
-          culture: c,
-          // Keep the user's design and room size; adopt the new palette only.
-          room: {
-            ...scene.room,
-            floorMaterialKey: fresh.scene.room.floorMaterialKey,
-            wallMaterialKey: fresh.scene.room.wallMaterialKey,
-          },
-        },
+        type: "setCulture",
+        culture: c,
+        floorMaterialKey: fresh.scene.room.floorMaterialKey,
+        wallMaterialKey: fresh.scene.room.wallMaterialKey,
       });
+      // Remove-then-add rather than rewriting catalogId in place: the
+      // counterpart carries its own real footprint from the ontology, which may
+      // be wider than what it replaces, so it has to face the placement engine
+      // like anything else. A piece with no valid spot is dropped by the
+      // reducer's own rules rather than forced in.
+      for (const conv of conversions) {
+        dispatch({ type: "remove", uid: conv.uid });
+        dispatch({
+          type: "addAt",
+          catalogId: conv.toCatalogId,
+          x: conv.x,
+          z: conv.z,
+          rotationDeg: conv.rotationDeg,
+        });
+      }
+      dispatch({ type: "endGesture" });
     },
     [boot.result, scene],
   );
@@ -455,16 +480,49 @@ function BuildModeReady({
               labelEn: "Plan the room",
               labelAr: "تخطيط الغرفة",
             });
-            // Wall and floor first, so the room's surfaces are already right
+            const u = plan.understood;
+            // A brief that names a culture ("make this a Moroccan room") has to
+            // reach `scene.culture`, because that is what HandoffPanel sends to
+            // Render with DAR — plan Moroccan furniture without this and the
+            // render still runs the Lebanese LoRA. It goes through `setCulture`
+            // rather than `replace` precisely so it can ride inside this
+            // gesture and come back out with one Ctrl+Z.
+            if (
+              (u.culture === "lebanese" ||
+                u.culture === "khaleeji" ||
+                u.culture === "moroccan" ||
+                u.culture === "all") &&
+              u.culture !== scene.culture
+            ) {
+              const fresh = createScene(boot.result, u.culture);
+              dispatch({
+                type: "setCulture",
+                culture: u.culture,
+                // Adopt the new culture's palette, unless the brief named its
+                // own surfaces — those are applied just below and must win.
+                floorMaterialKey: u.floorMaterialKey ?? fresh.scene.room.floorMaterialKey,
+                wallMaterialKey: u.wallMaterialKey ?? fresh.scene.room.wallMaterialKey,
+              });
+            }
+            // Wall and floor next, so the room's surfaces are already right
             // as the furniture lands. Both ride inside the same gesture, so a
             // single undo takes the whole design decision back out — colour
             // included, not just the objects.
-            const u = plan.understood;
             if (u.wallMaterialKey) {
               dispatch({ type: "setShellMaterial", surface: "wall", materialKey: u.wallMaterialKey });
             }
             if (u.floorMaterialKey) {
               dispatch({ type: "setShellMaterial", surface: "floor", materialKey: u.floorMaterialKey });
+            }
+            // Remove → move → add, the order the gate judged them in. Applying
+            // an add before a removal would drop it into floor that is about to
+            // be freed, and the two verdicts would disagree with each other.
+            for (const r of gated.removals) {
+              dispatch({ type: "remove", uid: r.uid });
+            }
+            for (const m of gated.moves) {
+              dispatch({ type: "move", uid: m.uid, x: m.x, z: m.z });
+              dispatch({ type: "rotate", uid: m.uid, rotationDeg: m.rotationDeg });
             }
             for (const p of gated.placements) {
               dispatch({

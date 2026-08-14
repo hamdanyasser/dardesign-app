@@ -18,7 +18,13 @@
 
 import { catalogItem, defaultMaterialFor } from "./catalog";
 import { findSpot } from "./placement";
-import { SCENE_VERSION, type DesignScene, type HistoryEntry, type PlacedObject } from "./types";
+import {
+  SCENE_VERSION,
+  type DesignScene,
+  type HistoryEntry,
+  type PlacedObject,
+  type SceneCulture,
+} from "./types";
 
 const HISTORY_LIMIT = 60;
 const STORAGE_PREFIX = "dar-scene-v3";
@@ -53,6 +59,7 @@ export type DesignAction =
   | { type: "setLocked"; uid: string; locked: boolean }
   | { type: "duplicate"; uid: string }
   | { type: "remove"; uid: string }
+  | { type: "setCulture"; culture: SceneCulture; floorMaterialKey?: string; wallMaterialKey?: string }
   | { type: "setShellMaterial"; surface: "floor" | "wall"; materialKey: string }
   | { type: "resizeRoom"; widthCm?: number; depthCm?: number }
   | { type: "clearPlaced" }
@@ -238,6 +245,38 @@ export function designReducer(state: DesignState, action: DesignAction): DesignS
         ...withHistory(state, next, `remove ${o.labelEn}`, `حذف ${o.labelAr}`),
         selectedUid: null,
       };
+    }
+
+    case "setCulture": {
+      // The room's culture, changed WITHOUT `replace`.
+      //
+      // That distinction is the whole reason this action exists. `replace`
+      // wipes undo and redo (see below), so the only way to change a culture
+      // used to be one that threw away the user's history — which is why a
+      // plan was never allowed to do it, and why asking DAR to "make this a
+      // Moroccan room" produced Moroccan furniture that then rendered through
+      // the Lebanese LoRA, since HandoffPanel reads scene.culture.
+      //
+      // Going through the ordinary commit path instead means a culture change
+      // rides inside whatever gesture is open and comes back out with one
+      // Ctrl+Z, exactly like the furniture it arrived with.
+      if (
+        action.culture === state.scene.culture &&
+        !action.floorMaterialKey &&
+        !action.wallMaterialKey
+      ) {
+        return state;
+      }
+      const next = {
+        ...state.scene,
+        culture: action.culture,
+        room: {
+          ...state.scene.room,
+          floorMaterialKey: action.floorMaterialKey ?? state.scene.room.floorMaterialKey,
+          wallMaterialKey: action.wallMaterialKey ?? state.scene.room.wallMaterialKey,
+        },
+      };
+      return withHistory(state, next, "change culture", "تغيير الثقافة");
     }
 
     case "setShellMaterial": {
