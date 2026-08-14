@@ -522,16 +522,44 @@ function BuildModeReady({
               labelEn: "Plan the room",
               labelAr: "تخطيط الغرفة",
             });
-            // Wall and floor first, so the room's surfaces are already right
+            const u = plan.understood;
+            // A brief that names a culture ("make this a Moroccan room") has to
+            // reach `scene.culture`, because that is what HandoffPanel sends to
+            // Render with DAR — plan Moroccan furniture without this and the
+            // render still runs the Lebanese LoRA. It goes through `setCulture`
+            // rather than `replace` precisely so it can ride inside this
+            // gesture and come back out with one Ctrl+Z.
+            if (
+              (u.culture === "lebanese" ||
+                u.culture === "khaleeji" ||
+                u.culture === "moroccan" ||
+                u.culture === "all") &&
+              u.culture !== scene.culture
+            ) {
+              // setCulture adopts the new culture's own shell palette from
+              // SHELL_MATERIALS; a surface the brief actually named is applied
+              // immediately below and wins over that default.
+              dispatch({ type: "setCulture", culture: u.culture });
+            }
+            // Wall and floor next, so the room's surfaces are already right
             // as the furniture lands. Both ride inside the same gesture, so a
             // single undo takes the whole design decision back out — colour
             // included, not just the objects.
-            const u = plan.understood;
             if (u.wallMaterialKey) {
               dispatch({ type: "setShellMaterial", surface: "wall", materialKey: u.wallMaterialKey });
             }
             if (u.floorMaterialKey) {
               dispatch({ type: "setShellMaterial", surface: "floor", materialKey: u.floorMaterialKey });
+            }
+            // Remove → move → add, the order the gate judged them in. Applying
+            // an add before a removal would drop it into floor that is about to
+            // be freed, and the two verdicts would disagree with each other.
+            for (const r of gated.removals) {
+              dispatch({ type: "remove", uid: r.uid });
+            }
+            for (const m of gated.moves) {
+              dispatch({ type: "move", uid: m.uid, x: m.x, z: m.z });
+              dispatch({ type: "rotate", uid: m.uid, rotationDeg: m.rotationDeg });
             }
             for (const p of gated.placements) {
               dispatch({

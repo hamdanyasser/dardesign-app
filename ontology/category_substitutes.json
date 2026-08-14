@@ -1,0 +1,19 @@
+{
+  "version": "0.1",
+  "note": "The catalogue is nine pieces per culture but NOT the same nine. Khaleeji has no chair (its seat is the majlis armchair), Lebanese no lantern, Moroccan no lamp, screen or cultural_object. So a request or a conversion can name a category the target culture does not hold, and this table says which piece stands in for it, in preference order. Shared deliberately: backend/design_planner.py reads it for the planner's count enforcement, and src/lib/design/culture.ts reads it for culture conversion. A second hand-written copy would drift, exactly as ontology.json already does.",
+  "rule": "A substitution is ALWAYS reported to the user and never silent. The panel names the piece that stood in and the category it stood in for, so nobody is told they got a chair.",
+  "substitutes": {
+    "chair": ["armchair", "ottoman", "sofa"],
+    "armchair": ["chair", "ottoman", "sofa"],
+    "ottoman": ["chair", "armchair"],
+    "sofa": ["armchair", "chair"],
+    "coffee_table": ["side_table"],
+    "side_table": ["coffee_table", "console"],
+    "console": ["cabinet", "side_table"],
+    "cabinet": ["console", "side_table"],
+    "lamp": ["lantern"],
+    "lantern": ["lamp"],
+    "screen": ["cultural_object", "cabinet", "console"],
+    "cultural_object": ["screen", "lantern", "lamp", "side_table"]
+  }
+}

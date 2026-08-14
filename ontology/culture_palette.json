@@ -1,0 +1,52 @@
+{
+  "version": "0.1",
+  "note": "How a GENERIC material tag is read in each culture. ontology/furniture.json tags a piece with words like 'wood', 'fabric', 'stone' — and materials.ts used to flatten every one of them the same way for all three cultures: wood->cedar, fabric->linen, stone->limestone. The consequence was that a Moroccan sedari (tagged brocade, fabric, cedar, wood) rendered in exactly the same cream linen as a Lebanese sofa, so converting a room to Moroccan changed its data and nothing you could see. A specific tag — velvet, marble, limestone, zellige, leather, brass, walnut — still means itself in every culture and is never routed through here.",
+  "rule": "Upholstered categories prefer an upholstery material over a wood one, whichever tag came first. A 'Brocade armchair' whose tags happen to list cedar before brocade is still upholstered, and reading it as a plain wooden frame is what made every culture look brown.",
+
+  "generic_tags": [
+    "wood", "fabric", "stone", "metal", "ceramic",
+    "brocade", "silk", "rush", "paint"
+  ],
+
+  "upholstered_categories": ["sofa", "armchair", "ottoman"],
+  "upholstery_materials": ["linen", "velvet", "leather", "wool"],
+
+  "palettes": {
+    "lebanese": {
+      "wood": "cedar",
+      "fabric": "linen",
+      "silk": "linen",
+      "rush": "linen",
+      "brocade": "linen",
+      "stone": "limestone",
+      "metal": "brass",
+      "ceramic": "encaustic",
+      "paint": "limestone",
+      "default": "cedar"
+    },
+    "khaleeji": {
+      "wood": "cedar",
+      "fabric": "velvet",
+      "silk": "velvet",
+      "rush": "linen",
+      "brocade": "velvet",
+      "stone": "marble",
+      "metal": "brass",
+      "ceramic": "marble",
+      "paint": "marble",
+      "default": "cedar"
+    },
+    "moroccan": {
+      "wood": "cedar",
+      "fabric": "wool",
+      "silk": "wool",
+      "rush": "wool",
+      "brocade": "wool",
+      "stone": "tadelakt",
+      "metal": "brass",
+      "ceramic": "zellige",
+      "paint": "saffron",
+      "default": "cedar"
+    }
+  }
+}
