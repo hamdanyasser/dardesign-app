@@ -252,6 +252,44 @@ def test_format_and_effort_are_siblings_in_one_output_config():
     assert oc["effort"] == "low"
 
 
+def test_effort_is_omitted_for_a_model_that_does_not_support_it(monkeypatch):
+    """Sending `effort` to Haiku 4.5 is a 400, and a 400 is not retried.
+
+    Measured against the live Models API: claude-haiku-4-5 reports
+    capabilities.effort.supported = False at every level. Without this guard the
+    cheap model would fail on every call and the planner would serve rules while
+    the panel still named a model — the exact silent degradation `plan.warning`
+    exists to prevent.
+    """
+    monkeypatch.delenv("DARDESIGN_LLM_MODEL", raising=False)
+    fake = _FakeClient(_valid_payload())
+    planner._call_anthropic(fake, "claude-haiku-4-5", "brief", planner.plan_schema("lebanese"))
+    oc = fake.last_kwargs["output_config"]
+    assert "effort" not in oc
+    # The half that carries gate 1 must survive on the cheap model.
+    assert oc["format"]["type"] == "json_schema"
+    assert oc["format"]["schema"]["properties"]["operations"]["items"]["properties"]["catalogId"]["enum"]
+
+
+def test_effort_is_still_sent_to_a_model_that_supports_it(monkeypatch):
+    monkeypatch.delenv("DARDESIGN_LLM_MODEL", raising=False)
+    fake = _FakeClient(_valid_payload())
+    planner._call_anthropic(fake, "claude-sonnet-5", "brief", planner.plan_schema("lebanese"))
+    assert fake.last_kwargs["output_config"]["effort"] == "low"
+
+
+def test_the_effort_guard_covers_the_cheap_end_of_the_anthropic_chain():
+    """The chain's fallback model is the one without `effort`.
+
+    Pinned because the failure is invisible: the guard and the chain are edited
+    in different places, and a chain that gained an effort-less model without a
+    matching entry here would only fail against a real key.
+    """
+    assert not planner.supports_effort("claude-haiku-4-5")
+    assert planner.supports_effort("claude-sonnet-5")
+    assert "claude-haiku-4-5" in planner.ANTHROPIC_MODEL_CHAIN
+
+
 def test_model_answer_still_goes_through_validation():
     payload = _valid_payload()
     payload["operations"].append({

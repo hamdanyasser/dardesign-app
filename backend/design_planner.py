@@ -85,6 +85,24 @@ GEMINI_MODEL_CHAIN = (
 )
 ANTHROPIC_MODEL_CHAIN = (DEFAULT_MODEL, "claude-haiku-4-5")
 
+# `effort` is not universal, and sending it to a model that lacks it is a 400 —
+# which `is_retryable` correctly does NOT retry, so every plan would fall
+# straight through to rules while the panel still named a model. Measured
+# against the live Models API on 2026-08-14:
+#
+#   claude-haiku-4-5  capabilities.effort.supported = False   (every level)
+#   claude-sonnet-5   capabilities.effort.supported = True    (low..max)
+#
+# Structured outputs are supported on both, so gate 1 — the closed catalogId
+# enum — holds on the cheap model exactly as it does on the default one.
+# Re-check with `models.retrieve(id).capabilities.effort.supported` rather than
+# guessing from the model's tier; this is a per-model fact, not a family one.
+MODELS_WITHOUT_EFFORT = frozenset({"claude-haiku-4-5"})
+
+
+def supports_effort(model: str) -> bool:
+    return model not in MODELS_WITHOUT_EFFORT
+
 # The head of the chain, by construction — the status endpoint advertises this
 # name, and a default that disagreed with the model actually tried is exactly
 # the shadowed-credential trap `provider()` already documents.
@@ -1148,16 +1166,23 @@ def _client():
 
 
 def _call_anthropic(api: Any, model: str, message: str, schema: dict) -> dict:
+    # format and effort are siblings inside ONE output_config. Two separate
+    # output_config kwargs would silently overwrite each other.
+    output_config: dict[str, Any] = {
+        "format": {"type": "json_schema", "schema": schema},
+    }
+    # Omitted, not defaulted: a model without `effort` rejects the key outright
+    # (see MODELS_WITHOUT_EFFORT). The format half is what carries the grounding
+    # gate, and it is supported everywhere in the chain.
+    if supports_effort(model):
+        output_config["effort"] = "low"
+
     resp = api.messages.create(
         model=model,
         max_tokens=MAX_OUTPUT_TOKENS,
         system=_SYSTEM,
         messages=[{"role": "user", "content": message}],
-        # format and effort are siblings inside ONE output_config.
-        output_config={
-            "format": {"type": "json_schema", "schema": schema},
-            "effort": "low",
-        },
+        output_config=output_config,
     )
     _log_cost(model, getattr(resp, "usage", None))
     text = next((b.text for b in resp.content if getattr(b, "type", "") == "text"), "")
