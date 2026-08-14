@@ -131,6 +131,13 @@ export default function DesignCanvas({
   /* ---------- shell rebuild ---------- */
   useEffect(() => {
     worldRef.current?.buildShell(scene, openings);
+    // buildShell reads exactly these fields off the scene — the room box, both
+    // surface materials and the culture accent — so they are the whole dep set.
+    //
+    // `scene` itself used to be listed too, and the reducer returns a fresh
+    // scene object for every action, so the plinth, floor, grid, four walls,
+    // four skirtings and every opening were torn down and rebuilt on each
+    // dispatch — i.e. once per pointermove for the whole of a drag.
   }, [
     scene.room.widthCm,
     scene.room.depthCm,
@@ -139,8 +146,6 @@ export default function DesignCanvas({
     scene.room.wallMaterialKey,
     scene.culture,
     openings,
-    // buildShell reads the whole scene; these are the fields that matter.
-    scene,
   ]);
 
   /* ---------- objects ---------- */

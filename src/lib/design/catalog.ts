@@ -72,12 +72,20 @@ export function catalogFor(culture: SceneCulture): CatalogItem[] {
 /** Canonical category order — seating first, then tables, then light, then
  *  the objects that carry the most cultural specificity. This is the order
  *  a room actually gets designed in, not alphabetical. */
+/** All twelve categories the catalogue actually ships. Four were missing —
+ *  armchair, console, cabinet, screen — and `indexOf` returns -1 for an absent
+ *  key, so sortByCategory put every one of them BEFORE the sofa at index 0.
+ *  The Lebanese rail opened on a folding screen. */
 export const CATEGORY_ORDER = [
   "sofa",
+  "armchair",
   "chair",
   "ottoman",
   "coffee_table",
   "side_table",
+  "console",
+  "cabinet",
+  "screen",
   "lamp",
   "lantern",
   "cultural_object",
@@ -85,10 +93,14 @@ export const CATEGORY_ORDER = [
 
 export const CATEGORY_LABEL: Record<string, { en: string; ar: string }> = {
   sofa: { en: "Seating", ar: "مجالس" },
+  armchair: { en: "Armchairs", ar: "كراسي بمساند" },
   chair: { en: "Chairs", ar: "كراسي" },
   ottoman: { en: "Poufs", ar: "مقاعد منخفضة" },
   coffee_table: { en: "Low tables", ar: "طاولات منخفضة" },
   side_table: { en: "Side tables", ar: "طاولات جانبية" },
+  console: { en: "Consoles", ar: "طاولات جانبية طويلة" },
+  cabinet: { en: "Cabinets", ar: "خزائن" },
+  screen: { en: "Screens", ar: "مشربيات" },
   lamp: { en: "Lighting", ar: "إضاءة" },
   lantern: { en: "Lanterns", ar: "فوانيس" },
   cultural_object: { en: "Objects", ar: "مقتنيات" },

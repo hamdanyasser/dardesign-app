@@ -21,7 +21,7 @@
 import * as THREE from "three";
 import { ADE20K_CEILING, ADE20K_DOOR, ADE20K_FLOOR, ADE20K_WALL, ADE20K_WINDOW, ade20kHex } from "./ade20k";
 import { buildObjectMesh, colorOf, standardMaterial } from "./geometry";
-import { cultureAccent, getMaterial } from "./materials";
+import { MATERIALS, cultureAccent, getMaterial } from "./materials";
 import type { WallOpening } from "./roomModel";
 import type { DesignScene, PlacedObject } from "./types";
 
@@ -50,6 +50,23 @@ const CAPTURE_WALL_CLEARANCE = 45;
  *  beside them does not fill the lens. Used to reject camera spots that fall
  *  inside or hard against a piece of furniture. */
 const CAPTURE_BODY_CM = 55;
+
+/** Linear -> sRGB transfer, as a 256-entry byte LUT built once. The real
+ *  piecewise function, not a 1/2.2 approximation, because the beauty pass is
+ *  shown next to the on-screen view and a gamma mismatch is exactly what the
+ *  eye picks up in a side-by-side. */
+let _srgbLut: Uint8Array | null = null;
+function SRGB_LUT(): Uint8Array {
+  if (_srgbLut) return _srgbLut;
+  const lut = new Uint8Array(256);
+  for (let i = 0; i < 256; i++) {
+    const c = i / 255;
+    const s = c <= 0.0031308 ? c * 12.92 : 1.055 * Math.pow(c, 1 / 2.4) - 0.055;
+    lut[i] = Math.max(0, Math.min(255, Math.round(s * 255)));
+  }
+  _srgbLut = lut;
+  return lut;
+}
 
 export class DesignWorld {
   readonly renderer: THREE.WebGLRenderer;
@@ -120,6 +137,14 @@ export class DesignWorld {
 
     this.scene = new THREE.Scene();
     this.camera = new THREE.PerspectiveCamera(38, 1, 10, 8000);
+
+    // The shared material cache in geometry.ts hands the SAME instance to every
+    // object using a key, so disposeObject must not free them when one object
+    // is removed — the other twenty are still drawing with it. This call marks
+    // them, and it is not optional: without it a rebuild disposes a material
+    // that live meshes still reference (and, once maps are attached, orphans
+    // their textures too). It used to be exported and never called.
+    protectSharedMaterials(Object.keys(MATERIALS));
 
     this.scene.add(this.shellGroup, this.objectGroup, this.helperGroup, this.guideGroup);
     this.setupLights();
@@ -326,15 +351,28 @@ export class DesignWorld {
     for (const o of objects) {
       seen.add(o.uid);
       const existing = this.objectIndex.get(o.uid);
-      const sig = `${o.x}|${o.z}|${o.rotationDeg}|${o.materialKey}|${o.widthCm}|${o.depthCm}|${o.heightCm}|${o.locked}`;
-      if (existing && existing.userData.sig === sig) continue;
+      // Split into what the geometry depends on and what only the transform
+      // does. Moving a sofa one centimetre used to dispose and rebuild every
+      // box it is made of, once per pointermove — survivable for five boxes,
+      // ruinous for a loaded model. Position and rotation are a matrix write.
+      const geoSig = `${o.category}|${o.origin}|${o.materialKey}|${o.widthCm}|${o.depthCm}|${o.heightCm}`;
+      const xformSig = `${o.x}|${o.z}|${o.rotationDeg}|${o.locked}`;
+      if (existing && existing.userData.geoSig === geoSig) {
+        if (existing.userData.xformSig !== xformSig) {
+          existing.position.set(o.x, 0, o.z);
+          existing.rotation.y = (o.rotationDeg * Math.PI) / 180;
+          existing.userData.xformSig = xformSig;
+        }
+        continue;
+      }
       if (existing) {
         this.objectGroup.remove(existing);
         this.disposeObject(existing);
         this.objectIndex.delete(o.uid);
       }
       const mesh = buildObjectMesh(o);
-      mesh.userData.sig = sig;
+      mesh.userData.geoSig = geoSig;
+      mesh.userData.xformSig = xformSig;
       this.objectGroup.add(mesh);
       this.objectIndex.set(o.uid, mesh);
     }
@@ -369,11 +407,13 @@ export class DesignWorld {
     if (this.selectionCage) {
       this.helperGroup.remove(this.selectionCage);
       this.selectionCage.geometry.dispose();
+      (this.selectionCage.material as THREE.Material).dispose();
       this.selectionCage = null;
     }
     if (this.selectionRing) {
       this.helperGroup.remove(this.selectionRing);
       this.selectionRing.geometry.dispose();
+      (this.selectionRing.material as THREE.Material).dispose();
       this.selectionRing = null;
     }
     if (!o) return;
@@ -854,13 +894,49 @@ export class DesignWorld {
     ceiling.userData.ade = ADE20K_CEILING;
     this.shellGroup.add(ceiling);
 
+    // cullWalls() fades the near walls in place, every frame, on the material
+    // itself. The comment above says the on-screen fade is not consulted here,
+    // but nothing actually undid it — so a capture taken from the usual view
+    // handed the generator two walls at opacity 0.045 and their skirtings and
+    // reveals switched off entirely. Force every wall solid for the capture.
+    const wallState = this.wallMeshes.map(({ mesh, attachments }) => {
+      const m = mesh.material as THREE.MeshStandardMaterial;
+      const prev = { m, opacity: m.opacity, transparent: m.transparent, depthWrite: m.depthWrite };
+      m.opacity = 1;
+      m.transparent = false;
+      m.depthWrite = true;
+      const atts = attachments.map((a) => {
+        const am = a.material as THREE.MeshStandardMaterial;
+        const p = { a, am, opacity: am.opacity, depthWrite: am.depthWrite, visible: a.visible };
+        am.opacity = 1;
+        am.depthWrite = true;
+        a.visible = true;
+        return p;
+      });
+      return { prev, atts };
+    });
+
     const prevTarget = this.renderer.getRenderTarget();
     const prevBg = this.scene.background;
     const prevTone = this.renderer.toneMapping;
     const prevExposure = this.renderer.toneMappingExposure;
     const prevEncoding = this.renderer.outputEncoding;
+    const prevClear = this.renderer.getClearColor(new THREE.Color());
+    const prevClearAlpha = this.renderer.getClearAlpha();
+    // A background would be drawn over the clear colour and straight into the
+    // depth and segmentation maps. Nothing sets one today, but the time-of-day
+    // sky must never reach conditioning, so it is nulled here rather than left
+    // as an implicit precondition.
+    this.scene.background = null;
 
-    const readToDataUrl = (): string => {
+    /** @param encode true only for the beauty pass. three r150 forces
+     *  outputEncoding to Linear for any non-XR render target (three.cjs:19458),
+     *  so a captured colour pass comes back linear no matter what the renderer
+     *  is set to — visibly darker than the same scene on screen. Depth and
+     *  segmentation want exactly those raw linear bytes, so only the beauty
+     *  pass is transfer-encoded, and it is done here rather than by setting
+     *  outputEncoding, which is a no-op in a render target. */
+    const readToDataUrl = (encode = false): string => {
       const buf = new Uint8Array(width * height * 4);
       this.renderer.readRenderTargetPixels(rt, 0, 0, width, height, buf);
       const cv = document.createElement("canvas");
@@ -874,6 +950,15 @@ export class DesignWorld {
         const src = (height - 1 - y) * rowBytes;
         img.data.set(buf.subarray(src, src + rowBytes), y * rowBytes);
       }
+      if (encode) {
+        const lut = SRGB_LUT();
+        const px = img.data;
+        for (let i = 0; i < px.length; i += 4) {
+          px[i] = lut[px[i]];
+          px[i + 1] = lut[px[i + 1]];
+          px[i + 2] = lut[px[i + 2]];
+        }
+      }
       ctx.putImageData(img, 0, 0);
       return cv.toDataURL("image/png");
     };
@@ -883,7 +968,7 @@ export class DesignWorld {
     this.renderer.setClearColor(0x0f0f14, 1);
     this.renderer.clear();
     this.renderer.render(this.scene, cam);
-    const beauty = readToDataUrl();
+    const beauty = readToDataUrl(true);
 
     // Conditioning is DATA, not a picture. ACES tone mapping plus sRGB output
     // is exactly right for the beauty pass above and exactly wrong here: it
@@ -935,20 +1020,40 @@ export class DesignWorld {
       }
       return m;
     };
+    // One rule, applied to everything that draws: a MESH carrying a class id
+    // is painted in that class; anything else is hidden.
+    //
+    // Both halves matter. The old loops tested `instanceof THREE.Mesh`, which a
+    // Line is not, so found-object wireframes were neither repainted nor
+    // hidden — and `buildObjectMesh` stamps `userData.ade` on every descendant,
+    // so the wireframe even had a class id and would survive a naive
+    // "hide the unclassified" pass too. Measured: LineBasicMaterial 0x8d857a at
+    // opacity 0.5 over wall (120,120,120) produced (131,127,121), and over sofa
+    // (11,102,255) produced (76,118,188). An off-palette colour is not a
+    // near-miss class to the seg ControlNet, it is no class at all.
+    //
+    // Only a surface can state a class. Lines, points and sprites are drawing
+    // annotations, and the solid volume beneath each one already paints the
+    // correct class, so hiding them loses nothing.
+    const unclassified: THREE.Object3D[] = [];
     this.scene.traverse((o) => {
-      if (!(o instanceof THREE.Mesh) || !o.visible) return;
+      if (!o.visible) return;
+      const d = o as THREE.Object3D & {
+        isMesh?: boolean;
+        isLine?: boolean;
+        isPoints?: boolean;
+        isSprite?: boolean;
+      };
+      if (!(d.isMesh || d.isLine || d.isPoints || d.isSprite)) return;
       const cls = o.userData.ade;
-      if (typeof cls !== "number") return;
-      swapped.push({ mesh: o, mat: o.material });
-      o.material = segMat(cls);
-    });
-    // Anything without a class must not paint a random colour into the map.
-    const unclassified: THREE.Mesh[] = [];
-    this.scene.traverse((o) => {
-      if (o instanceof THREE.Mesh && o.visible && typeof o.userData.ade !== "number") {
-        o.visible = false;
-        unclassified.push(o);
+      if (d.isMesh && typeof cls === "number") {
+        const mesh = o as THREE.Mesh;
+        swapped.push({ mesh, mat: mesh.material });
+        mesh.material = segMat(cls);
+        return;
       }
+      o.visible = false;
+      unclassified.push(o);
     });
     this.renderer.setClearColor(0x000000, 1);
     this.renderer.clear();
@@ -964,7 +1069,22 @@ export class DesignWorld {
     this.renderer.toneMapping = prevTone;
     this.renderer.toneMappingExposure = prevExposure;
     this.renderer.outputEncoding = prevEncoding;
+    // The seg pass leaves the clear colour at opaque black. That was never put
+    // back, so after one "Render with DAR" the canvas — created with
+    // alpha: true precisely so the CSS backdrop shows through — cleared to
+    // solid black for the rest of the session.
+    this.renderer.setClearColor(prevClear, prevClearAlpha);
     this.scene.background = prevBg;
+    for (const { prev, atts } of wallState) {
+      prev.m.opacity = prev.opacity;
+      prev.m.transparent = prev.transparent;
+      prev.m.depthWrite = prev.depthWrite;
+      for (const p of atts) {
+        p.am.opacity = p.opacity;
+        p.am.depthWrite = p.depthWrite;
+        p.a.visible = p.visible;
+      }
+    }
     for (const o of hidden) o.visible = true;
     for (const o of restoredFound) o.visible = false;
     this.shellGroup.remove(ceiling);
@@ -985,13 +1105,20 @@ export class DesignWorld {
 
   private disposeObject(o: THREE.Object3D) {
     o.traverse((c) => {
-      if (c instanceof THREE.Mesh) {
-        c.geometry.dispose();
-        // Shared cache materials must survive; only clones are disposed.
-        const m = c.material as THREE.Material & { __shared?: boolean };
-        if (Array.isArray(c.material)) c.material.forEach((x) => x.dispose());
-        else if (!m.__shared) m.dispose();
-      }
+      // Lines and points own geometry and materials exactly as meshes do. Only
+      // Mesh was handled here, so the grid, the selection cage, the snap guides
+      // and every found-object wireframe leaked on each rebuild.
+      const d = c as THREE.Object3D & {
+        geometry?: THREE.BufferGeometry;
+        material?: THREE.Material | THREE.Material[];
+      };
+      if (!d.geometry && !d.material) return;
+      d.geometry?.dispose();
+      const mat = d.material;
+      if (!mat) return;
+      // Shared cache materials must survive; only clones are disposed.
+      if (Array.isArray(mat)) mat.forEach((x) => disposeUnshared(x));
+      else disposeUnshared(mat);
     });
   }
 
@@ -1012,6 +1139,18 @@ export class DesignWorld {
     this.objectIndex.clear();
     this.renderer.dispose();
   }
+}
+
+/** Frees a material unless it is one of the shared cache instances that other
+ *  live objects are still drawing with. Also releases any maps it owns, which
+ *  a bare dispose() does not do. */
+function disposeUnshared(m: THREE.Material) {
+  if ((m as THREE.Material & { __shared?: boolean }).__shared) return;
+  for (const slot of ["map", "normalMap", "roughnessMap", "aoMap", "metalnessMap", "emissiveMap", "alphaMap"] as const) {
+    const tex = (m as unknown as Record<string, unknown>)[slot];
+    if (tex instanceof THREE.Texture) tex.dispose();
+  }
+  m.dispose();
 }
 
 /** Marks the shared cache materials so disposeObject leaves them alone. */
