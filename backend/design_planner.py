@@ -1253,12 +1253,41 @@ def _status_of(exc: Exception) -> int | None:
     return None
 
 
+def is_daily_quota(exc: Exception) -> bool:
+    """Is this a 429 that a short backoff cannot possibly clear?
+
+    A 429 means two very different things and they need opposite handling.
+
+    A per-MINUTE rate limit is exactly what the backoff below is for: wait a
+    second, the window rolls, the call succeeds.
+
+    A per-DAY quota does not roll for hours. Retrying it three times and then
+    trying the next model spends the free-tier budget of every OTHER model in
+    the chain on requests that were refused before they were sent. Measured on
+    a real key: one planning call turned a single exhausted model into four
+    exhausted models -- 4 models x 3 attempts, and the entire day's budget was
+    gone in one click of "Design for me".
+
+    Google says which kind it is. The error body carries
+    QuotaFailure.violations[].quotaId, and the daily one is named
+    "...PerDay..."; a RetryInfo.retryDelay measured in tens of seconds is the
+    same signal from the other direction. Read it rather than guessing.
+    """
+    if _status_of(exc) != 429:
+        return False
+    blob = str(getattr(exc, "message", "") or "") + str(exc)
+    return "PerDay" in blob or "GenerateRequestsPerDay" in blob
+
+
 def is_retryable(exc: Exception) -> bool:
     """Is this worth trying again, or is it going to fail identically?
 
     Overload and rate limits pass; a 400 bad schema or a 404 dead model does
     not, because a second identical request gets a second identical refusal.
+    A per-day quota is in the same category as the 400: it will refuse again.
     """
+    if is_daily_quota(exc):
+        return False
     status = _status_of(exc)
     if status is not None:
         return status in RETRY_STATUSES

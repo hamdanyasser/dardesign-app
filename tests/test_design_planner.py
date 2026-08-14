@@ -994,3 +994,78 @@ def test_one_room_still_gets_one_culture_despite_the_wide_enum():
                      client=_FakeClient(payload))
     assert [i["catalogId"] for i in r["items"]] == ["mor-sofa-001"]
     assert any("lebanese piece in a moroccan room" in x["why"] for x in r["rejected"])
+
+
+# --------------------------------------------------------------------------
+# a per-day quota is not a transient rate limit
+# --------------------------------------------------------------------------
+
+
+class _DailyQuota(Exception):
+    """Shaped like the 429 Gemini returns when the FREE-TIER DAY is spent.
+
+    Copied from a real refusal, because the distinction lives in the body:
+    quotaId names PerDay, and retryDelay is tens of seconds rather than one.
+    """
+    status_code = 429
+
+    def __init__(self):
+        super().__init__(
+            "429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded "
+            "your current quota', 'details': [{'@type': 'type.googleapis.com/"
+            "google.rpc.QuotaFailure', 'violations': [{'quotaId': "
+            "'GenerateRequestsPerDayPerProjectPerModel-FreeTier', 'quotaValue': '20'}]}, "
+            "{'@type': 'type.googleapis.com/google.rpc.RetryInfo', 'retryDelay': '52s'}]}}"
+        )
+
+
+class _PerMinuteLimit(Exception):
+    """The OTHER 429 — a per-minute window that a short backoff really does clear."""
+    status_code = 429
+
+    def __init__(self):
+        super().__init__(
+            "429 RESOURCE_EXHAUSTED. {'error': {'details': [{'@type': "
+            "'type.googleapis.com/google.rpc.QuotaFailure', 'violations': [{'quotaId': "
+            "'GenerateRequestsPerMinutePerProjectPerModel-FreeTier'}]}, {'@type': "
+            "'type.googleapis.com/google.rpc.RetryInfo', 'retryDelay': '1s'}]}}"
+        )
+
+
+def test_a_daily_quota_is_not_retried():
+    """Retrying a spent day cannot succeed, and it is not free to try.
+
+    Measured on a real key: with 429 blanket-retryable, ONE click of "Design for
+    me" spent 4 models x 3 attempts = 12 requests against a 20/day/model cap,
+    turning a single exhausted model into four. The whole day's budget went in
+    one click.
+    """
+    assert not planner.is_retryable(_DailyQuota())
+    assert planner.is_daily_quota(_DailyQuota())
+
+
+def test_a_per_minute_limit_is_still_retried():
+    """The distinction has to cut the right way, or a recoverable blip is
+    treated as a spent day and the feature degrades for no reason."""
+    assert planner.is_retryable(_PerMinuteLimit())
+    assert not planner.is_daily_quota(_PerMinuteLimit())
+
+
+def test_a_spent_day_costs_one_request_per_model_not_three(monkeypatch):
+    """Fail fast on this model, but still ASK the next one.
+
+    The quota is per model, so the next model in the chain may genuinely have
+    budget left -- skipping the rest of the chain would be as wrong as
+    hammering it."""
+    monkeypatch.setattr(planner, "_sleep", lambda s: None)
+    attempts = []
+
+    def spent(api, model, message, schema):
+        attempts.append(model)
+        raise _DailyQuota()
+
+    with pytest.raises(_DailyQuota):
+        planner.call_with_retry(spent, None, ["m1", "m2", "m3", "m4"], "msg", {})
+    assert attempts == ["m1", "m2", "m3", "m4"], (
+        "one request per model: 4 instead of 12"
+    )
