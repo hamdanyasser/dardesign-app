@@ -104,7 +104,11 @@ src/
     │   ├── geometry.ts           # Procedural furniture at real cm — never billboarded PNGs
     │   ├── scene3d.ts            # DesignWorld: renderer, camera rig, wall culling, conditioning capture
     │   ├── handoff.ts            # The sessionStorage key, alone, so /design's bundle stays out of Studio
-    │   └── ade20k.ts             # GENERATED from the backend palette; do not hand-edit
+    │   ├── ade20k.ts             # GENERATED from the backend palette; do not hand-edit
+    │   ├── modelLoader.ts        # GLB prototypes, cached; fits a model INSIDE its catalogue box
+    │   ├── textures.ts           # CC0 PBR sets; greyscale detail + roughness re-centred near 1.0
+    │   ├── patterns.ts           # drawn ornament: zellige, encaustic, sadu, gypsum fret, mashrabiya
+    │   └── lighting.ts           # IBL + sun + the four times of day (viewport-only)
     ├── api.ts                   # Typed backend client — redesignRoom/restyleRoom, renderScene, colour + furniture, auth, history, subscription/usage, admin. (uploadImage/startTransform/pollStatus are the retired async flow, still exported)
     └── utils.ts                 # cn() utility (clsx + tailwind-merge)
 ```
@@ -114,7 +118,7 @@ Outside `src/`, the directories that are load-bearing rather than incidental:
 | path | what it is |
 |---|---|
 | `backend/` | the FastAPI service — see "Backend" below |
-| `ontology/` | **canonical** cultural vocabulary (`ontology.json`) + `furniture.json` dimensions. `src/data/ontology.json` is a second copy — keep them in step |
+| `ontology/` | **canonical** cultural vocabulary (`ontology.json`) + `furniture.json` dimensions. `src/data/ontology.json` is a second copy — keep them in step. `furniture_models.json` is the 3D-provenance sidecar (tiers + asset licences) |
 | `configs/` | `pipeline.yaml` + `sweep_winners.json` — ControlNet weights are tuned here, not in code |
 | `scripts/` | training/eval/ops (`train_lora.py`, `controlnet_sweep.py`, `metrics.py`, `backfill_evaluation.py`, `dev-tunnel.mjs`, `run-local-backend.ps1`) |
 | `tests/` | pytest, backend only — there is **no frontend test runner**; `npm run build` is the frontend's gate |
@@ -474,8 +478,28 @@ The loop: photo → `/redesign` → **Design it yourself** → move/add furnitur
 - **Undo/redo is snapshot-based with gesture coalescing** (`beginGesture`/`endGesture`), so a 200-frame drag is one history entry. Scenes persist to `localStorage` keyed by job id.
 - **Placement has two tiers, and conflating them made the editor feel broken.** *Blocking* = physics the user cannot mean (out of bounds; inside a piece they placed). *Advisory* = judgement (standing a sofa where the photo found the old one; `must_touch_wall`). Advisories are stated in amber and **never refuse the drop** — replacing existing furniture is the most likely act of redesign. Collision is oriented-rectangle SAT, so a sofa rotated into a corner is judged correctly.
 - **Found objects are locked** by default: they describe the room as it is, so moving one silently turns a measurement into a fiction. The `N found` chip is also the layer toggle; hiding never changes collision.
-- **Furniture is procedural geometry at real ontology dimensions.** The cut-out PNGs appear in the catalogue rail and nowhere else — a billboarded photo among lit volumes reads as a sticker the moment the camera moves. The look is a deliberate architect's maquette, which also means DAR never implies it rendered something it did not.
-- **Every catalogue category needs an entry in `BUILDERS` (`geometry.ts`).** `buildObjectMesh` falls through to `buildFound()` for an unknown category, and that is the deliberately abstract translucent box reserved for objects read off a *photograph* — so a piece the user chose renders as a survey volume, which looks like a bug and weakens the segmentation the renderer is conditioned on. This shipped broken for nine of 27 items (every `armchair`, `console`, `cabinet` and `screen`) until 2026-08-14. `test_every_catalogue_category_has_a_shape_builder` parses the map out of the TS source and compares it to `furniture.json`, so adding a category without a builder now fails.
+- **Furniture is culture-specific geometry at real ontology dimensions.** The cut-out PNGs appear in the catalogue rail and nowhere else — a billboarded photo among lit volumes reads as a sticker the moment the camera moves. Builders branch on the culture of the *catalogue piece* (not the room), so a Lebanese framed sofa, a Khaleeji legless majlis bench and a Moroccan sedari on a horseshoe-arch apron are three different objects rather than one box in three colours. See "Realism" below.
+- **Every catalogue category needs an entry in `BUILDERS` (`geometry.ts`).** `buildObjectMesh` falls through to `buildFound()` for an unknown category, and that is the deliberately abstract translucent box reserved for objects read off a *photograph* — so a piece the user chose renders as a survey volume, which looks like a bug and weakens the segmentation the renderer is conditioned on. This shipped broken for nine of 27 items (every `armchair`, `console`, `cabinet` and `screen`) until 2026-08-14. `test_every_catalogue_category_has_a_shape_builder` parses the map out of the TS source and compares it to `furniture.json`, so adding a category without a builder now fails. **`BUILDERS`' declaration text is load-bearing** — that test regex-matches `const BUILDERS: Record<string, Builder> = {` with a column-0 `};` terminator and bare lowercase keys, so renaming the const, changing the annotation, indenting the map or quoting a key all break it.
+
+### Realism: three tiers, and the honesty they encode (2026-08-14)
+
+Build Mode used to be flat-shaded boxes with no textures and no environment. It now has real materials, real ornament, a sun and a time of day — but **what a piece IS remains a claim about evidence**, and `ontology/furniture_models.json` names three tiers that the inspector shows on screen:
+
+| tier | meaning | count |
+|---|---|---|
+| `real` | an actual scanned asset, uniformly scaled to CONTAIN it in the catalogue box | **1 of 27** (`leb-ottoman-001` ← Poly Haven `Ottoman_01`) |
+| `procedural` | DAR's own drawing from the ontology — silhouette, legs, cushions, ornament | 26 of 27 |
+| `massing` | read off the photograph: footprint and class known, form not | every `found` object |
+
+**Why only one real model.** ~20 CC0 scans were downloaded and compared against DAR's own catalogue art; 19 were rejected as culturally wrong. The near misses are the instructive ones — Poly Haven's lanterns are Western storm lanterns while `mor-lantern-001` is a pierced star lantern and the piercing *is* the cultural signal. **DAR's LoRA-generated catalogue art is more culturally specific than anything available under CC0**, so culturally-specific pieces are authored geometry. Adding a commissioned asset later is one entry in the sidecar and no code change. Full rejected list and reasoning: [public/ASSET-LICENSES.md](public/ASSET-LICENSES.md).
+
+Things that are easy to break here:
+
+- **Models ship as self-contained `.glb`, never `.gltf` + a sibling `.bin`.** Internet Download Manager and common ad-blocker filter lists intercept `.bin`: the identical bytes served as `probe_copy.dat` returned 200 with a body while `probe_copy.bin` returned an empty 204 with `net::ERR_ABORTED`. curl was unaffected, so it works on the developer's machine and the model silently never appears on a jury laptop. `scripts/fetch_design_assets.py` packs the container.
+- **Colour maps are GREYSCALE and roughness maps are re-centred near 1.0.** three computes `albedo = color * map` and `roughness = roughness * map.g`, and both the palette (from `ontology.json`) and the authored roughness scalars are decisions the project already made. A full-colour albedo would replace the sourced palette; a raw roughness map turned limestone (authored 0.92, nearly matte) into polished stone.
+- **Lit surfaces decode sRGB→linear via `albedo()`; unlit ones must not.** r150 ships `ColorManagement.enabled === false`, so a hex reaches the shader verbatim as linear — roughly twice as bright, and ACES then desaturates it. Khaleeji velvet rendered pink (S 0.34 / V 0.90 against a target of 0.78 / 0.54) until this was fixed. **Never apply it near the segmentation pass**, whose ADE20K colours must leave the renderer byte-exact.
+- **Time of day is viewport-only, and enforced.** `LightingRig.neutral()` pins the rig to a fixed afternoon for `renderConditioning` and restores it after. Depth and segmentation are material-overridden and were never at risk; the beauty pass would otherwise come back nearly black out of Night.
+- **Culture switching re-themes; it never rewrites the layout.** `setCulture` is an ordinary reducer action inside `withHistory` (it used to go through `replace`, which wipes undo/redo). Translating the furniture is the separate, explicit `restyleTo`, offered as "Restyle N" only while foreign pieces exist. Category coverage is asymmetric across the catalogues, so unmatched pieces are **kept and reported**, not dropped.
 
 ### Render with DAR
 
@@ -538,6 +562,7 @@ Rules that are easy to violate:
 
 - **`format` and `effort` are sibling keys inside ONE `output_config`.** Two separate `output_config` kwargs silently overwrite each other. Pinned by `test_format_and_effort_are_siblings_in_one_output_config`.
 - **Apply a plan with `beginGesture` → N × `addAt` → `endGesture`, never `replace`.** `replace` wipes `undo`/`redo` (`store.ts:301-309`), so an AI plan would be unundoable. Gestures collapse N adds into one entry — **one Ctrl+Z removes the whole plan**, wall and floor materials included (verified: 4 objects + 2 materials → 0 in one undo).
+- **Gate 1 narrows to the room's culture.** `plan_schema(culture)` builds the `catalogId` enum from that culture's nine ids, and both call sites now pass the room's culture rather than `"all"` — so in a Moroccan room a Lebanese console is unrepresentable, not merely rejected downstream. `"all"` still gets all 27, because a model that has not read the brief cannot pick a culture from nine ids. `gatePlan` also enforces culture coherence client-side now; it used to check only that an id resolved, and it is the gate that runs over the rules fallback too.
 - **`scene.culture` is deliberately never changed by a plan**, even when the brief asks for a different culture. Switching it goes through `setCulture`, which dispatches `replace` and would wipe history mid-gesture. The plan expresses culture through the pieces it places and the shell materials it sets — which is what is actually visible.
 - **Cultural intensity and room type live in page state (`renderIntent`), not in `DesignScene`.** A new scene field bumps `SCENE_VERSION`, and `loadScene` silently drops any scene whose version does not match — i.e. it would throw away every room a user had saved. From there `roomType` reaches `/render-scene`'s existing `room` param (it was hardcoded `"living room"`) and `intensity` its new optional `scale`, which is a pass-through to the `lora_scale` `render_scene()` already accepted. **Omitted, the render path is byte-for-byte what it was** — the same discipline as `control_override`.
 - `addAt` takes an optional `materialKey` (added for this feature); omitted, the ontology's own default for the piece stands.

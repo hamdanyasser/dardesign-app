@@ -733,3 +733,105 @@ def test_every_catalogue_category_has_a_shape_builder():
     used = {it["category"] for it in items if it.get("category")}
     missing = sorted(used - _built_categories())
     assert not missing, f"catalogue categories with no geometry builder: {missing}"
+
+
+# --------------------------------------------------------------------------
+# 3D model provenance sidecar (ontology/furniture_models.json)
+# --------------------------------------------------------------------------
+
+
+MODELS_FILE = ROOT / "ontology" / "furniture_models.json"
+
+
+def _model_sidecar() -> dict:
+    return json.loads(MODELS_FILE.read_text(encoding="utf-8"))
+
+
+def test_model_sidecar_only_names_real_catalogue_ids():
+    """A model bound to an id that does not exist would never load.
+
+    The sidecar is keyed by catalogue id and read by src/lib/design/catalog.ts,
+    which looks each item up by id. A typo there fails silently -- the piece just
+    renders procedurally forever -- so it is pinned rather than trusted.
+    """
+    known = {it["id"] for it in ITEMS}
+    named = set(_model_sidecar()["models"])
+    unknown = sorted(named - known)
+    assert not unknown, f"furniture_models.json names ids not in furniture.json: {unknown}"
+
+
+def test_every_declared_model_is_a_valid_self_contained_glb():
+    """`tier: real` claims a detailed asset exists, is committed, and stands alone.
+
+    Self-contained .glb rather than .gltf plus siblings, for a reason worth
+    recording: a loose `.bin` does not reliably reach the browser. Internet
+    Download Manager (and ad-blocker filter lists, which commonly match `.bin`)
+    intercepts the request -- the identical bytes served as `probe_copy.dat`
+    returned 200 with a full body while `probe_copy.bin` returned an empty 204
+    with net::ERR_ABORTED. curl was unaffected, which is what makes it nasty:
+    it works on the developer's machine and the model silently never appears on
+    a jury laptop. A .glb has no sibling to intercept, and costs one request
+    instead of five.
+
+    So the check is the binary container itself: magic, version, a declared
+    length that matches the file, a BIN chunk, and no external uri left behind.
+    """
+    import struct
+
+    for cid, m in _model_sidecar()["models"].items():
+        assert m["tier"] == "real", f"{cid}: only `real` entries belong in `models`"
+        path = ROOT / "public" / m["path"]
+        assert path.suffix == ".glb", f"{cid}: models must ship as self-contained .glb"
+        assert path.is_file(), f"{cid}: missing model file {m['path']}"
+
+        blob = path.read_bytes()
+        assert len(blob) > 12, f"{cid}: {m['path']} is truncated"
+        magic, version, declared = struct.unpack("<III", blob[:12])
+        assert magic == 0x46546C67, f"{cid}: not a glTF binary container"
+        assert version == 2, f"{cid}: glTF binary version {version}, expected 2"
+        assert declared == len(blob), f"{cid}: header says {declared} bytes, file is {len(blob)}"
+
+        chunks, off = [], 12
+        while off < len(blob):
+            length, ctype = struct.unpack("<II", blob[off:off + 8])
+            chunks.append(ctype)
+            off += 8 + length
+        assert 0x4E4F534A in chunks, f"{cid}: no JSON chunk"
+        assert 0x004E4942 in chunks, f"{cid}: no BIN chunk -- geometry is not embedded"
+
+        json_len = struct.unpack("<I", blob[12:16])[0]
+        payload = json.loads(blob[20:20 + json_len].decode("utf-8"))
+        dangling = [b.get("uri") for b in payload.get("buffers", []) if b.get("uri")]
+        dangling += [i.get("uri") for i in payload.get("images", []) if i.get("uri")]
+        assert not dangling, f"{cid}: still references external files {dangling}"
+
+
+def test_every_declared_model_carries_its_licence():
+    """The FYP must be able to say where every shipped asset came from.
+
+    Author, source URL and licence are required, and the licence must be one we
+    can actually redistribute inside this repository.
+    """
+    redistributable = {"CC0-1.0"}
+    for cid, m in _model_sidecar()["models"].items():
+        for field in ("assetName", "author", "source", "license"):
+            assert m.get(field), f"{cid}: missing `{field}`"
+        assert m["license"] in redistributable, f"{cid}: licence {m['license']} is not redistributable"
+        assert m["source"].startswith("http"), f"{cid}: `source` should be a URL"
+    assert (ROOT / "public" / "ASSET-LICENSES.md").is_file(), "asset licence manifest is missing"
+
+
+def test_declared_model_fits_inside_the_catalogue_footprint():
+    """The visual must not outgrow the box the validator collides with.
+
+    Build Mode scales a model uniformly to CONTAIN it in the catalogue's
+    width/depth/height, so the drawn object can never stick out of the footprint
+    the SAT collision test uses. `fit` is what selects that behaviour; an
+    unrecognised value would silently mean something else.
+    """
+    by_id = {it["id"]: it for it in ITEMS}
+    for cid, m in _model_sidecar()["models"].items():
+        assert m.get("fit") == "contain", f"{cid}: unsupported fit mode {m.get('fit')!r}"
+        item = by_id[cid]
+        for axis in ("real_width_cm", "real_height_cm", "real_depth_cm"):
+            assert item[axis] > 0, f"{cid}: catalogue dimension {axis} must be positive to scale into"

@@ -16,9 +16,16 @@
 
 "use client";
 
-import { catalogItem, defaultMaterialFor } from "./catalog";
+import { CATALOG, catalogItem, defaultMaterialFor } from "./catalog";
+import { SHELL_MATERIALS, materialForTags } from "./materials";
 import { findSpot } from "./placement";
-import { SCENE_VERSION, type DesignScene, type HistoryEntry, type PlacedObject } from "./types";
+import {
+  SCENE_VERSION,
+  type DesignScene,
+  type HistoryEntry,
+  type PlacedObject,
+  type SceneCulture,
+} from "./types";
 
 const HISTORY_LIMIT = 60;
 const STORAGE_PREFIX = "dar-scene-v3";
@@ -54,6 +61,8 @@ export type DesignAction =
   | { type: "duplicate"; uid: string }
   | { type: "remove"; uid: string }
   | { type: "setShellMaterial"; surface: "floor" | "wall"; materialKey: string }
+  | { type: "setCulture"; culture: SceneCulture }
+  | { type: "restyleTo"; culture: SceneCulture }
   | { type: "resizeRoom"; widthCm?: number; depthCm?: number }
   | { type: "clearPlaced" }
   | { type: "undo" }
@@ -250,6 +259,80 @@ export function designReducer(state: DesignState, action: DesignAction): DesignS
         action.surface === "floor" ? "change floor" : "change walls",
         action.surface === "floor" ? "تغيير الأرضية" : "تغيير الجدران",
       );
+    }
+
+    /* Switching the design language RE-THEMES; it never rewrites the layout.
+     *
+     * This used to live in the page and go through `replace`, which wipes undo
+     * and redo outright — so a culture switch destroyed every step before it
+     * and could not itself be taken back. That is the exact trap the
+     * plan-apply path documents and avoids. Here it is one ordinary history
+     * entry: one Ctrl+Z puts the room back.
+     *
+     * Placed furniture keeps its position, rotation and geometry. Only the
+     * shell and the material palette move, because those are the room's
+     * design language rather than the user's arrangement of it. */
+    case "setCulture": {
+      if (state.scene.culture === action.culture) return state;
+      const shell = SHELL_MATERIALS[action.culture];
+      const objects = state.scene.objects.map((o) => {
+        if (o.origin === "found") return o;
+        const item = o.catalogId ? catalogItem(o.catalogId) : undefined;
+        // A piece keeps its own culture's material vocabulary; only pieces
+        // that follow the room (no catalogue entry) are re-read.
+        if (item) return o;
+        return { ...o, materialKey: materialForTags([], o.materialKey) };
+      });
+      const next: DesignScene = {
+        ...state.scene,
+        culture: action.culture,
+        objects,
+        room: { ...state.scene.room, floorMaterialKey: shell.floor, wallMaterialKey: shell.wall },
+      };
+      return withHistory(state, next, "change design language", "تغيير اللغة التصميمية");
+    }
+
+    /* The explicit, opt-in half: swap each placed catalogue piece for its
+     * counterpart in another culture, by category and nearest size.
+     *
+     * Kept SEPARATE from setCulture on purpose. Switching the rail should not
+     * silently rewrite choices the user made, but "show me this room as a
+     * Moroccan room" is a real design question, and answering it by hand means
+     * deleting and re-placing nine pieces. Categories do not line up across
+     * cultures — Khaleeji has no chair, Lebanese has no cabinet, lantern or
+     * cultural object — so an unmatched piece is KEPT rather than dropped, and
+     * the caller reports what could not be translated. */
+    case "restyleTo": {
+      if (action.culture === "all") return state;
+      let changed = 0;
+      const objects = state.scene.objects.map((o) => {
+        if (o.origin === "found" || !o.catalogId) return o;
+        const from = catalogItem(o.catalogId);
+        if (!from || from.culture === action.culture) return o;
+        const candidates = CATALOG.filter(
+          (c) => c.culture === action.culture && c.category === from.category,
+        );
+        if (!candidates.length) return o;
+        // Nearest by footprint, so a 240cm majlis does not become a 50cm chair.
+        const to = candidates.sort(
+          (a, b) =>
+            Math.abs(a.widthCm - from.widthCm) + Math.abs(a.depthCm - from.depthCm) -
+            (Math.abs(b.widthCm - from.widthCm) + Math.abs(b.depthCm - from.depthCm)),
+        )[0];
+        changed++;
+        return {
+          ...o,
+          catalogId: to.id,
+          labelEn: to.nameEn,
+          labelAr: to.nameAr,
+          widthCm: to.widthCm,
+          depthCm: to.depthCm,
+          heightCm: to.heightCm,
+          materialKey: defaultMaterialFor(to),
+        };
+      });
+      if (!changed) return state;
+      return withHistory(state, { ...state.scene, objects }, "restyle furniture", "إعادة تنسيق الأثاث");
     }
 
     case "resizeRoom": {

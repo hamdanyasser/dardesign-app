@@ -723,3 +723,31 @@ html[lang="ar"] .dar-build .handoff-title { font-family: var(--f-display-ar); }
   font-size: 0.68rem;
   opacity: 0.8;
 }
+
+/* ---------------------------------------------------------------
+   Provenance chip — how much DAR actually knows about an object's
+   form. Three tiers, colour-coded from "we scanned this" through
+   "we drew this" to "we measured a footprint and nothing more".
+   Deliberately quiet: it is a statement of evidence, not a badge.
+   --------------------------------------------------------------- */
+.dar-build .prov {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-family: var(--font-jetbrains-mono), ui-monospace, monospace;
+  font-size: 0.62rem;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  padding: 4px 9px;
+  border-radius: 2px;
+  border: 1px solid currentColor;
+}
+.dar-build .prov-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.dar-build .prov-real { color: #4a9e6e; }
+.dar-build .prov-procedural { color: var(--brass); }
+.dar-build .prov-massing { color: var(--fg-mute); }

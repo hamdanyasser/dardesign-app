@@ -10,7 +10,10 @@ Five gates, each one a place a hallucination dies:
 
   1. Closed vocabulary. `catalogId` is a JSON-Schema enum of exactly the ids in
      the requested culture, so structured outputs make an invented
-     "leb-chandelier-009" unrepresentable rather than merely unlikely.
+     "leb-chandelier-009" unrepresentable rather than merely unlikely. When the
+     room asks for "all", the enum is all 27 -- the model has to be able to
+     choose the culture from the brief, and cannot do that from nine ids.
+     Cross-culture picks are then caught by gate 4.
   2. No invented dimensions. The model emits no sizes at all; width, depth and
      height come from ontology/furniture.json via the catalogue.
   3. Backend validation (validate_items below): unknown id, non-finite or
@@ -208,6 +211,15 @@ def plan_schema(culture: str) -> dict:
     `understood` is DAR reading the brief; `items` is DAR acting on it. Both
     come back from one call — a separate "interpret, then plan" round trip
     would double latency and cost for information this response already holds.
+
+    Both call sites pass the room's own culture. They used to pass "all"
+    unconditionally, which left the `catalogId` enum at all 27 ids even for a
+    room that had already declared itself Moroccan — gate 1 still stopped
+    invented ids, but a cross-culture pick had to travel all the way to gate 4
+    to die. A concrete culture now narrows the enum to its own nine, so a
+    Lebanese console is not merely rejected in a Moroccan room, it is
+    unrepresentable. "all" still gets all 27, because a model that has not yet
+    read the brief cannot choose a culture from nine ids.
     """
     return {
         "type": "object",
@@ -704,7 +716,7 @@ def _call_anthropic(api: Any, model: str, room: dict, culture: str, brief: str,
         }],
         # format and effort are siblings inside ONE output_config.
         output_config={
-            "format": {"type": "json_schema", "schema": plan_schema("all")},
+            "format": {"type": "json_schema", "schema": plan_schema(culture)},
             "effort": "low",
         },
     )
@@ -769,7 +781,7 @@ def _call_gemini(api: Any, model: str, room: dict, culture: str, brief: str,
         config={
             "system_instruction": _SYSTEM,
             "response_mime_type": "application/json",
-            "response_schema": gemini_schema(plan_schema("all")),
+            "response_schema": gemini_schema(plan_schema(culture)),
             "max_output_tokens": MAX_OUTPUT_TOKENS_GEMINI,
         },
     )
