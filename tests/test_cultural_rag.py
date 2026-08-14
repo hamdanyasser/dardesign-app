@@ -535,10 +535,11 @@ def test_cross_culture_piece_is_still_rejected_with_evidence_present():
 def test_schema_is_unchanged_by_rag():
     """RAG adds no field to the structured output the model must produce."""
     schema = planner.plan_schema("moroccan")
-    assert set(schema["properties"]) == {"understood", "items", "notesEn", "notesAr"}
-    item_props = schema["properties"]["items"]["items"]["properties"]
-    assert set(item_props) == {
-        "catalogId", "xCm", "zCm", "rotationDeg", "materialKey", "reasonEn", "reasonAr",
+    assert set(schema["properties"]) == {"understood", "operations", "notesEn", "notesAr"}
+    op_props = schema["properties"]["operations"]["items"]["properties"]
+    assert set(op_props) == {
+        "op", "catalogId", "targetUid", "xCm", "zCm", "rotationDeg",
+        "materialKey", "reasonEn", "reasonAr",
     }
 
 

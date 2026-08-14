@@ -60,19 +60,50 @@ def rag_enabled() -> bool:
     return (os.environ.get(RAG_ENV) or "1").strip().lower() not in ("0", "false", "no")
 
 DEFAULT_MODEL = "claude-sonnet-5"
-# Gemini's free tier is what makes the model path testable at all while the
-# Anthropic account has no balance. Same schema, same validator, same fallback.
-# NOT gemini-2.5-flash: it is still listed by models.list() but returns 404
-# "no longer available to new users" on a freshly issued key, which is exactly
-# the kind of staleness a demo discovers at the worst moment.
-DEFAULT_GEMINI_MODEL = "gemini-3.5-flash"
+
+# One congested model must not cost the user their brief. A free-tier 503
+# ("this model is currently experiencing high demand") is the single most likely
+# way this feature fails in a demo, and it used to fail *silently*: the
+# exception was caught, rules were served, and the layout looked deliberate.
+# Retries handle a spike; this chain handles a model being busy for longer.
+#
+# Every entry was probed against a live key on 2026-08-14 with a structured
+# -output request — the only test that means anything here, since models.list()
+# happily lists models that then 404. Measured that day: 3.7 answered in 3.3s,
+# 3.6 in 2.0s, 3.5-flash-lite in 0.9s, while `gemini-3.5-flash` — the previous
+# default — returned 503 on every attempt, and `gemini-2.5-flash` 404s with
+# "no longer available to new users". Re-probe rather than guess if this list
+# ever needs changing: `models.list()` is not evidence that a model will answer.
+GEMINI_MODEL_CHAIN = (
+    "gemini-3.7-flash",
+    "gemini-3.6-flash",
+    "gemini-3.5-flash",
+    "gemini-3.5-flash-lite",
+)
+ANTHROPIC_MODEL_CHAIN = (DEFAULT_MODEL, "claude-haiku-4-5")
+
+# The head of the chain, by construction — the status endpoint advertises this
+# name, and a default that disagreed with the model actually tried is exactly
+# the shadowed-credential trap `provider()` already documents.
+DEFAULT_GEMINI_MODEL = GEMINI_MODEL_CHAIN[0]
+# Retry only what retrying can fix: overload and rate limits. A 400 bad schema
+# or a 404 dead model is not going to succeed on the second attempt.
+RETRY_STATUSES = (429, 500, 502, 503, 504)
+MAX_ATTEMPTS_PER_MODEL = 3
+RETRY_BASE_DELAY_S = 0.8
+
 MAX_OUTPUT_TOKENS = 2000
 # Gemini 3.x counts its thinking against max_output_tokens. Measured on a real
 # plan: ~5k thinking tokens before ~1.1k of JSON, so the 2k that is ample for
 # Anthropic truncates the response mid-object and the plan silently degrades to
 # rules. Free tier, so the headroom costs nothing.
 MAX_OUTPUT_TOKENS_GEMINI = 12000
-MAX_ITEMS = 12
+# 12 was a whole-room ceiling and it silently became a *count* ceiling the
+# moment briefs could say "add five chairs": five chairs in a room that already
+# held seven pieces hit it. The placement engine, not this number, is what
+# decides how much furniture a room can hold.
+MAX_ITEMS = 24
+MAX_OPERATIONS = 36
 
 # A paid endpoint deserves a ceiling that does not depend on anyone remembering.
 # Per process, reset on restart; the point is to bound a runaway loop, not to bill.
@@ -202,23 +233,132 @@ FLOOR_MATERIALS = (
 
 PLAN_CULTURES = ("lebanese", "khaleeji", "moroccan", "all")
 
+# What the brief is asking DAR to do. This is the difference between "a majlis
+# for receiving guests" and "add five chairs", and getting it wrong is what made
+# every brief return the same furnished room: an edit answered as a fresh
+# furnishing stacks a second room on top of the one you already have.
+PLAN_INTENTS = ("furnish", "edit")
+
 # Categories the model may ask for by name, from the ontology itself.
 REQUESTABLE_CATEGORIES = (
     "sofa", "armchair", "chair", "coffee_table", "side_table", "console",
     "cabinet", "ottoman", "lamp", "lantern", "screen", "cultural_object",
 )
 
+# The catalogue is not square: every culture has nine pieces, but not the same
+# nine. Khaleeji has no `chair` at all (its seating is the majlis armchair and
+# the ottoman), Lebanese has no `lantern`, Moroccan no `lamp`. So "add five
+# chairs" is answerable in a Lebanese room and, taken literally, refusable in a
+# Khaleeji one — which is a catalogue accident, not a design judgement.
+#
+# The table lives in ontology/category_substitutes.json because the CLIENT needs
+# it too: culture conversion (src/lib/design/culture.ts) asks the same question
+# — "this culture has no lamp, what stands in?" — and a second hand-written copy
+# would drift, exactly as ontology.json already does. Read once at import; it is
+# small, static data.
+#
+# Substitutions are always REPORTED (see `substitutions` on the response) and
+# never silent: the panel says which piece stood in and for what, so the user is
+# never told they got a chair.
+_SUBSTITUTES_PATH = (
+    os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                 "ontology", "category_substitutes.json")
+)
+
+
+def _load_substitutes() -> dict[str, tuple[str, ...]]:
+    with open(_SUBSTITUTES_PATH, encoding="utf-8") as fh:
+        raw = json.load(fh)["substitutes"]
+    return {k: tuple(v) for k, v in raw.items()}
+
+
+CATEGORY_SUBSTITUTES = _load_substitutes()
+
+
+def item_for_category(culture: str, category: str) -> tuple[dict | None, str | None]:
+    """A catalogue piece for this category in this culture, substituting if need be.
+
+    Returns (item, substituted_from). `substituted_from` is None when the
+    culture had the category outright — which is what lets the caller state a
+    substitution rather than pass one off as the thing that was asked for.
+    """
+    items = catalogue_projection(_ALL_FALLBACK_CULTURE if culture == "all" else culture)
+    exact = _pick(items, category)
+    if exact is not None:
+        return exact, None
+    for alt in CATEGORY_SUBSTITUTES.get(category, ()):
+        found = _pick(items, alt)
+        if found is not None:
+            return found, category
+    return None, None
+
 
 # --------------------------------------------------------------------------
 # schema + prompt
 # --------------------------------------------------------------------------
 
-def plan_schema(culture: str) -> dict:
+def operation_schema(culture: str, movable_uids: list[str] | None = None) -> dict:
+    """One edit to the room: add a piece, move one, or take one away.
+
+    A FLAT object with nullable fields, not a `oneOf` discriminated union.
+    Gemini's `response_schema` takes an OpenAPI-flavoured subset that rejects
+    the whole request rather than ignoring a keyword it does not know, and a
+    union is exactly the sort of thing it does not know. The op-specific fields
+    are therefore all nullable and `validate_operations` enforces which ones a
+    given `op` actually requires — the same division of labour the rest of this
+    module already uses: the schema makes hallucination unrepresentable where
+    it cheaply can, and the validator catches the rest.
+
+    `targetUid` is the second closed vocabulary in this file. It is an enum of
+    the uids that are actually in the user's scene right now, so "move the sofa
+    that isn't there" is unrepresentable in the same way an invented catalogue
+    id is. With nothing movable the enum would be empty, so move/remove are
+    dropped from the op list entirely rather than offered against nothing.
+    """
+    uids = [u for u in (movable_uids or []) if isinstance(u, str) and u][:60]
+    ops = ["add", "move", "remove"] if uids else ["add"]
+
+    target: dict = {"type": ["string", "null"]}
+    if uids:
+        target["enum"] = [*uids, None]
+
+    return {
+        "type": "object",
+        "properties": {
+            "op": {"type": "string", "enum": ops},
+            # add only
+            "catalogId": {
+                "type": ["string", "null"], "enum": [*allowed_ids(culture), None],
+            },
+            # move / remove only — a uid already in the room
+            "targetUid": target,
+            "xCm": {"type": ["number", "null"]},
+            "zCm": {"type": ["number", "null"]},
+            "rotationDeg": {"type": ["number", "null"]},
+            "materialKey": {"type": ["string", "null"], "enum": [*MATERIAL_KEYS, None]},
+            "reasonEn": {"type": "string"},
+            "reasonAr": {"type": "string"},
+        },
+        "required": [
+            "op", "catalogId", "targetUid", "xCm", "zCm", "rotationDeg",
+            "materialKey", "reasonEn", "reasonAr",
+        ],
+        "additionalProperties": False,
+    }
+
+
+def plan_schema(culture: str, movable_uids: list[str] | None = None) -> dict:
     """JSON Schema for the plan. The enums are the whole grounding story.
 
-    `understood` is DAR reading the brief; `items` is DAR acting on it. Both
-    come back from one call — a separate "interpret, then plan" round trip
+    `understood` is DAR reading the brief; `operations` is DAR acting on it.
+    Both come back from one call — a separate "interpret, then plan" round trip
     would double latency and cost for information this response already holds.
+
+    `operations` replaced a plain `items` list once briefs stopped being only
+    "furnish this empty room". "Move the armchair" and "remove one chair" are
+    the ordinary things a person says to a room that already has furniture in
+    it, and an add-only vocabulary could only ever answer them by piling a
+    second room on top of the first.
     """
     return {
         "type": "object",
@@ -227,6 +367,7 @@ def plan_schema(culture: str) -> dict:
                 "type": "object",
                 "properties": {
                     "culture": {"type": "string", "enum": list(PLAN_CULTURES)},
+                    "intent": {"type": "string", "enum": list(PLAN_INTENTS)},
                     "roomType": {"type": "string", "enum": list(ROOM_TYPES)},
                     "capacity": {"type": ["integer", "null"]},
                     "intensity": {"type": ["number", "null"]},
@@ -256,36 +397,20 @@ def plan_schema(culture: str) -> dict:
                     },
                 },
                 "required": [
-                    "culture", "roomType", "capacity", "intensity",
+                    "culture", "intent", "roomType", "capacity", "intensity",
                     "wallMaterialKey", "floorMaterialKey",
                     "conceptEn", "conceptAr", "requirements", "requestedFurniture",
                 ],
                 "additionalProperties": False,
             },
-            "items": {
+            "operations": {
                 "type": "array",
-                "items": {
-                    "type": "object",
-                    "properties": {
-                        "catalogId": {"type": "string", "enum": allowed_ids(culture)},
-                        "xCm": {"type": "number"},
-                        "zCm": {"type": "number"},
-                        "rotationDeg": {"type": "number"},
-                        "materialKey": {"type": "string", "enum": list(MATERIAL_KEYS)},
-                        "reasonEn": {"type": "string"},
-                        "reasonAr": {"type": "string"},
-                    },
-                    "required": [
-                        "catalogId", "xCm", "zCm", "rotationDeg",
-                        "materialKey", "reasonEn", "reasonAr",
-                    ],
-                    "additionalProperties": False,
-                },
+                "items": operation_schema(culture, movable_uids),
             },
             "notesEn": {"type": "string"},
             "notesAr": {"type": "string"},
         },
-        "required": ["understood", "items", "notesEn", "notesAr"],
+        "required": ["understood", "operations", "notesEn", "notesAr"],
         "additionalProperties": False,
     }
 
@@ -304,23 +429,55 @@ COORDINATE FRAME — read carefully, everything is centimetres:
 - rotationDeg turns the footprint clockwise seen from above. 0 leaves the piece's
   width along x. Use 90 or 270 for pieces standing against a left or right wall.
 
+YOU ARE EDITING A ROOM, NOT ONLY FILLING ONE. Answer in `operations`:
+- {"op":"add"}    — put a new catalogue piece in the room. Needs catalogId,
+                    xCm, zCm, rotationDeg.
+- {"op":"move"}   — reposition a piece that is ALREADY in the room. Needs
+                    targetUid and the new xCm, zCm, rotationDeg.
+- {"op":"remove"} — take a piece out of the room. Needs targetUid only.
+Emit as many as the brief calls for, in any order, and give each one a reason.
+
+`understood.intent` says which kind of brief this is, and it changes what a good
+answer looks like:
+- "furnish" — the person is describing a room they want ("a majlis for guests",
+  "somewhere to eat and talk"). Design the whole arrangement with `add`.
+- "edit" — the person is changing the room in front of them ("add five chairs",
+  "move the sofa to the other wall", "remove one chair", "spread these out").
+  Touch ONLY what they asked about. Do NOT re-furnish a room that already has
+  furniture in it: if they asked for one table, the answer is one `add`.
+  "Change the locations of the furniture" is an edit made of `move` operations
+  over the pieces already listed as in the room — not a new set of furniture.
+
 RULES:
 - Use only catalogue ids given to you. Never invent one.
+- Use only the uids listed as already in the room. Never invent one.
 - Never emit dimensions; sizes come from the catalogue.
 - Every piece must belong to the one culture you chose in `understood.culture`.
   Do not mix cultures in a single room unless the person asked for "all".
-- Keep every footprint fully inside the room, and do not overlap two pieces.
+- Keep every footprint fully inside the room, and do not overlap two pieces —
+  including the pieces already in the room that you are not moving.
 - A piece marked mustTouchWall must sit against a wall.
 - Leave walking room: at least 60cm of clear floor to move through.
 - Seating should face seating. Put a coffee table within reach of the main sofa,
   roughly 40-50cm in front of it.
-- Prefer fewer, well-placed pieces over filling the room. 5-9 is usually right.
+- COUNTS ARE LITERAL AND OUTRANK TASTE. "Add five chairs" means exactly five
+  `add` operations for a chair — not three because five looks crowded, and not
+  six. If you genuinely cannot fit them, place as many as fit and say how many
+  in notesEn; DAR checks the arithmetic either way. When no count is given,
+  prefer fewer well-placed pieces: 5-9 is usually right for a whole room.
+- A piece added alongside existing furniture must WORK with it. One table asked
+  for in a room of chairs goes within reach of those chairs, not in a free
+  corner.
 - Respect what the person asked for. If they asked for a reading corner, the plan
   should have one and you should say where it is.
 
 READING THE BRIEF — fill `understood` from what the person actually said:
+- intent: "edit" if they are changing the room that already exists, "furnish" if
+  they are describing a room to design. A room with nothing in it is "furnish".
 - culture: name it only if they implied one; otherwise keep the room's current
-  culture. Every chosen piece must then come from that culture.
+  culture. Every chosen piece must then come from that culture. A brief that
+  names a culture ("make this a Moroccan room") changes it — pick that culture
+  and choose every piece from it.
 - roomType: pick the closest from the allowed list.
 - capacity: how many people should be able to sit, if they said. Plan seating to
   match it — a 210cm sofa seats about three, an armchair or pouf seats one.
@@ -346,6 +503,29 @@ doing in the room, not a description of the object.
 Write notesEn/notesAr as one or two sentences on the arrangement as a whole."""
 
 
+def movable_objects(objects: list[dict] | None) -> list[dict]:
+    """The pieces a plan is allowed to move or remove — and only those.
+
+    `found` massing is DAR's reading of the user's photograph and is locked by
+    default, because moving one silently turns a measurement into a fiction.
+    So the planner is shown it as context (it must not design through a sofa
+    that is really there) but is given no uid for it, which makes moving it
+    unrepresentable rather than merely discouraged. A piece the user has locked
+    by hand is respected for the same reason.
+    """
+    out: list[dict] = []
+    for o in objects or []:
+        if not isinstance(o, dict):
+            continue
+        if o.get("origin") != "catalog" or o.get("locked"):
+            continue
+        uid = o.get("uid")
+        if not isinstance(uid, str) or not uid:
+            continue
+        out.append(o)
+    return out
+
+
 def build_user_message(
     room: dict,
     culture: str,
@@ -354,6 +534,7 @@ def build_user_message(
     openings: list[dict] | None = None,
     shell_source: str | None = None,
     evidence: str = "",
+    objects: list[dict] | None = None,
 ) -> str:
     w, d = int(room["widthCm"]), int(room["depthCm"])
     lines = [
@@ -379,8 +560,28 @@ def build_user_message(
         lines += [
             "",
             "Already in the room — DAR detected these in the photograph. Design around "
-            "them where sensible; you may plan over one if replacing it is the point.",
+            "them where sensible; you may plan over one if replacing it is the point. "
+            "They have no uid and cannot be moved or removed.",
             json.dumps(existing, ensure_ascii=False),
+        ]
+    # The pieces the user placed, WITH their uids. Without this block the model
+    # was told nothing about the room it was being asked to change, so every
+    # brief — including "move these" — could only be answered by furnishing an
+    # imaginary empty room.
+    movable = movable_objects(objects)
+    if movable:
+        lines += [
+            "",
+            "Placed by the person, and yours to rearrange. Use these uids as "
+            "`targetUid` to move or remove one. Anything you do not touch stays "
+            "exactly where it is:",
+            json.dumps(movable, ensure_ascii=False),
+        ]
+    else:
+        lines += [
+            "",
+            "The person has placed nothing in this room yet, so there is nothing to "
+            "move or remove — every operation will be an `add`.",
         ]
     if openings:
         lines += [
@@ -412,8 +613,25 @@ def build_user_message(
 # validation — gate 3
 # --------------------------------------------------------------------------
 
+def _validate_coords(entry: dict, room: dict) -> tuple[tuple[float, float, float] | None, str | None]:
+    """(x, z, rotation) or a reason it is unusable. Shared by add and move."""
+    try:
+        x = float(entry["xCm"])
+        z = float(entry["zCm"])
+        rot = float(entry.get("rotationDeg") or 0.0)
+    except (KeyError, TypeError, ValueError):
+        return None, "coordinates were not numbers"
+    if not all(math.isfinite(v) for v in (x, z, rot)):
+        return None, "coordinates were not finite"
+    # Generous bound: the client re-checks the real footprint against the real
+    # walls. This only throws out answers that are nonsense at a glance.
+    if abs(x) > float(room["widthCm"]) / 2.0 + 200 or abs(z) > float(room["depthCm"]) / 2.0 + 200:
+        return None, "position is outside the room"
+    return (x, z, rot), None
+
+
 def validate_items(raw: Any, culture: str, room: dict) -> tuple[list[dict], list[dict]]:
-    """Split a model response into (accepted, rejected).
+    """Split a list of proposed additions into (accepted, rejected).
 
     Rejected entries carry a reason so the UI can say what was discarded instead
     of quietly showing a shorter plan than the model wrote.
@@ -422,8 +640,6 @@ def validate_items(raw: Any, culture: str, room: dict) -> tuple[list[dict], list
     # way an invented id and a real-but-wrong-culture piece get different, true
     # reasons instead of both reading "not in the catalogue".
     by_id = _by_id()
-    half_w = float(room["widthCm"]) / 2.0
-    half_d = float(room["depthCm"]) / 2.0
 
     accepted: list[dict] = []
     rejected: list[dict] = []
@@ -451,21 +667,11 @@ def validate_items(raw: Any, culture: str, room: dict) -> tuple[list[dict], list
             })
             continue
 
-        try:
-            x = float(entry["xCm"])
-            z = float(entry["zCm"])
-            rot = float(entry.get("rotationDeg") or 0.0)
-        except (KeyError, TypeError, ValueError):
-            rejected.append({"catalogId": cid, "why": "coordinates were not numbers"})
+        coords, why = _validate_coords(entry, room)
+        if coords is None:
+            rejected.append({"catalogId": cid, "why": why})
             continue
-        if not all(math.isfinite(v) for v in (x, z, rot)):
-            rejected.append({"catalogId": cid, "why": "coordinates were not finite"})
-            continue
-        # Generous bound: the client re-checks the real footprint against the real
-        # walls. This only throws out answers that are nonsense at a glance.
-        if abs(x) > half_w + 200 or abs(z) > half_d + 200:
-            rejected.append({"catalogId": cid, "why": "position is outside the room"})
-            continue
+        x, z, rot = coords
 
         material = entry.get("materialKey")
         if material not in MATERIAL_KEYS:
@@ -484,6 +690,83 @@ def validate_items(raw: Any, culture: str, room: dict) -> tuple[list[dict], list
     return accepted, rejected
 
 
+def validate_operations(
+    raw: Any, culture: str, room: dict, movable_uids: list[str] | None = None,
+) -> tuple[list[dict], list[dict], list[dict], list[dict]]:
+    """Split an operation list into (adds, moves, removals, rejected).
+
+    The op-specific fields are nullable in the schema because Gemini cannot take
+    a discriminated union, so this is where "a move needs a target" and "an add
+    needs a catalogue id" are actually enforced.
+
+    A uid the scene does not hold is rejected by name rather than skipped. The
+    schema enum already makes it near-impossible; near is not never, and a plan
+    that silently dropped half its moves would look like the editor ignoring the
+    user — the failure mode this whole feature exists to remove.
+    """
+    known = set(movable_uids or [])
+
+    adds_raw: list[dict] = []
+    moves: list[dict] = []
+    removals: list[dict] = []
+    rejected: list[dict] = []
+    seen_targets: set[str] = set()
+
+    if not isinstance(raw, list):
+        return [], [], [], [{"catalogId": None, "why": "model returned no operation list"}]
+
+    for entry in raw[:MAX_OPERATIONS]:
+        if not isinstance(entry, dict):
+            rejected.append({"catalogId": None, "why": "not an object"})
+            continue
+
+        op = entry.get("op") or "add"
+        if op == "add":
+            adds_raw.append(entry)
+            continue
+
+        if op not in ("move", "remove"):
+            rejected.append({"catalogId": None, "why": f"unknown operation {op!r}"})
+            continue
+
+        uid = entry.get("targetUid")
+        if not isinstance(uid, str) or uid not in known:
+            rejected.append({"catalogId": None, "why": f"{op}: no such piece in the room"})
+            continue
+        # One operation per piece. Two moves for the same uid is the model
+        # changing its mind mid-answer, and applying both would leave the piece
+        # wherever the later one happened to land — obeying an instruction the
+        # user never gave.
+        if uid in seen_targets:
+            rejected.append({"catalogId": None, "why": f"{op}: piece already had an operation"})
+            continue
+        seen_targets.add(uid)
+
+        reason_en = str(entry.get("reasonEn") or "")[:240]
+        reason_ar = str(entry.get("reasonAr") or "")[:240]
+
+        if op == "remove":
+            removals.append({"targetUid": uid, "reasonEn": reason_en, "reasonAr": reason_ar})
+            continue
+
+        coords, why = _validate_coords(entry, room)
+        if coords is None:
+            rejected.append({"catalogId": None, "why": f"move: {why}"})
+            continue
+        x, z, rot = coords
+        moves.append({
+            "targetUid": uid,
+            "xCm": round(x),
+            "zCm": round(z),
+            "rotationDeg": round(rot) % 360,
+            "reasonEn": reason_en,
+            "reasonAr": reason_ar,
+        })
+
+    adds, add_rejected = validate_items(adds_raw, culture, room)
+    return adds, moves, removals, rejected + add_rejected
+
+
 def validate_understood(raw: Any, scene_culture: str) -> dict:
     """DAR's reading of the brief, with every field forced into a real vocabulary.
 
@@ -498,6 +781,10 @@ def validate_understood(raw: Any, scene_culture: str) -> dict:
     culture = raw.get("culture")
     if culture not in PLAN_CULTURES:
         culture = scene_culture if scene_culture in PLAN_CULTURES else "all"
+
+    intent = raw.get("intent")
+    if intent not in PLAN_INTENTS:
+        intent = "furnish"
 
     room_type = raw.get("roomType")
     if room_type not in ROOM_TYPES:
@@ -543,6 +830,7 @@ def validate_understood(raw: Any, scene_culture: str) -> dict:
 
     return {
         "culture": culture,
+        "intent": intent,
         "roomType": room_type,
         "capacity": capacity,
         "intensity": intensity,
@@ -567,6 +855,122 @@ def placed_counts(accepted: list[dict]) -> dict[str, int]:
     return out
 
 
+def enforce_counts(
+    adds: list[dict], understood: dict, room: dict,
+) -> tuple[list[dict], list[dict], list[dict]]:
+    """Make a stated count literally true. Returns (adds, substitutions, rejected).
+
+    "Add five chairs" is arithmetic, and arithmetic is DAR's job, not the
+    model's. The prompt asks for exactly five; this is what makes it so whether
+    or not the model complied — because a design model asked for five chairs
+    will reliably give you four and a paragraph about proportion.
+
+    Two directions, both reported:
+      short  — DAR appends the missing pieces itself, flagged `autoPlaced` so
+               the client puts them through `findSpot` rather than trusting a
+               coordinate nobody chose.
+      over   — the surplus is trimmed and named in `rejected`. Six chairs when
+               five were asked for is as wrong as four.
+
+    Substitution is the third case: a culture that has no such category gets its
+    nearest piece (Khaleeji has no `chair`; its seat is the majlis armchair),
+    recorded so the panel can say which piece stood in for what. Never silent —
+    the user is not told they got a chair.
+    """
+    wanted = understood.get("requestedFurniture") or []
+    if not wanted:
+        return adds, [], []
+
+    culture = understood.get("culture") or "all"
+    by_id = _by_id()
+    substitutions: list[dict] = []
+    rejected: list[dict] = []
+
+    # Bucket the model's adds by the category the person actually asked for, so
+    # a Khaleeji armchair standing in for a chair counts toward the chairs.
+    for want in wanted:
+        category = want["category"]
+        target = int(want["count"])
+        item, substituted_from = item_for_category(culture, category)
+        if item is None:
+            rejected.append({
+                "catalogId": None,
+                "why": f"no {category.replace('_', ' ')} exists in the {culture} catalogue",
+            })
+            continue
+        if substituted_from is not None:
+            substitutions.append({
+                "requested": substituted_from,
+                "catalogId": item["id"],
+                "category": item["category"],
+                "nameEn": item["nameEn"],
+                "culture": item["culture"],
+            })
+
+        # Everything that satisfies this request: the exact category, plus the
+        # substitute piece if one is standing in for it.
+        satisfying = {category, item["category"]}
+        matched = [
+            a for a in adds
+            if (by_id.get(a["catalogId"]) or {}).get("category") in satisfying
+        ]
+
+        if len(matched) > target:
+            for surplus in matched[target:]:
+                adds.remove(surplus)
+                rejected.append({
+                    "catalogId": surplus["catalogId"],
+                    "why": f"{len(matched)} placed but {target} asked for",
+                })
+        elif len(matched) < target:
+            missing = target - len(matched)
+            for _ in range(missing):
+                adds.append({
+                    "catalogId": item["id"],
+                    # No coordinate is invented here. `autoPlaced` sends the
+                    # piece straight to the client's own auto-placer, which is
+                    # the same `findSpot` a click-to-place uses.
+                    "xCm": 0,
+                    "zCm": 0,
+                    "rotationDeg": 0,
+                    "materialKey": None,
+                    "autoPlaced": True,
+                    "reasonEn": f"Added by DAR to make up the {target} you asked for.",
+                    "reasonAr": f"أضافتها دار لإكمال العدد المطلوب ({target}).",
+                })
+
+    return adds[:MAX_ITEMS], substitutions, rejected
+
+
+def count_report(adds: list[dict], understood: dict) -> list[dict]:
+    """Requested vs placed, per category — DAR's arithmetic, shown either way.
+
+    Computed AFTER the client has gated the plan would be better still, but the
+    client can only drop pieces, never add them, so this is the ceiling and the
+    panel reports the floor beside it.
+    """
+    wanted = understood.get("requestedFurniture") or []
+    if not wanted:
+        return []
+    culture = understood.get("culture") or "all"
+    by_id = _by_id()
+    report: list[dict] = []
+    for want in wanted:
+        category = want["category"]
+        item, _sub = item_for_category(culture, category)
+        satisfying = {category} | ({item["category"]} if item else set())
+        placed = sum(
+            1 for a in adds
+            if (by_id.get(a["catalogId"]) or {}).get("category") in satisfying
+        )
+        report.append({
+            "category": category,
+            "requested": int(want["count"]),
+            "planned": placed,
+        })
+    return report
+
+
 # --------------------------------------------------------------------------
 # deterministic fallback — the no-key path, and the one CI runs
 # --------------------------------------------------------------------------
@@ -578,22 +982,39 @@ def _pick(items: list[dict], category: str) -> dict | None:
     return None
 
 
-def fallback_plan(room: dict, culture: str, brief: str) -> list[dict]:
+def fallback_plan(
+    room: dict, culture: str, brief: str, objects: list[dict] | None = None,
+) -> list[dict]:
     """A sane arrangement from placement rules alone. No model involved.
 
     Deliberately simple: an anchor against the far wall, a table in front of it,
     seating flanking that, lamps to a corner and storage on the opposite wall.
     Anything it gets slightly wrong is repaired by the client's placement engine,
     which is the same engine that repairs the model's answers.
+
+    It cannot read the brief — that is the whole difference between this path
+    and the model path, and the panel says which one you got. But it can read
+    the ROOM, and it now does: a category the user has already placed is skipped
+    rather than duplicated. Without that, a model outage answered "move these
+    chairs" by dropping a second complete living room on top of the first, which
+    is how a silent fallback stops looking like a fallback and starts looking
+    like the editor ignoring you.
     """
     base = _ALL_FALLBACK_CULTURE if culture == "all" else culture
     items = catalogue_projection(base)
+    by_id = _by_id()
+    already = {
+        (by_id.get(o.get("catalogId")) or {}).get("category")
+        for o in (objects or [])
+        if isinstance(o, dict)
+    }
+    already.discard(None)
     W = float(room["widthCm"])
     D = float(room["depthCm"])
     out: list[dict] = []
 
     def add(item: dict | None, x: float, z: float, rot: float, en: str, ar: str) -> None:
-        if item is None:
+        if item is None or item["category"] in already:
             return
         out.append({
             "catalogId": item["id"],
@@ -712,22 +1133,15 @@ def _client():
     return None
 
 
-def _call_anthropic(api: Any, model: str, room: dict, culture: str, brief: str,
-                    existing: list, openings: list, shell_source: str | None,
-                    evidence: str = "") -> dict:
+def _call_anthropic(api: Any, model: str, message: str, schema: dict) -> dict:
     resp = api.messages.create(
         model=model,
         max_tokens=MAX_OUTPUT_TOKENS,
         system=_SYSTEM,
-        messages=[{
-            "role": "user",
-            "content": build_user_message(
-                room, culture, brief, existing, openings, shell_source, evidence,
-            ),
-        }],
+        messages=[{"role": "user", "content": message}],
         # format and effort are siblings inside ONE output_config.
         output_config={
-            "format": {"type": "json_schema", "schema": plan_schema("all")},
+            "format": {"type": "json_schema", "schema": schema},
             "effort": "low",
         },
     )
@@ -779,9 +1193,7 @@ def gemini_schema(schema: Any) -> Any:
     return out
 
 
-def _call_gemini(api: Any, model: str, room: dict, culture: str, brief: str,
-                 existing: list, openings: list, shell_source: str | None,
-                 evidence: str = "") -> dict:
+def _call_gemini(api: Any, model: str, message: str, schema: dict) -> dict:
     """Same schema, same validator, same fallback — only the transport differs.
 
     Gemini enforces `response_schema` with enums, which is what keeps gate 1
@@ -789,13 +1201,11 @@ def _call_gemini(api: Any, model: str, room: dict, culture: str, brief: str,
     """
     resp = api.models.generate_content(
         model=model,
-        contents=build_user_message(
-            room, culture, brief, existing, openings, shell_source, evidence,
-        ),
+        contents=message,
         config={
             "system_instruction": _SYSTEM,
             "response_mime_type": "application/json",
-            "response_schema": gemini_schema(plan_schema("all")),
+            "response_schema": gemini_schema(schema),
             "max_output_tokens": MAX_OUTPUT_TOKENS_GEMINI,
         },
     )
@@ -811,18 +1221,113 @@ def _call_gemini(api: Any, model: str, room: dict, culture: str, brief: str,
     return json.loads(resp.text)
 
 
+# --------------------------------------------------------------------------
+# retry + model chain
+# --------------------------------------------------------------------------
+
+def _status_of(exc: Exception) -> int | None:
+    """The HTTP status behind a provider exception, whatever it calls the field.
+
+    Both SDKs raise their own class with their own attribute name, and neither
+    is a dependency this module can rely on being installed — so this reads
+    duck-typed attributes rather than importing anything to catch.
+    """
+    for attr in ("status_code", "code", "status"):
+        value = getattr(exc, attr, None)
+        if isinstance(value, int):
+            return value
+    return None
+
+
+def is_retryable(exc: Exception) -> bool:
+    """Is this worth trying again, or is it going to fail identically?
+
+    Overload and rate limits pass; a 400 bad schema or a 404 dead model does
+    not, because a second identical request gets a second identical refusal.
+    """
+    status = _status_of(exc)
+    if status is not None:
+        return status in RETRY_STATUSES
+    # No status at all is usually a socket or DNS blip on the way out.
+    return isinstance(exc, (ConnectionError, TimeoutError))
+
+
+def model_chain() -> list[str]:
+    """The models to try, in order, for whichever provider is configured.
+
+    An explicit DARDESIGN_LLM_MODEL is honoured and is the ONLY model tried —
+    someone who named a model wants that model, and quietly answering from a
+    different one is exactly the kind of substitution this file refuses to make
+    anywhere else.
+    """
+    override = (os.environ.get("DARDESIGN_LLM_MODEL") or "").strip()
+    if override:
+        return [override]
+    chain = GEMINI_MODEL_CHAIN if provider() == "gemini" else ANTHROPIC_MODEL_CHAIN
+    return list(chain)
+
+
+def _sleep(seconds: float) -> None:
+    """Wrapped so tests can make backoff free without patching the stdlib."""
+    import time  # noqa: PLC0415
+
+    time.sleep(seconds)
+
+
+def call_with_retry(
+    call: Any, api: Any, models: list[str], message: str, schema: dict,
+) -> tuple[dict, str]:
+    """Try each model up to MAX_ATTEMPTS_PER_MODEL times. Returns (data, model).
+
+    A free-tier 503 ("this model is currently experiencing high demand") is the
+    single likeliest way this feature fails, and it used to fail all the way to
+    a rule-based room on the first one — a layout that looks deliberate and
+    ignores everything the user typed. Spikes are usually seconds long, so a
+    short backoff recovers most of them, and moving down the chain recovers the
+    rest without anybody editing a config file mid-demo.
+
+    Raises the last exception if every model is exhausted; the caller degrades
+    to rules exactly as before.
+    """
+    last: Exception | None = None
+    for model in models:
+        for attempt in range(MAX_ATTEMPTS_PER_MODEL):
+            try:
+                return call(api, model, message, schema), model
+            except Exception as e:  # noqa: BLE001 — classified below, never swallowed
+                last = e
+                if not is_retryable(e):
+                    logger.warning("[planner] %s failed unrecoverably: %s", model, type(e).__name__)
+                    break
+                if attempt + 1 < MAX_ATTEMPTS_PER_MODEL:
+                    delay = RETRY_BASE_DELAY_S * (2 ** attempt)
+                    logger.info(
+                        "[planner] %s busy (%s) — retrying in %.1fs",
+                        model, _status_of(e), delay,
+                    )
+                    _sleep(delay)
+                else:
+                    logger.warning("[planner] %s exhausted its retries — next model", model)
+    raise last if last is not None else RuntimeError("no model was attempted")
+
+
 def _cache_key(room: dict, culture: str, brief: str,
-               existing: list | None = None, openings: list | None = None) -> str:
+               existing: list | None = None, openings: list | None = None,
+               objects: list | None = None) -> str:
     """Everything that changes the answer belongs in the key.
 
     The first version keyed on room+culture+brief alone, which meant moving the
-    furniture DAR found in your photograph did not invalidate the plan.
+    furniture DAR found in your photograph did not invalidate the plan. The
+    same trap reappeared with edits: "add one more chair" typed twice in a row
+    is the same brief against a DIFFERENT room, and without `objects` in the key
+    the second one is served the first one's answer.
     """
     raw = (
         f"{int(room['widthCm'])}x{int(room['depthCm'])}|{culture}"
         f"|{' '.join(brief.lower().split())}"
         f"|{json.dumps(existing or [], sort_keys=True)}"
         f"|{json.dumps(openings or [], sort_keys=True)}"
+        f"|{json.dumps(objects or [], sort_keys=True)}"
         # Evidence changes the prompt, so it changes the answer. Without this a
         # test that toggles the flag would be served the other mode's plan.
         f"|rag={int(rag_enabled())}"
@@ -891,17 +1396,22 @@ def _retrieve_evidence(brief: str, culture: str) -> RetrievalResult | None:
 
 def _rule_result(room: dict, culture: str, brief: str, note_suffix: str,
                  warning: str | None = None,
-                 retrieved: RetrievalResult | None = None) -> dict:
+                 retrieved: RetrievalResult | None = None,
+                 objects: list[dict] | None = None,
+                 rejected: list[dict] | None = None) -> dict:
     """The deterministic plan, dressed in the same shape as a model plan.
 
     It still carries an `understood` block so the UI has one contract rather
     than two — but it claims only what rules can honestly know: the room's own
-    culture, a living room, no capacity, no intensity, no colour change.
+    culture, a living room, no capacity, no intensity, no colour change. It
+    never moves or removes anything either, because rules cannot know which
+    piece you meant.
     """
-    items = fallback_plan(room, culture, brief)
+    items = fallback_plan(room, culture, brief, objects)
     return {
         "understood": {
             "culture": culture if culture in PLAN_CULTURES else "all",
+            "intent": "furnish",
             "roomType": "living room",
             "capacity": None,
             "intensity": None,
@@ -913,6 +1423,10 @@ def _rule_result(room: dict, culture: str, brief: str, note_suffix: str,
             "requestedFurniture": [],
         },
         "items": items,
+        "moves": [],
+        "removals": [],
+        "substitutions": [],
+        "counts": [],
         "seatingEstimate": seating_estimate(items),
         "placedCounts": placed_counts(items),
         "notesEn": f"Planned from DAR's placement rules{note_suffix}",
@@ -920,7 +1434,12 @@ def _rule_result(room: dict, culture: str, brief: str, note_suffix: str,
         "source": "rules",
         "model": None,
         "provider": None,
-        "rejected": [],
+        # Normally empty — rules reject nothing, because they propose only what
+        # they computed. It is populated when the MODEL answered and every one
+        # of its operations was thrown out: "move the sofa" coming back as a
+        # furnished room with no explanation is the exact failure this feature
+        # was built to remove, so the reasons survive the fallback.
+        "rejected": rejected or [],
         # injected=False: the rules did not read any of this. It is reported so
         # the panel can show what DAR knows without pretending it was used.
         **_evidence_payload(retrieved, injected=False),
@@ -935,10 +1454,16 @@ def plan(
     existing: list[dict] | None = None,
     openings: list[dict] | None = None,
     shell_source: str | None = None,
+    objects: list[dict] | None = None,
     *,
     client: Any = None,
 ) -> dict:
     """Plan a room. Never raises — an unusable model answer degrades to rules.
+
+    `objects` is the scene as it stands: everything the user has placed, with
+    uids. That is what turns this from a room generator into a room editor —
+    without it the model is answering "move the sofa" about a room it has never
+    been shown.
 
     `client` is injectable so the tests can exercise every path without spending
     a cent or reaching the network.
@@ -946,7 +1471,11 @@ def plan(
     global _calls_made
     existing = existing or []
     openings = openings or []
-    key = _cache_key(room, culture, brief, existing, openings)
+    objects = objects or []
+    # Carried out of the try/except so a plan whose every operation was refused
+    # can still say why, instead of arriving as an unexplained rule-based room.
+    refused: list[dict] = []
+    key = _cache_key(room, culture, brief, existing, openings, objects)
     if key in _cache:
         cached = dict(_cache[key])
         cached["cached"] = True
@@ -963,7 +1492,7 @@ def plan(
     if api is None:
         result = _rule_result(
             room, culture, brief, " — no design model is configured.",
-            retrieved=retrieved,
+            retrieved=retrieved, objects=objects,
         )
         _cache[key] = result
         return dict(result)
@@ -974,26 +1503,47 @@ def plan(
         warning = "planner call cap reached for this process"
         logger.warning("[planner] %s — serving a rule-based plan", warning)
     else:
-        model = model_name()
+        movable = movable_objects(objects)
+        uids = [o["uid"] for o in movable]
         try:
             _calls_made += 1
             call = _call_gemini if which == "gemini" else _call_anthropic
             evidence_block = format_for_prompt(retrieved) if retrieved else ""
-            data = call(
-                api, model, room, culture, brief, existing, openings,
-                shell_source, evidence_block,
+            message = build_user_message(
+                room, culture, brief, existing, openings, shell_source,
+                evidence_block, objects,
+            )
+            data, model = call_with_retry(
+                call, api, model_chain(), message, plan_schema("all", uids),
             )
 
             # The interpretation is validated first, because the culture it
             # settles on is what every item is then judged against.
             understood = validate_understood(data.get("understood"), culture)
-            accepted, rejected = validate_items(
-                data.get("items"), understood["culture"], room,
+            # `operations` is the current contract; `items` is what the model
+            # used to return and what a model ignoring the schema still tends
+            # to produce. Reading both costs one `or` and means a well-formed
+            # add-only answer is never thrown away over its envelope.
+            ops = data.get("operations")
+            if not isinstance(ops, list):
+                ops = data.get("items")
+            accepted, moves, removals, rejected = validate_operations(
+                ops, understood["culture"], room, uids,
             )
-            if accepted:
+            accepted, substitutions, count_rejected = enforce_counts(
+                accepted, understood, room,
+            )
+            rejected = rejected + count_rejected
+            refused = rejected
+
+            if accepted or moves or removals:
                 result = {
                     "understood": understood,
                     "items": accepted,
+                    "moves": moves,
+                    "removals": removals,
+                    "substitutions": substitutions,
+                    "counts": count_report(accepted, understood),
                     "seatingEstimate": seating_estimate(accepted),
                     "placedCounts": placed_counts(accepted),
                     "notesEn": str(data.get("notesEn") or "")[:600],
@@ -1012,9 +1562,16 @@ def plan(
             warning = "the model returned no usable placement"
         except Exception as e:  # noqa: BLE001 — a planner failure must not cost the user their room
             logger.exception("[planner] call failed")
-            warning = f"{type(e).__name__}"
+            # The status is the difference between "the model is busy" and "the
+            # model is gone", and the panel shows this string to a human who is
+            # deciding whether to press the button again.
+            status = _status_of(e)
+            warning = f"{type(e).__name__}{f' {status}' if status else ''}"
 
-    return _rule_result(room, culture, brief, ".", warning, retrieved=retrieved)
+    return _rule_result(
+        room, culture, brief, ".", warning, retrieved=retrieved, objects=objects,
+        rejected=refused,
+    )
 
 
 def _reset_for_tests() -> None:

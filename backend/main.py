@@ -1879,6 +1879,12 @@ class DesignPlanRequest(BaseModel):
     # "measured" | "estimated" | "default" — the planner is told when the
     # dimensions are DAR's own default rather than anything from a photograph.
     shell_source: str | None = None
+    # The scene as it stands: every object with its uid, origin and lock state.
+    # This is what lets a brief be an EDIT ("move these apart", "remove one
+    # chair") rather than only a fresh furnishing — without it the planner is
+    # answering about a room it has never been shown. Only `catalog`-origin,
+    # unlocked pieces become move/remove targets; see movable_objects().
+    objects: list[dict] = []
 
 
 @app.post("/api/design/plan")
@@ -1914,12 +1920,16 @@ async def design_plan(
     # keepalive streams that /redesign depends on.
     result = await asyncio.to_thread(
         planner_plan, room, req.culture, req.brief, req.existing,
-        req.openings, req.shell_source,
+        req.openings, req.shell_source, req.objects,
     )
     log_event(
         "design_plan", ok=True, culture=req.culture, source=result.get("source"),
         chose=result.get("understood", {}).get("culture"),
-        items=len(result.get("items", [])), light=_light_mode(),
+        intent=result.get("understood", {}).get("intent"),
+        items=len(result.get("items", [])),
+        moves=len(result.get("moves", [])),
+        removals=len(result.get("removals", [])),
+        light=_light_mode(),
     )
     return JSONResponse(result)
 
