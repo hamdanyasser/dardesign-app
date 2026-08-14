@@ -10,7 +10,10 @@ Five gates, each one a place a hallucination dies:
 
   1. Closed vocabulary. `catalogId` is a JSON-Schema enum of exactly the ids in
      the requested culture, so structured outputs make an invented
-     "leb-chandelier-009" unrepresentable rather than merely unlikely.
+     "leb-chandelier-009" unrepresentable rather than merely unlikely. When the
+     room asks for "all", the enum is all 27 -- the model has to be able to
+     choose the culture from the brief, and cannot do that from nine ids.
+     Cross-culture picks are then caught by gate 4.
   2. No invented dimensions. The model emits no sizes at all; width, depth and
      height come from ontology/furniture.json via the catalogue.
   3. Backend validation (validate_items below): unknown id, non-finite or
@@ -359,6 +362,17 @@ def plan_schema(culture: str, movable_uids: list[str] | None = None) -> dict:
     the ordinary things a person says to a room that already has furniture in
     it, and an add-only vocabulary could only ever answer them by piling a
     second room on top of the first.
+
+    NARROWING THE ENUM TO THE ROOM'S CULTURE IS DELIBERATELY NOT DONE, and the
+    reason is worth stating because the opposite is tempting. Passing a concrete
+    culture would make a Lebanese console in a Moroccan room *unrepresentable*
+    rather than merely rejected at gate 3 — strictly stronger grounding. But
+    `plan()` is called before anyone knows what culture the brief asks for, and
+    "make this a Moroccan room" is a supported brief. Narrowing a Lebanese room
+    to its own nine ids would make changing the culture impossible to express,
+    which trades a working feature for a tighter gate on a failure the
+    validator already catches by name. `validate_items` judges every piece
+    against `understood.culture`, so one room still gets one culture.
     """
     return {
         "type": "object",

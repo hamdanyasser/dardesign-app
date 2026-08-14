@@ -283,6 +283,13 @@ describe("conversion through the placement gate", () => {
     return s;
   }
 
+  function add(catalogId: string, xCm: number, zCm: number) {
+    return {
+      catalogId, xCm, zCm, rotationDeg: 0, materialKey: null,
+      reasonEn: "because", reasonAr: "لأن",
+    };
+  }
+
   it("turns a furnished Lebanese room into a Moroccan one, whole", () => {
     const s = room();
     s.objects = [
@@ -296,7 +303,10 @@ describe("conversion through the placement gate", () => {
     expect(conversions).toHaveLength(4);
 
     const ops = conversionOps(conversions);
-    const g = gatePlan(ops.items, s, [], { removals: ops.removals });
+    // `culture` is the room this plan PRODUCES. Without it the gate judges
+    // Moroccan pieces against a scene still labelled Lebanese and drops every
+    // one of them — which is the whole conversion.
+    const g = gatePlan(ops.items, s, [], { removals: ops.removals, culture: "moroccan" });
 
     // Every Lebanese piece leaves, every Moroccan piece lands.
     expect(g.removals).toHaveLength(4);
@@ -318,13 +328,47 @@ describe("conversion through the placement gate", () => {
     s.objects = [obj("u-sofa", "leb-sofa-001", { x: 0, z: -150, rotationDeg: 0 })];
     const { conversions } = planCultureConversion(s.objects, "moroccan");
     const ops = conversionOps(conversions);
-    const g = gatePlan(ops.items, s, [], { removals: ops.removals });
+    const g = gatePlan(ops.items, s, [], { removals: ops.removals, culture: "moroccan" });
 
     // A sedari is not the same size as a Lebanese sofa, so the engine may
     // nudge it — but it must stay in the same part of the room, not be
     // re-placed somewhere unrelated.
     expect(Math.abs(g.placements[0].x - 0)).toBeLessThan(120);
     expect(Math.abs(g.placements[0].z - -150)).toBeLessThan(120);
+  });
+
+  it("judges a conversion against the room it produces, not the one it starts in", () => {
+    // The merge bug, pinned. gatePlan gained a client-side culture check that
+    // reads `scene.culture` -- correct for every plan except the one that
+    // CHANGES the culture, where the scene is still Lebanese while every piece
+    // being added is Moroccan. Without the override the gate drops all of them
+    // and "make this a Moroccan room" silently does nothing.
+    const s = room(); // scene.culture === "lebanese"
+    s.objects = [obj("u-sofa", "leb-sofa-001", { x: 0, z: -150 })];
+    const { conversions } = planCultureConversion(s.objects, "moroccan");
+    const ops = conversionOps(conversions);
+
+    const wrong = gatePlan(ops.items, s, [], { removals: ops.removals });
+    expect(wrong.placements).toHaveLength(0);
+    expect(wrong.dropped[0].reasonEn).toMatch(/moroccan piece in a lebanese room/i);
+
+    const right = gatePlan(ops.items, s, [], { removals: ops.removals, culture: "moroccan" });
+    expect(right.placements).toHaveLength(1);
+    expect(right.dropped).toEqual([]);
+  });
+
+  it("still refuses a genuinely mixed plan", () => {
+    // The override moves the gate, it does not remove it: a Lebanese piece in
+    // a plan that declares itself Moroccan is still dropped and named.
+    const s = room();
+    const g = gatePlan(
+      [add("leb-sofa-001", 0, -150), add("mor-pouf-001", 120, 60)],
+      s,
+      [],
+      { culture: "moroccan" },
+    );
+    expect(g.placements.map((p) => p.catalogId)).toEqual(["mor-pouf-001"]);
+    expect(g.dropped[0].catalogId).toBe("leb-sofa-001");
   });
 
   it("does not remove a found piece on the way through", () => {
@@ -335,7 +379,7 @@ describe("conversion through the placement gate", () => {
     ];
     const { conversions } = planCultureConversion(s.objects, "moroccan");
     const ops = conversionOps(conversions);
-    const g = gatePlan(ops.items, s, [], { removals: ops.removals });
+    const g = gatePlan(ops.items, s, [], { removals: ops.removals, culture: "moroccan" });
     expect(g.removals.map((r) => r.uid)).toEqual(["u-sofa"]);
   });
 });

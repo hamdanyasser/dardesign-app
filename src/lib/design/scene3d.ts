@@ -20,8 +20,16 @@
 
 import * as THREE from "three";
 import { ADE20K_CEILING, ADE20K_DOOR, ADE20K_FLOOR, ADE20K_WALL, ADE20K_WINDOW, ade20kHex } from "./ade20k";
-import { buildObjectMesh, colorOf, standardMaterial } from "./geometry";
-import { cultureAccent, getMaterial } from "./materials";
+import {
+  buildObjectMesh,
+  colorOf,
+  setMaterialRepaint,
+  skirtingMaterial,
+  surfaceMaterial,
+} from "./geometry";
+import { cultureAccent } from "./materials";
+import { LightingRig } from "./lighting";
+import type { TimeOfDay } from "./lighting";
 import type { WallOpening } from "./roomModel";
 import type { DesignScene, PlacedObject } from "./types";
 
@@ -50,6 +58,23 @@ const CAPTURE_WALL_CLEARANCE = 45;
  *  beside them does not fill the lens. Used to reject camera spots that fall
  *  inside or hard against a piece of furniture. */
 const CAPTURE_BODY_CM = 55;
+
+/** Linear -> sRGB transfer, as a 256-entry byte LUT built once. The real
+ *  piecewise function, not a 1/2.2 approximation, because the beauty pass is
+ *  shown next to the on-screen view and a gamma mismatch is exactly what the
+ *  eye picks up in a side-by-side. */
+let _srgbLut: Uint8Array | null = null;
+function SRGB_LUT(): Uint8Array {
+  if (_srgbLut) return _srgbLut;
+  const lut = new Uint8Array(256);
+  for (let i = 0; i < 256; i++) {
+    const c = i / 255;
+    const s = c <= 0.0031308 ? c * 12.92 : 1.055 * Math.pow(c, 1 / 2.4) - 0.055;
+    lut[i] = Math.max(0, Math.min(255, Math.round(s * 255)));
+  }
+  _srgbLut = lut;
+  return lut;
+}
 
 export class DesignWorld {
   readonly renderer: THREE.WebGLRenderer;
@@ -121,6 +146,11 @@ export class DesignWorld {
     this.scene = new THREE.Scene();
     this.camera = new THREE.PerspectiveCamera(38, 1, 10, 8000);
 
+    // Texture and pattern loads are async, and the render loop is idle-gated —
+    // without this a map could arrive after the scene had settled and never be
+    // drawn until the user happened to move the camera.
+    setMaterialRepaint(() => this.markDirty());
+
     this.scene.add(this.shellGroup, this.objectGroup, this.helperGroup, this.guideGroup);
     this.setupLights();
     this.loop = this.loop.bind(this);
@@ -129,35 +159,27 @@ export class DesignWorld {
 
   /* ---------------- lighting ---------------- */
 
-  private key!: THREE.DirectionalLight;
+  private lighting!: LightingRig;
+
+  /** The sun, the sky, the environment and the time of day all live in
+   *  lighting.ts. `key` is kept as an alias because buildShell re-aims it at
+   *  the room each time the shell changes. */
+  private get key(): THREE.DirectionalLight {
+    return this.lighting.key;
+  }
 
   private setupLights() {
-    // Warm key from high and to one side, cool fill opposite: the standard
-    // architectural model lighting that makes massing legible. The hemisphere
-    // is kept low — raise it and the model flattens into an even wash, which
-    // is exactly what makes a 3D room look like a screenshot of nothing.
-    const hemi = new THREE.HemisphereLight(0xfff3e0, 0x2a2318, 0.45);
-    this.scene.add(hemi);
+    this.lighting = new LightingRig(this.scene, this.renderer);
+  }
 
-    const key = new THREE.DirectionalLight(0xfff0d8, 1.15);
-    key.position.set(420, 780, 380);
-    key.castShadow = true;
-    key.shadow.mapSize.set(2048, 2048);
-    key.shadow.camera.near = 50;
-    key.shadow.camera.far = 2600;
-    const s = 800;
-    key.shadow.camera.left = -s;
-    key.shadow.camera.right = s;
-    key.shadow.camera.top = s;
-    key.shadow.camera.bottom = -s;
-    key.shadow.bias = -0.0012;
-    key.shadow.normalBias = 1.4;
-    this.key = key;
-    this.scene.add(key, key.target);
+  setTimeOfDay(tod: TimeOfDay) {
+    this.lighting.apply(tod);
+    this.applySkyToOpenings();
+    this.markDirty();
+  }
 
-    const fill = new THREE.DirectionalLight(0xbcd2e8, 0.26);
-    fill.position.set(-520, 340, -260);
-    this.scene.add(fill);
+  get timeOfDay(): TimeOfDay {
+    return this.lighting.timeOfDay;
   }
 
   /** The plinth the model sits on.
@@ -211,12 +233,9 @@ export class DesignWorld {
     this.roomH = h;
     this.accent = colorOf(cultureAccent(scene.culture));
 
-    const floorSpec = getMaterial(scene.room.floorMaterialKey);
-    const floorMat = new THREE.MeshStandardMaterial({
-      color: colorOf(floorSpec.hex),
-      roughness: floorSpec.roughness,
-      metalness: floorSpec.metalness,
-    });
+    // Tiled from the room's own span, so 20cm encaustic tiles read as 26
+    // tiles across a 5.2m floor rather than one stretched photograph.
+    const floorMat = surfaceMaterial(scene.room.floorMaterialKey, Math.max(w, d));
     this.buildPlinth(w, d);
 
     const floor = new THREE.Mesh(new THREE.BoxGeometry(w, 8, d), floorMat);
@@ -236,15 +255,23 @@ export class DesignWorld {
     grid.position.y = 0.6;
     this.shellGroup.add(grid);
 
-    const wallSpec = getMaterial(scene.room.wallMaterialKey);
-    const wallMat = new THREE.MeshStandardMaterial({
-      color: colorOf(wallSpec.hex),
-      roughness: wallSpec.roughness,
-      metalness: 0,
-      transparent: true,
-      opacity: 1,
-      side: THREE.DoubleSide,
-    });
+    // Each wall builds its OWN material rather than cloning one.
+    //
+    // It needs one regardless, so the four can fade independently — but
+    // cloning was also silently losing the textures: buildShell runs
+    // synchronously and the maps arrive from a fetch a moment later, so a
+    // clone taken now copies a material that has no map yet and never
+    // receives one. Only the original, which is not in the scene, got dressed.
+    // The tiled views are cached by (texture, repeat), so four calls cost four
+    // materials and zero extra GPU uploads.
+    const newWallMat = () => {
+      const m = surfaceMaterial(scene.room.wallMaterialKey, Math.max(w, h), {
+        side: THREE.DoubleSide,
+        transparent: true,
+      });
+      m.metalness = 0;
+      return m;
+    };
 
     const t = 10;
     const defs: Array<{ w: number; h: number; d: number; pos: [number, number, number]; n: THREE.Vector3; id: WallOpening["wall"] }> = [
@@ -254,7 +281,7 @@ export class DesignWorld {
       { w: t, h, d, pos: [w / 2, h / 2, 0], n: new THREE.Vector3(-1, 0, 0), id: "east" },
     ];
     for (const def of defs) {
-      const mesh = new THREE.Mesh(new THREE.BoxGeometry(def.w, def.h, def.d), wallMat.clone());
+      const mesh = new THREE.Mesh(new THREE.BoxGeometry(def.w, def.h, def.d), newWallMat());
       mesh.position.set(...def.pos);
       mesh.receiveShadow = true;
       mesh.userData.wall = def.id;
@@ -274,10 +301,7 @@ export class DesignWorld {
           skirtH,
           def.id === "west" || def.id === "east" ? def.d : t + 2,
         ),
-        new THREE.MeshStandardMaterial({
-          color: colorOf(wallSpec.hex).multiplyScalar(0.72),
-          roughness: 0.85,
-          metalness: 0,
+        skirtingMaterial(scene.room.wallMaterialKey, def.w, {
           transparent: true,
         }),
       );
@@ -310,13 +334,43 @@ export class DesignWorld {
       }
       (rev.material as THREE.Material).transparent = true;
       rev.userData.ade = o.kind === "door" ? ADE20K_DOOR : ADE20K_WINDOW;
+      rev.userData.opening = o.kind;
       this.shellGroup.add(rev);
       this.wallMeshes.find((x) => x.id === o.wall)?.attachments.push(rev);
     }
 
+    // Aim the sun through the widest window, so daylight arrives through the
+    // glass rather than through masonry. Azimuth is the direction the sun
+    // comes FROM, i.e. outward through that wall.
+    const OUTWARD: Record<WallOpening["wall"], number> = {
+      north: -Math.PI / 2, south: Math.PI / 2, west: Math.PI, east: 0,
+    };
+    const widest = openings
+      .filter((o) => o.kind === "window")
+      .sort((a, b) => b.widthCm - a.widthCm)[0];
+    this.lighting.setRoom(w, d, h);
+    this.lighting.setWindowAzimuth(widest ? OUTWARD[widest.wall] : null);
+
     this.key.target.position.set(0, 0, 0);
     this.targetTarget.set(0, Math.min(90, h * 0.3), 0);
+    this.applySkyToOpenings();
     this.markDirty();
+  }
+
+  /** Window reveals glow with the current sky, so a night room has dark blue
+   *  glass and a sunset room has orange in the frame. */
+  private applySkyToOpenings() {
+    const sky = this.lighting.skyColor();
+    const night = this.lighting.timeOfDay === "night";
+    for (const { attachments } of this.wallMeshes) {
+      for (const a of attachments) {
+        if (a.userData.opening !== "window") continue;
+        const m = a.material as THREE.MeshStandardMaterial;
+        m.color.setHex(sky);
+        m.emissive.setHex(sky);
+        m.emissiveIntensity = night ? 0.12 : 0.42;
+      }
+    }
   }
 
   /* ---------------- objects ---------------- */
@@ -326,15 +380,28 @@ export class DesignWorld {
     for (const o of objects) {
       seen.add(o.uid);
       const existing = this.objectIndex.get(o.uid);
-      const sig = `${o.x}|${o.z}|${o.rotationDeg}|${o.materialKey}|${o.widthCm}|${o.depthCm}|${o.heightCm}|${o.locked}`;
-      if (existing && existing.userData.sig === sig) continue;
+      // Split into what the geometry depends on and what only the transform
+      // does. Moving a sofa one centimetre used to dispose and rebuild every
+      // box it is made of, once per pointermove — survivable for five boxes,
+      // ruinous for a loaded model. Position and rotation are a matrix write.
+      const geoSig = `${o.category}|${o.origin}|${o.materialKey}|${o.widthCm}|${o.depthCm}|${o.heightCm}`;
+      const xformSig = `${o.x}|${o.z}|${o.rotationDeg}|${o.locked}`;
+      if (existing && existing.userData.geoSig === geoSig) {
+        if (existing.userData.xformSig !== xformSig) {
+          existing.position.set(o.x, 0, o.z);
+          existing.rotation.y = (o.rotationDeg * Math.PI) / 180;
+          existing.userData.xformSig = xformSig;
+        }
+        continue;
+      }
       if (existing) {
         this.objectGroup.remove(existing);
         this.disposeObject(existing);
         this.objectIndex.delete(o.uid);
       }
-      const mesh = buildObjectMesh(o);
-      mesh.userData.sig = sig;
+      const mesh = buildObjectMesh(o, () => this.markDirty());
+      mesh.userData.geoSig = geoSig;
+      mesh.userData.xformSig = xformSig;
       this.objectGroup.add(mesh);
       this.objectIndex.set(o.uid, mesh);
     }
@@ -346,6 +413,10 @@ export class DesignWorld {
       }
     }
     this.setSelection(objects.find((o) => o.uid === selectedUid) ?? null);
+    // Newly built pieces carry their authored lamp intensity and default
+    // envMapIntensity; re-apply the preset so a lamp added at night is lit
+    // like the rest of the room rather than like noon.
+    this.lighting.refresh();
     this.markDirty();
   }
 
@@ -369,11 +440,13 @@ export class DesignWorld {
     if (this.selectionCage) {
       this.helperGroup.remove(this.selectionCage);
       this.selectionCage.geometry.dispose();
+      (this.selectionCage.material as THREE.Material).dispose();
       this.selectionCage = null;
     }
     if (this.selectionRing) {
       this.helperGroup.remove(this.selectionRing);
       this.selectionRing.geometry.dispose();
+      (this.selectionRing.material as THREE.Material).dispose();
       this.selectionRing = null;
     }
     if (!o) return;
@@ -854,13 +927,55 @@ export class DesignWorld {
     ceiling.userData.ade = ADE20K_CEILING;
     this.shellGroup.add(ceiling);
 
+    // cullWalls() fades the near walls in place, every frame, on the material
+    // itself. The comment above says the on-screen fade is not consulted here,
+    // but nothing actually undid it — so a capture taken from the usual view
+    // handed the generator two walls at opacity 0.045 and their skirtings and
+    // reveals switched off entirely. Force every wall solid for the capture.
+    const wallState = this.wallMeshes.map(({ mesh, attachments }) => {
+      const m = mesh.material as THREE.MeshStandardMaterial;
+      const prev = { m, opacity: m.opacity, transparent: m.transparent, depthWrite: m.depthWrite };
+      m.opacity = 1;
+      m.transparent = false;
+      m.depthWrite = true;
+      const atts = attachments.map((a) => {
+        const am = a.material as THREE.MeshStandardMaterial;
+        const p = { a, am, opacity: am.opacity, depthWrite: am.depthWrite, visible: a.visible };
+        am.opacity = 1;
+        am.depthWrite = true;
+        a.visible = true;
+        return p;
+      });
+      return { prev, atts };
+    });
+
+    // Render with DAR must not depend on the time of day the user happened to
+    // be looking at. Depth and segmentation are material-overridden and could
+    // not be affected, but the beauty pass is shown as evidence of the design
+    // and would come back nearly black out of a Night viewport.
+    const restoreLighting = this.lighting.neutral();
+
     const prevTarget = this.renderer.getRenderTarget();
     const prevBg = this.scene.background;
     const prevTone = this.renderer.toneMapping;
     const prevExposure = this.renderer.toneMappingExposure;
     const prevEncoding = this.renderer.outputEncoding;
+    const prevClear = this.renderer.getClearColor(new THREE.Color());
+    const prevClearAlpha = this.renderer.getClearAlpha();
+    // A background would be drawn over the clear colour and straight into the
+    // depth and segmentation maps. Nothing sets one today, but the time-of-day
+    // sky must never reach conditioning, so it is nulled here rather than left
+    // as an implicit precondition.
+    this.scene.background = null;
 
-    const readToDataUrl = (): string => {
+    /** @param encode true only for the beauty pass. three r150 forces
+     *  outputEncoding to Linear for any non-XR render target (three.cjs:19458),
+     *  so a captured colour pass comes back linear no matter what the renderer
+     *  is set to — visibly darker than the same scene on screen. Depth and
+     *  segmentation want exactly those raw linear bytes, so only the beauty
+     *  pass is transfer-encoded, and it is done here rather than by setting
+     *  outputEncoding, which is a no-op in a render target. */
+    const readToDataUrl = (encode = false): string => {
       const buf = new Uint8Array(width * height * 4);
       this.renderer.readRenderTargetPixels(rt, 0, 0, width, height, buf);
       const cv = document.createElement("canvas");
@@ -874,6 +989,15 @@ export class DesignWorld {
         const src = (height - 1 - y) * rowBytes;
         img.data.set(buf.subarray(src, src + rowBytes), y * rowBytes);
       }
+      if (encode) {
+        const lut = SRGB_LUT();
+        const px = img.data;
+        for (let i = 0; i < px.length; i += 4) {
+          px[i] = lut[px[i]];
+          px[i + 1] = lut[px[i + 1]];
+          px[i + 2] = lut[px[i + 2]];
+        }
+      }
       ctx.putImageData(img, 0, 0);
       return cv.toDataURL("image/png");
     };
@@ -883,7 +1007,7 @@ export class DesignWorld {
     this.renderer.setClearColor(0x0f0f14, 1);
     this.renderer.clear();
     this.renderer.render(this.scene, cam);
-    const beauty = readToDataUrl();
+    const beauty = readToDataUrl(true);
 
     // Conditioning is DATA, not a picture. ACES tone mapping plus sRGB output
     // is exactly right for the beauty pass above and exactly wrong here: it
@@ -935,20 +1059,40 @@ export class DesignWorld {
       }
       return m;
     };
+    // One rule, applied to everything that draws: a MESH carrying a class id
+    // is painted in that class; anything else is hidden.
+    //
+    // Both halves matter. The old loops tested `instanceof THREE.Mesh`, which a
+    // Line is not, so found-object wireframes were neither repainted nor
+    // hidden — and `buildObjectMesh` stamps `userData.ade` on every descendant,
+    // so the wireframe even had a class id and would survive a naive
+    // "hide the unclassified" pass too. Measured: LineBasicMaterial 0x8d857a at
+    // opacity 0.5 over wall (120,120,120) produced (131,127,121), and over sofa
+    // (11,102,255) produced (76,118,188). An off-palette colour is not a
+    // near-miss class to the seg ControlNet, it is no class at all.
+    //
+    // Only a surface can state a class. Lines, points and sprites are drawing
+    // annotations, and the solid volume beneath each one already paints the
+    // correct class, so hiding them loses nothing.
+    const unclassified: THREE.Object3D[] = [];
     this.scene.traverse((o) => {
-      if (!(o instanceof THREE.Mesh) || !o.visible) return;
+      if (!o.visible) return;
+      const d = o as THREE.Object3D & {
+        isMesh?: boolean;
+        isLine?: boolean;
+        isPoints?: boolean;
+        isSprite?: boolean;
+      };
+      if (!(d.isMesh || d.isLine || d.isPoints || d.isSprite)) return;
       const cls = o.userData.ade;
-      if (typeof cls !== "number") return;
-      swapped.push({ mesh: o, mat: o.material });
-      o.material = segMat(cls);
-    });
-    // Anything without a class must not paint a random colour into the map.
-    const unclassified: THREE.Mesh[] = [];
-    this.scene.traverse((o) => {
-      if (o instanceof THREE.Mesh && o.visible && typeof o.userData.ade !== "number") {
-        o.visible = false;
-        unclassified.push(o);
+      if (d.isMesh && typeof cls === "number") {
+        const mesh = o as THREE.Mesh;
+        swapped.push({ mesh, mat: mesh.material });
+        mesh.material = segMat(cls);
+        return;
       }
+      o.visible = false;
+      unclassified.push(o);
     });
     this.renderer.setClearColor(0x000000, 1);
     this.renderer.clear();
@@ -964,13 +1108,29 @@ export class DesignWorld {
     this.renderer.toneMapping = prevTone;
     this.renderer.toneMappingExposure = prevExposure;
     this.renderer.outputEncoding = prevEncoding;
+    // The seg pass leaves the clear colour at opaque black. That was never put
+    // back, so after one "Render with DAR" the canvas — created with
+    // alpha: true precisely so the CSS backdrop shows through — cleared to
+    // solid black for the rest of the session.
+    this.renderer.setClearColor(prevClear, prevClearAlpha);
     this.scene.background = prevBg;
+    for (const { prev, atts } of wallState) {
+      prev.m.opacity = prev.opacity;
+      prev.m.transparent = prev.transparent;
+      prev.m.depthWrite = prev.depthWrite;
+      for (const p of atts) {
+        p.am.opacity = p.opacity;
+        p.am.depthWrite = p.depthWrite;
+        p.a.visible = p.visible;
+      }
+    }
     for (const o of hidden) o.visible = true;
     for (const o of restoredFound) o.visible = false;
     this.shellGroup.remove(ceiling);
     ceiling.geometry.dispose();
     (ceiling.material as THREE.Material).dispose();
     rt.dispose();
+    restoreLighting();
     this.markDirty();
 
     return {
@@ -984,14 +1144,28 @@ export class DesignWorld {
   /* ---------------- teardown ---------------- */
 
   private disposeObject(o: THREE.Object3D) {
+    // Tells an in-flight model load that its group is gone, so the swap does
+    // not resurrect children into a detached object.
+    o.userData.disposed = true;
     o.traverse((c) => {
-      if (c instanceof THREE.Mesh) {
-        c.geometry.dispose();
-        // Shared cache materials must survive; only clones are disposed.
-        const m = c.material as THREE.Material & { __shared?: boolean };
-        if (Array.isArray(c.material)) c.material.forEach((x) => x.dispose());
-        else if (!m.__shared) m.dispose();
-      }
+      // Clones of a loaded asset SHARE the prototype's geometry and materials
+      // with every other instance of that model. Freeing them here would blank
+      // out the ottoman standing on the other side of the room.
+      if (c.userData.sharedAsset) return;
+      // Lines and points own geometry and materials exactly as meshes do. Only
+      // Mesh was handled here, so the grid, the selection cage, the snap guides
+      // and every found-object wireframe leaked on each rebuild.
+      const d = c as THREE.Object3D & {
+        geometry?: THREE.BufferGeometry;
+        material?: THREE.Material | THREE.Material[];
+      };
+      if (!d.geometry && !d.material) return;
+      d.geometry?.dispose();
+      const mat = d.material;
+      if (!mat) return;
+      // Shared cache materials must survive; only clones are disposed.
+      if (Array.isArray(mat)) mat.forEach((x) => disposeUnshared(x));
+      else disposeUnshared(mat);
     });
   }
 
@@ -1005,6 +1179,8 @@ export class DesignWorld {
   dispose() {
     this.disposed = true;
     cancelAnimationFrame(this.raf);
+    this.lighting.dispose();
+    setMaterialRepaint(null);
     this.disposeGroup(this.shellGroup);
     this.disposeGroup(this.objectGroup);
     this.disposeGroup(this.helperGroup);
@@ -1014,9 +1190,17 @@ export class DesignWorld {
   }
 }
 
-/** Marks the shared cache materials so disposeObject leaves them alone. */
-export function protectSharedMaterials(keys: string[]) {
-  for (const k of keys) {
-    (standardMaterial(k) as THREE.Material & { __shared?: boolean }).__shared = true;
-  }
+/** Frees a material unless it is one of the shared cache instances that other
+ *  live objects are still drawing with.
+ *
+ *  Textures are deliberately NOT freed here. They are owned by the caches in
+ *  textures.ts and patterns.ts and shared by (source, repeat) across every
+ *  material that wants that tiling — so disposing the maps of one wall would
+ *  blank the floor, the furniture and anything else on the same image. They
+ *  are bounded (14 sets plus 5 patterns) and outlive a DesignWorld on purpose,
+ *  so remounting /design does not re-decode them. */
+function disposeUnshared(m: THREE.Material) {
+  if ((m as THREE.Material & { __shared?: boolean }).__shared) return;
+  m.dispose();
 }
+

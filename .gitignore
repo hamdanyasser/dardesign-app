@@ -53,6 +53,14 @@ venv/
 *.pt
 *.pth
 
+# ...but Build Mode's 3D assets are committed on purpose, so a fresh clone --
+# and the defense machine with no network -- still renders the room. They ship
+# as self-contained .glb (no sibling .bin: download managers and ad-blocker
+# filter lists intercept that extension). Kept as a guard in case a future
+# asset arrives as .gltf + .bin, where the blanket rule above would silently
+# drop the vertex data and the model would load to an empty scene.
+!public/models/**/*.bin
+
 # generated outputs
 outputs/finals/*
 outputs/sweeps/*

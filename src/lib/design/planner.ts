@@ -24,7 +24,7 @@ import { catalogItem } from "./catalog";
 import { MATERIALS } from "./materials";
 import { evaluatePlacement, findSpot, overlaps, rectOf, snapPosition } from "./placement";
 import type { WallOpening } from "./roomModel";
-import type { DesignScene, PlacedObject, RoomShell } from "./types";
+import type { DesignScene, PlacedObject, RoomShell, SceneCulture } from "./types";
 
 /* ------------------------------------------------------------------
    Circulation: the floor a door or window needs left alone.
@@ -165,12 +165,19 @@ export function gatePlan(
   items: PlannedItem[],
   scene: DesignScene,
   openings: WallOpening[] = [],
-  ops: { moves?: PlannedMove[]; removals?: PlannedRemoval[] } = {},
+  ops: {
+    moves?: PlannedMove[];
+    removals?: PlannedRemoval[];
+    /** The culture the room will be in once this plan is applied. Defaults to
+     *  the one it is in now, so a caller that changes nothing is unaffected. */
+    culture?: SceneCulture;
+  } = {},
 ): GatedPlan {
   const placements: AcceptedPlacement[] = [];
   const moves: AcceptedMove[] = [];
   const removals: AcceptedRemoval[] = [];
   const dropped: DroppedPlacement[] = [];
+  const target = ops.culture ?? scene.culture;
 
   // The scene changes as we accept, so each operation is judged against the last.
   let working: PlacedObject[] = [...scene.objects];
@@ -272,6 +279,29 @@ export function gatePlan(
         catalogId: planned.catalogId,
         reasonEn: "Not a piece in DAR's catalogue.",
         reasonAr: "ليست قطعة في كتالوج دار.",
+      });
+      continue;
+    }
+
+    // Culture coherence. One room, one design language, unless the room asked
+    // for all three.
+    //
+    // The backend enforces this too (validate_items) — but this gate is the one
+    // that is always in force. gatePlan also runs over the RULES fallback when
+    // no model is configured, and over anything a future caller hands it, and
+    // it is the last thing between a plan and the user's room. A wrong-culture
+    // piece must not pass silently; it is dropped and named.
+    //
+    // It is judged against the culture the plan RESULTS in, not the one the
+    // room is in now. Those differ for exactly one brief — "make this a
+    // Moroccan room" — and using the current culture there drops every piece
+    // the plan adds, which is the whole plan. Default is `scene.culture`, so a
+    // caller that changes nothing behaves as before.
+    if (target !== "all" && item.culture !== target) {
+      dropped.push({
+        catalogId: planned.catalogId,
+        reasonEn: `A ${item.culture} piece in a ${target} room.`,
+        reasonAr: `قطعة ${item.culture} في غرفة ${target}.`,
       });
       continue;
     }
@@ -405,5 +435,8 @@ export function gateDesignPlan(
   return gatePlan(plan.items, scene, openings, {
     moves: plan.moves,
     removals: plan.removals,
+    // Judge the room the plan produces. A brief that changes the culture puts
+    // pieces of the NEW culture into a room still labelled the old one.
+    culture: plan.understood.culture as SceneCulture,
   });
 }

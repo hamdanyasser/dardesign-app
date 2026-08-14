@@ -29,8 +29,9 @@ import PlanMinimap from "@/components/design/PlanMinimap";
 import PlanPanel from "@/components/design/PlanPanel";
 import SourceCard from "@/components/design/SourceCard";
 import "@/components/design/design.css";
+import { CATALOG, CULTURE_LABEL, catalogItem } from "@/lib/design/catalog";
+import { TIMES_OF_DAY, TIME_LABEL, type TimeOfDay } from "@/lib/design/lighting";
 import { cultureAccent } from "@/lib/design/materials";
-import { planCultureConversion } from "@/lib/design/culture";
 import { SNAP_ROTATION_DEG } from "@/lib/design/placement";
 import { HANDOFF_KEY } from "@/lib/design/handoff";
 import { createScene, type WallOpening } from "@/lib/design/roomModel";
@@ -132,6 +133,12 @@ function BuildModeReady({
   const [roomSelected, setRoomSelected] = useState(false);
   const [showFound, setShowFound] = useState(true);
   const [handoff, setHandoff] = useState(false);
+  /* Time of day is a VIEW setting, not part of the design, so it lives here
+     next to renderIntent rather than in DesignScene — same reason: a new
+     scene field bumps SCENE_VERSION and loadScene drops every saved room that
+     does not match. */
+  const [timeOfDay, setTimeOfDay] = useState<TimeOfDay>("afternoon");
+  const [restyleNote, setRestyleNote] = useState<string | null>(null);
   const [viewNonce, setViewNonce] = useState<{ preset: ViewPreset; n: number } | null>(null);
   const [focusNonce, setFocusNonce] = useState<{ uid: string; n: number } | null>(null);
   const nonce = useRef(0);
@@ -153,51 +160,47 @@ function BuildModeReady({
     return () => clearTimeout(t);
   }, [scene]);
 
-  /* ---- switching the catalogue culture converts the room with it ----
+  /* ---- switching the catalogue culture re-themes the shell too ----
+     Now one ordinary reducer action, so it is a single undo. It used to build
+     a whole scene and dispatch `replace`, which wipes undo and redo — a
+     culture switch destroyed every step before it and could not be taken
+     back. */
+  const setCulture = useCallback((c: SceneCulture) => {
+    dispatch({ type: "setCulture", culture: c });
+  }, []);
 
-     This used to adopt the new palette and leave every piece of furniture
-     exactly as it was, so switching to Moroccan gave you a Moroccan-labelled
-     room full of Lebanese seating — and a room's cultural identity is carried
-     by its pieces, not its label. It now converts each one to its counterpart
-     at the same position and rotation: the style changes, the layout you built
-     does not.
+  /* How many placed pieces belong to a different culture than the room. This
+     is the number that makes "Restyle" worth offering — and offering it only
+     when there is something to restyle. */
+  const foreignCount = useMemo(() => {
+    if (scene.culture === "all") return 0;
+    return scene.objects.filter((o) => {
+      if (o.origin === "found" || !o.catalogId) return false;
+      const item = catalogItem(o.catalogId);
+      return !!item && item.culture !== scene.culture;
+    }).length;
+  }, [scene.objects, scene.culture]);
 
-     It also stopped using `replace`, which wipes undo/redo. That was tolerable
-     when the action was a palette swap; it is not when the action replaces
-     furniture the user chose. One gesture, so one Ctrl+Z puts the whole room
-     back — including the pieces. */
-  const setCulture = useCallback(
-    (c: SceneCulture) => {
-      if (c === scene.culture) return;
-      const fresh = createScene(boot.result, c);
-      const { conversions } = planCultureConversion(scene.objects, c);
-
-      dispatch({ type: "beginGesture", labelEn: "Change culture", labelAr: "تغيير الثقافة" });
-      dispatch({
-        type: "setCulture",
-        culture: c,
-        floorMaterialKey: fresh.scene.room.floorMaterialKey,
-        wallMaterialKey: fresh.scene.room.wallMaterialKey,
-      });
-      // Remove-then-add rather than rewriting catalogId in place: the
-      // counterpart carries its own real footprint from the ontology, which may
-      // be wider than what it replaces, so it has to face the placement engine
-      // like anything else. A piece with no valid spot is dropped by the
-      // reducer's own rules rather than forced in.
-      for (const conv of conversions) {
-        dispatch({ type: "remove", uid: conv.uid });
-        dispatch({
-          type: "addAt",
-          catalogId: conv.toCatalogId,
-          x: conv.x,
-          z: conv.z,
-          rotationDeg: conv.rotationDeg,
-        });
-      }
-      dispatch({ type: "endGesture" });
-    },
-    [boot.result, scene],
-  );
+  /* Explicitly asked for, never automatic. Reports what it could not
+     translate rather than quietly dropping it: category coverage is
+     asymmetric across the three catalogues. */
+  const restyle = useCallback(() => {
+    if (scene.culture === "all") return;
+    const unmatched = scene.objects.filter((o) => {
+      if (o.origin === "found" || !o.catalogId) return false;
+      const item = catalogItem(o.catalogId);
+      if (!item || item.culture === scene.culture) return false;
+      return !CATALOG.some((c) => c.culture === scene.culture && c.category === item.category);
+    });
+    dispatch({ type: "restyleTo", culture: scene.culture });
+    setRestyleNote(
+      unmatched.length
+        ? isArabic
+          ? `${unmatched.length} قطعة لا مقابل لها في هذه اللغة التصميمية، وبقيت كما هي.`
+          : `${unmatched.length} piece${unmatched.length > 1 ? "s have" : " has"} no counterpart in this design language and stayed as ${unmatched.length > 1 ? "they were" : "it was"}.`
+        : null,
+    );
+  }, [scene.objects, scene.culture, isArabic]);
 
   /* ---- catalogue drag ---- */
   const beginDrag = useCallback((item: CatalogItem, clientX: number, clientY: number) => {
@@ -401,6 +404,44 @@ function BuildModeReady({
           </button>
         </div>
 
+        {/* Time of day. Four named moments rather than sliders for sun
+            azimuth, elevation, temperature and exposure — those are the four
+            things each preset actually moves, and nobody designing a room
+            wants to set them by hand. Viewport only: the conditioning capture
+            pins itself to a fixed daylight, so Render with DAR is unaffected. */}
+        <div className="toolgroup" role="group" aria-label={isArabic ? "وقت اليوم" : "Time of day"}>
+          {TIMES_OF_DAY.map((t) => (
+            <button
+              key={t}
+              className={"tool" + (timeOfDay === t ? " active" : "")}
+              aria-pressed={timeOfDay === t}
+              onClick={() => setTimeOfDay(t)}
+              title={isArabic ? TIME_LABEL[t].ar : TIME_LABEL[t].en}
+            >
+              {isArabic ? TIME_LABEL[t].ar : TIME_LABEL[t].en}
+            </button>
+          ))}
+        </div>
+
+        {/* Offered only when there is something to translate. Switching the
+            culture re-themes the room but deliberately leaves the user's
+            furniture alone; this is the explicit "and the furniture too". */}
+        {foreignCount > 0 && scene.culture !== "all" && (
+          <button
+            className="tool warn"
+            onClick={restyle}
+            title={
+              isArabic
+                ? `استبدال ${foreignCount} قطعة بما يقابلها في الطراز ${CULTURE_LABEL[scene.culture].ar} — تراجع واحد يعيدها`
+                : `Swap ${foreignCount} piece${foreignCount > 1 ? "s" : ""} for their ${CULTURE_LABEL[scene.culture].en} counterparts. One undo puts them back.`
+            }
+          >
+            {isArabic
+              ? `تنسيق ${foreignCount} قطعة`
+              : `Restyle ${foreignCount}`}
+          </button>
+        )}
+
         <button
           className={"tool" + (roomSelected ? " active" : "")}
           onClick={() => {
@@ -461,6 +502,7 @@ function BuildModeReady({
           viewNonce={viewNonce}
           focusNonce={focusNonce}
           showFound={showFound}
+          timeOfDay={timeOfDay}
           onReady={(api) => {
             captureRef.current = api.capture;
           }}
@@ -494,15 +536,10 @@ function BuildModeReady({
                 u.culture === "all") &&
               u.culture !== scene.culture
             ) {
-              const fresh = createScene(boot.result, u.culture);
-              dispatch({
-                type: "setCulture",
-                culture: u.culture,
-                // Adopt the new culture's palette, unless the brief named its
-                // own surfaces — those are applied just below and must win.
-                floorMaterialKey: u.floorMaterialKey ?? fresh.scene.room.floorMaterialKey,
-                wallMaterialKey: u.wallMaterialKey ?? fresh.scene.room.wallMaterialKey,
-              });
+              // setCulture adopts the new culture's own shell palette from
+              // SHELL_MATERIALS; a surface the brief actually named is applied
+              // immediately below and wins over that default.
+              dispatch({ type: "setCulture", culture: u.culture });
             }
             // Wall and floor next, so the room's surfaces are already right
             // as the furniture lands. Both ride inside the same gesture, so a
@@ -575,6 +612,15 @@ function BuildModeReady({
           <div className="verdict good" role="status">
             <span aria-hidden>✓</span>
             {isArabic ? "أفلت للوضع · R للتدوير" : "Release to place · R to rotate"}
+          </div>
+        )}
+        {/* What the restyle could NOT translate. Category coverage is
+            asymmetric across the three catalogues, and saying so is better
+            than leaving the user to notice a piece did not change. */}
+        {restyleNote && (
+          <div className="verdict note" role="status" onClick={() => setRestyleNote(null)}>
+            <span aria-hidden>◆</span>
+            {restyleNote}
           </div>
         )}
 

@@ -216,6 +216,10 @@ export default function PlanPanel({
           // A converted piece is being replaced, so the model's move for it is
           // already expressed by where the replacement stands.
           moves: modelMoves.filter((m) => !convertedUids.has(m.targetUid)),
+          // Judge against the room this plan produces. The scene is still
+          // Lebanese at this point; every Moroccan piece would be dropped for
+          // being the wrong culture — including the conversions themselves.
+          culture: target,
         }),
       );
     } catch (e) {

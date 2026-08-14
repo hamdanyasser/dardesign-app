@@ -953,3 +953,44 @@ def test_every_piece_can_be_converted_into_every_other_culture():
                 found, _sub = planner.item_for_category(dst, item["category"])
                 assert found is not None, f"{src}.{item['category']} cannot become {dst}"
                 assert found["culture"] == dst
+
+
+# --------------------------------------------------------------------------
+# gate 1 on the CALL PATH, not just in plan_schema()
+#
+# The enum the model actually receives is the one that matters, and
+# test_schema_enum_is_exactly_that_culture exercises plan_schema directly, so
+# it cannot see what plan() passes.
+# --------------------------------------------------------------------------
+
+def test_the_call_path_offers_every_id_so_a_brief_can_change_the_culture():
+    """Narrowing the enum to the room's own nine ids is stronger grounding and
+    is deliberately NOT done: `plan()` runs before anyone knows what culture the
+    brief asks for, and "make this a Moroccan room" is a supported brief. In a
+    narrowed Lebanese room, changing the culture would be unrepresentable —
+    trading a working feature for a tighter gate on a failure validate_items
+    already catches by name."""
+    client = _FakeClient(_ops_payload([], culture="moroccan"))
+    planner.plan(ROOM, "lebanese", "make this a Moroccan room", client=client)
+
+    schema = client.last_kwargs["output_config"]["format"]["schema"]
+    enum = schema["properties"]["operations"]["items"]["properties"]["catalogId"]["enum"]
+    ids = [i for i in enum if i is not None]
+    assert len(ids) == 27, "a Lebanese room must still be able to be told to become Moroccan"
+    assert any(i.startswith("mor-") for i in ids)
+
+
+def test_one_room_still_gets_one_culture_despite_the_wide_enum():
+    """The wide enum is safe because validate_items judges every piece against
+    understood.culture — the mixing gate moved, it did not disappear."""
+    payload = _ops_payload(
+        [
+            _op("add", catalogId="mor-sofa-001", xCm=0, zCm=-150, rotationDeg=0),
+            _op("add", catalogId="leb-sofa-001", xCm=0, zCm=100, rotationDeg=0),
+        ],
+        culture="moroccan",
+    )
+    r = planner.plan(ROOM, "lebanese", "make this a Moroccan room",
+                     client=_FakeClient(payload))
+    assert [i["catalogId"] for i in r["items"]] == ["mor-sofa-001"]
+    assert any("lebanese piece in a moroccan room" in x["why"] for x in r["rejected"])

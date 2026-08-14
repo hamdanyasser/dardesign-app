@@ -16,7 +16,8 @@
 
 "use client";
 
-import { catalogItem, defaultMaterialFor } from "./catalog";
+import { CATALOG, catalogItem, defaultMaterialFor } from "./catalog";
+import { SHELL_MATERIALS, materialForTags } from "./materials";
 import { findSpot } from "./placement";
 import {
   SCENE_VERSION,
@@ -59,8 +60,9 @@ export type DesignAction =
   | { type: "setLocked"; uid: string; locked: boolean }
   | { type: "duplicate"; uid: string }
   | { type: "remove"; uid: string }
-  | { type: "setCulture"; culture: SceneCulture; floorMaterialKey?: string; wallMaterialKey?: string }
   | { type: "setShellMaterial"; surface: "floor" | "wall"; materialKey: string }
+  | { type: "setCulture"; culture: SceneCulture }
+  | { type: "restyleTo"; culture: SceneCulture }
   | { type: "resizeRoom"; widthCm?: number; depthCm?: number }
   | { type: "clearPlaced" }
   | { type: "undo" }
@@ -247,38 +249,6 @@ export function designReducer(state: DesignState, action: DesignAction): DesignS
       };
     }
 
-    case "setCulture": {
-      // The room's culture, changed WITHOUT `replace`.
-      //
-      // That distinction is the whole reason this action exists. `replace`
-      // wipes undo and redo (see below), so the only way to change a culture
-      // used to be one that threw away the user's history — which is why a
-      // plan was never allowed to do it, and why asking DAR to "make this a
-      // Moroccan room" produced Moroccan furniture that then rendered through
-      // the Lebanese LoRA, since HandoffPanel reads scene.culture.
-      //
-      // Going through the ordinary commit path instead means a culture change
-      // rides inside whatever gesture is open and comes back out with one
-      // Ctrl+Z, exactly like the furniture it arrived with.
-      if (
-        action.culture === state.scene.culture &&
-        !action.floorMaterialKey &&
-        !action.wallMaterialKey
-      ) {
-        return state;
-      }
-      const next = {
-        ...state.scene,
-        culture: action.culture,
-        room: {
-          ...state.scene.room,
-          floorMaterialKey: action.floorMaterialKey ?? state.scene.room.floorMaterialKey,
-          wallMaterialKey: action.wallMaterialKey ?? state.scene.room.wallMaterialKey,
-        },
-      };
-      return withHistory(state, next, "change culture", "تغيير الثقافة");
-    }
-
     case "setShellMaterial": {
       const key = action.surface === "floor" ? "floorMaterialKey" : "wallMaterialKey";
       if (state.scene.room[key] === action.materialKey) return state;
@@ -289,6 +259,80 @@ export function designReducer(state: DesignState, action: DesignAction): DesignS
         action.surface === "floor" ? "change floor" : "change walls",
         action.surface === "floor" ? "تغيير الأرضية" : "تغيير الجدران",
       );
+    }
+
+    /* Switching the design language RE-THEMES; it never rewrites the layout.
+     *
+     * This used to live in the page and go through `replace`, which wipes undo
+     * and redo outright — so a culture switch destroyed every step before it
+     * and could not itself be taken back. That is the exact trap the
+     * plan-apply path documents and avoids. Here it is one ordinary history
+     * entry: one Ctrl+Z puts the room back.
+     *
+     * Placed furniture keeps its position, rotation and geometry. Only the
+     * shell and the material palette move, because those are the room's
+     * design language rather than the user's arrangement of it. */
+    case "setCulture": {
+      if (state.scene.culture === action.culture) return state;
+      const shell = SHELL_MATERIALS[action.culture];
+      const objects = state.scene.objects.map((o) => {
+        if (o.origin === "found") return o;
+        const item = o.catalogId ? catalogItem(o.catalogId) : undefined;
+        // A piece keeps its own culture's material vocabulary; only pieces
+        // that follow the room (no catalogue entry) are re-read.
+        if (item) return o;
+        return { ...o, materialKey: materialForTags([], o.materialKey) };
+      });
+      const next: DesignScene = {
+        ...state.scene,
+        culture: action.culture,
+        objects,
+        room: { ...state.scene.room, floorMaterialKey: shell.floor, wallMaterialKey: shell.wall },
+      };
+      return withHistory(state, next, "change design language", "تغيير اللغة التصميمية");
+    }
+
+    /* The explicit, opt-in half: swap each placed catalogue piece for its
+     * counterpart in another culture, by category and nearest size.
+     *
+     * Kept SEPARATE from setCulture on purpose. Switching the rail should not
+     * silently rewrite choices the user made, but "show me this room as a
+     * Moroccan room" is a real design question, and answering it by hand means
+     * deleting and re-placing nine pieces. Categories do not line up across
+     * cultures — Khaleeji has no chair, Lebanese has no cabinet, lantern or
+     * cultural object — so an unmatched piece is KEPT rather than dropped, and
+     * the caller reports what could not be translated. */
+    case "restyleTo": {
+      if (action.culture === "all") return state;
+      let changed = 0;
+      const objects = state.scene.objects.map((o) => {
+        if (o.origin === "found" || !o.catalogId) return o;
+        const from = catalogItem(o.catalogId);
+        if (!from || from.culture === action.culture) return o;
+        const candidates = CATALOG.filter(
+          (c) => c.culture === action.culture && c.category === from.category,
+        );
+        if (!candidates.length) return o;
+        // Nearest by footprint, so a 240cm majlis does not become a 50cm chair.
+        const to = candidates.sort(
+          (a, b) =>
+            Math.abs(a.widthCm - from.widthCm) + Math.abs(a.depthCm - from.depthCm) -
+            (Math.abs(b.widthCm - from.widthCm) + Math.abs(b.depthCm - from.depthCm)),
+        )[0];
+        changed++;
+        return {
+          ...o,
+          catalogId: to.id,
+          labelEn: to.nameEn,
+          labelAr: to.nameAr,
+          widthCm: to.widthCm,
+          depthCm: to.depthCm,
+          heightCm: to.heightCm,
+          materialKey: defaultMaterialFor(to),
+        };
+      });
+      if (!changed) return state;
+      return withHistory(state, { ...state.scene, objects }, "restyle furniture", "إعادة تنسيق الأثاث");
     }
 
     case "resizeRoom": {
