@@ -417,6 +417,22 @@ class ConfirmPlacementRequest(BaseModel):
     height: float
 
 
+class RenderSceneResponse(BaseModel):
+    """Build Mode's scene, rendered from its own depth + segmentation.
+
+    A pydantic model rather than a raw dict because `_stream_keepalive` calls
+    `model_dump_json()` on whatever the build coroutine returns — the same
+    contract `/redesign` and `/restyle` already satisfy. The JSON on the wire is
+    unchanged from the JSONResponse this replaced.
+    """
+
+    job_id: str
+    style: str
+    image: str
+    duration_s: float
+    placeholder: bool
+
+
 class RestyleResponse(BaseModel):
     """Style Intensity Slider: one culture re-rendered at a chosen LoRA scale."""
 
@@ -1974,7 +1990,7 @@ async def render_scene_endpoint(
     style: str = Form(...),
     room: str = Form("living room"),
     scale: float | None = Form(None),
-) -> JSONResponse:
+) -> StreamingResponse:
     """Render a Build Mode scene photorealistically.
 
     The client renders its 3D scene into the two images this pipeline already
@@ -2013,6 +2029,29 @@ async def render_scene_endpoint(
     out_path = UPLOAD_DIR / f"{job.id}_scene_{style}.png"
     started = time.monotonic()
 
+    async def _build() -> JSONResponse:
+        return await _render_scene_body(
+            job, style, room, scale, depth_img, seg_img, out_path, started,
+        )
+
+    # Streamed like /redesign and /restyle, and for a reason this endpoint hits
+    # HARDER than either of them: it waits on _GEN_LOCK before it starts. A
+    # second Render with DAR — or one pressed while a Studio generation is
+    # running — sits silent for the queued render AND its own, so the first byte
+    # can be well over the ~100s at which Cloudflare's free tunnel 524s the
+    # connection. The browser then reports a network failure and the panel says
+    # "could not reach the renderer", which is why this looked like a dead
+    # tunnel while /healthz answered fine.
+    #
+    # This endpoint was added for Build Mode after the keepalive existed and
+    # simply never got it.
+    return _stream_keepalive(_build())
+
+
+async def _render_scene_body(
+    job, style: str, room: str, scale: float | None,
+    depth_img, seg_img, out_path, started: float,
+) -> RenderSceneResponse:
     try:
         async with _GEN_LOCK:
             result = await asyncio.to_thread(
@@ -2044,15 +2083,13 @@ async def render_scene_endpoint(
         "render_scene", job_id=job.id, style=style, ok=True,
         duration_s=duration, light=_light_mode(),
     )
-    return JSONResponse(
-        {
-            "job_id": job.id,
-            "style": style,
-            "image": _png_data_url(Path(result)),
-            "duration_s": duration,
-            # The client must be able to say plainly that this is a stand-in.
-            "placeholder": _light_mode(),
-        }
+    return RenderSceneResponse(
+        job_id=job.id,
+        style=style,
+        image=_png_data_url(Path(result)),
+        duration_s=duration,
+        # The client must be able to say plainly that this is a stand-in.
+        placeholder=_light_mode(),
     )
 
 

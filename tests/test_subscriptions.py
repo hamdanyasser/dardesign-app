@@ -236,7 +236,14 @@ def test_approval_grants_thirty_days_and_declining_grants_nothing():
             assert state["isSubscribed"] is True and state["plan"] == "pro"
             # Exactly 30 days, to the day.
             assert round((state["planExpiryDate"] - state["planStartedAt"]) / 86400) == 30
-            assert subscriptions.days_left(state["planExpiryDate"]) == 29
+            # `now` is passed explicitly rather than left to time.time(). The
+            # floor in days_left returns 29 for any elapsed time above zero and
+            # 30 for exactly zero — and time.time() on Windows moves in ~15.6ms
+            # steps, so a fast run can approve and assert inside one tick and
+            # flip the answer. Racing the clock is not what this test is for.
+            assert subscriptions.days_left(
+                state["planExpiryDate"], now=state["planStartedAt"] + 1
+            ) == 29
 
             # The declined account is untouched.
             assert (await u2.get("/api/subscription")).json()["isSubscribed"] is False

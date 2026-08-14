@@ -16,7 +16,8 @@
 
 "use client";
 
-import { CATALOG, catalogItem, defaultMaterialFor } from "./catalog";
+import { catalogItem, defaultMaterialFor } from "./catalog";
+import { restyleObjects } from "./culture";
 import { SHELL_MATERIALS, materialForTags } from "./materials";
 import { findSpot } from "./placement";
 import {
@@ -303,34 +304,11 @@ export function designReducer(state: DesignState, action: DesignAction): DesignS
      * cultural object — so an unmatched piece is KEPT rather than dropped, and
      * the caller reports what could not be translated. */
     case "restyleTo": {
-      if (action.culture === "all") return state;
-      let changed = 0;
-      const objects = state.scene.objects.map((o) => {
-        if (o.origin === "found" || !o.catalogId) return o;
-        const from = catalogItem(o.catalogId);
-        if (!from || from.culture === action.culture) return o;
-        const candidates = CATALOG.filter(
-          (c) => c.culture === action.culture && c.category === from.category,
-        );
-        if (!candidates.length) return o;
-        // Nearest by footprint, so a 240cm majlis does not become a 50cm chair.
-        const to = candidates.sort(
-          (a, b) =>
-            Math.abs(a.widthCm - from.widthCm) + Math.abs(a.depthCm - from.depthCm) -
-            (Math.abs(b.widthCm - from.widthCm) + Math.abs(b.depthCm - from.depthCm)),
-        )[0];
-        changed++;
-        return {
-          ...o,
-          catalogId: to.id,
-          labelEn: to.nameEn,
-          labelAr: to.nameAr,
-          widthCm: to.widthCm,
-          depthCm: to.depthCm,
-          heightCm: to.heightCm,
-          materialKey: defaultMaterialFor(to),
-        };
-      });
+      // The mapping lives in culture.ts so the planner panel can preview it.
+      // A redesign gates the model's moves against the footprints the room
+      // will HAVE after this runs, and a second copy of the rule here would
+      // let the preview and the result drift apart.
+      const { objects, changed } = restyleObjects(state.scene.objects, action.culture);
       if (!changed) return state;
       return withHistory(state, { ...state.scene, objects }, "restyle furniture", "إعادة تنسيق الأثاث");
     }

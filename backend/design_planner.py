@@ -48,7 +48,16 @@ import os
 from typing import Any
 
 from .furniture import CULTURES, items_for_culture
-from .retrieval import DEFAULT_TOP_K, RetrievalResult, format_for_prompt, retrieve
+from .knowledge import KB_CULTURES
+from .retrieval import (
+    DEFAULT_TOP_K,
+    RetrievalResult,
+    conventions_for,
+    detect_culture,
+    format_conventions_for_prompt,
+    format_for_prompt,
+    retrieve,
+)
 
 logger = logging.getLogger("dardesign.planner")
 
@@ -258,7 +267,7 @@ PLAN_CULTURES = ("lebanese", "khaleeji", "moroccan", "all")
 # for receiving guests" and "add five chairs", and getting it wrong is what made
 # every brief return the same furnished room: an edit answered as a fresh
 # furnishing stacks a second room on top of the one you already have.
-PLAN_INTENTS = ("furnish", "edit")
+PLAN_INTENTS = ("furnish", "edit", "redesign")
 
 # Categories the model may ask for by name, from the ontology itself.
 REQUESTABLE_CATEGORIES = (
@@ -479,6 +488,18 @@ answer looks like:
   furniture in it: if they asked for one table, the answer is one `add`.
   "Change the locations of the furniture" is an edit made of `move` operations
   over the pieces already listed as in the room — not a new set of furniture.
+- "redesign" — the person wants this room remade in a named culture ("redesign
+  it into a Lebanese room"). YOUR JOB HERE IS THE ARRANGEMENT, NOT THE
+  FURNITURE. Do NOT emit `add` or `remove` to swap pieces for their equivalents
+  in the new culture: DAR does that itself, deterministically, from the
+  ontology, and it will have happened before your plan is applied. Every piece
+  listed as in the room will still be there, as its counterpart in the target
+  culture, at the same spot.
+  What DAR cannot do is know how that culture arranges a room. That is what you
+  are for. Emit `move` operations that relocate the existing pieces until the
+  layout satisfies the conventions given to you below — those conventions are
+  the brief. Set `understood.culture` to the culture asked for.
+  Add or remove only where a convention genuinely requires it, and say why.
 
 RULES:
 - Use only catalogue ids given to you. Never invent one.
@@ -505,7 +526,9 @@ RULES:
 
 READING THE BRIEF — fill `understood` from what the person actually said:
 - intent: "edit" if they are changing the room that already exists, "furnish" if
-  they are describing a room to design. A room with nothing in it is "furnish".
+  they are describing a room to design, "redesign" if they are asking for the
+  room to be remade in a named culture ("redesign it into a Lebanese room",
+  "turn this into a Khaleeji majlis"). A room with nothing in it is "furnish".
 - culture: name it only if they implied one; otherwise keep the room's current
   culture. Every chosen piece must then come from that culture. A brief that
   names a culture ("make this a Moroccan room") changes it — pick that culture
@@ -567,6 +590,7 @@ def build_user_message(
     shell_source: str | None = None,
     evidence: str = "",
     objects: list[dict] | None = None,
+    conventions: str = "",
 ) -> str:
     w, d = int(room["widthCm"]), int(room["depthCm"])
     lines = [
@@ -637,6 +661,12 @@ def build_user_message(
     # a genuine fallback rather than a different prompt.
     if evidence:
         lines += ["", evidence]
+    # The layout rules go LAST before the brief, because on a redesign they are
+    # the specification and the brief is only three words of intent. Empty for
+    # every other kind of brief, so the message stays byte-for-byte what it was
+    # — the same discipline `evidence` above already follows.
+    if conventions:
+        lines += ["", conventions]
     lines += ["", "What the person asked for:", brief.strip() or "A comfortable, well-proportioned room."]
     return "\n".join(lines)
 
@@ -1446,6 +1476,66 @@ def _evidence_payload(result: RetrievalResult | None, injected: bool) -> dict:
     }
 
 
+def conventions_block(brief: str, culture: str) -> str:
+    """The target culture's spatial conventions, as prompt text.
+
+    The culture has to be settled BEFORE the call, and the model is the thing
+    that settles it — so this uses `detect_culture`, the deterministic lexical
+    detector retrieval already owns, with the room's own culture as the
+    fallback. That is exactly the ordering problem `retrieve()` solves for
+    evidence, solved the same way, so a brief and its conventions can never
+    disagree about which culture is being asked for.
+
+    Empty for "all" and for any culture the knowledge base does not cover
+    (Persian, deliberately — offering it as cultural evidence would overstate
+    what DAR has). Empty is a working state: the prompt is then byte-for-byte
+    what it was, and the plan is a re-skin rather than a redesign.
+    """
+    if not rag_enabled():
+        return ""
+    try:
+        target = detect_culture(brief or "", culture if culture in KB_CULTURES else None)
+        if not target or target not in KB_CULTURES:
+            return ""
+        chunks = conventions_for(target)
+        return format_conventions_for_prompt(chunks, target)
+    except Exception:  # noqa: BLE001 — conventions are optional; the plan is not
+        logger.exception("[planner] convention lookup failed — planning without them")
+        return ""
+
+
+def conventions_payload(brief: str, culture: str) -> list[dict]:
+    """The same conventions the prompt got, in the shape the panel renders.
+
+    `verified` is hard-coded False and that is not a placeholder: unlike the
+    vocabulary entries, none of the fifteen conventions carries a sign-off or a
+    citation. Anything that displays them has to say so.
+    """
+    if not rag_enabled():
+        return []
+    try:
+        target = detect_culture(brief or "", culture if culture in KB_CULTURES else None)
+        if not target or target not in KB_CULTURES:
+            return []
+        return [
+            {
+                "id": c.id,
+                "culture": c.culture,
+                "titleEn": c.element_en,
+                "titleAr": c.element_ar,
+                "guidanceEn": c.guidance_en,
+                "guidanceAr": c.guidance_ar,
+                "avoidEn": c.avoid_en,
+                "avoidAr": c.avoid_ar,
+                "verified": False,
+            }
+            for c in conventions_for(target)
+        ]
+    except Exception:  # noqa: BLE001
+        logger.exception("[planner] convention payload failed")
+        return []
+
+
 def _retrieve_evidence(brief: str, culture: str) -> RetrievalResult | None:
     """Cultural evidence for this brief, or None when RAG is switched off.
 
@@ -1495,6 +1585,10 @@ def _rule_result(room: dict, culture: str, brief: str, note_suffix: str,
         "removals": [],
         "substitutions": [],
         "counts": [],
+        # Rules cannot read a brief, so they cannot be redesigning to a culture
+        # the brief named. Reporting conventions here would imply this layout
+        # was arranged to satisfy them, and it was not.
+        "conventions": [],
         "seatingEstimate": seating_estimate(items),
         "placedCounts": placed_counts(items),
         "notesEn": f"Planned from DAR's placement rules{note_suffix}",
@@ -1579,7 +1673,7 @@ def plan(
             evidence_block = format_for_prompt(retrieved) if retrieved else ""
             message = build_user_message(
                 room, culture, brief, existing, openings, shell_source,
-                evidence_block, objects,
+                evidence_block, objects, conventions_block(brief, culture),
             )
             data, model = call_with_retry(
                 call, api, model_chain(), message, plan_schema("all", uids),
@@ -1612,6 +1706,11 @@ def plan(
                     "removals": removals,
                     "substitutions": substitutions,
                     "counts": count_report(accepted, understood),
+                    # The layout rules this plan was asked to satisfy, so the
+                    # panel can name them — and, in stage 2, measure them.
+                    # Reported whether or not the model honoured them; that is
+                    # the point of stating them separately from the plan.
+                    "conventions": conventions_payload(brief, culture),
                     "seatingEstimate": seating_estimate(accepted),
                     "placedCounts": placed_counts(accepted),
                     "notesEn": str(data.get("notesEn") or "")[:600],
