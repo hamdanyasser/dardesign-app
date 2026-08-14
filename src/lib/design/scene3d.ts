@@ -370,7 +370,7 @@ export class DesignWorld {
         this.disposeObject(existing);
         this.objectIndex.delete(o.uid);
       }
-      const mesh = buildObjectMesh(o);
+      const mesh = buildObjectMesh(o, () => this.markDirty());
       mesh.userData.geoSig = geoSig;
       mesh.userData.xformSig = xformSig;
       this.objectGroup.add(mesh);
@@ -1104,7 +1104,14 @@ export class DesignWorld {
   /* ---------------- teardown ---------------- */
 
   private disposeObject(o: THREE.Object3D) {
+    // Tells an in-flight model load that its group is gone, so the swap does
+    // not resurrect children into a detached object.
+    o.userData.disposed = true;
     o.traverse((c) => {
+      // Clones of a loaded asset SHARE the prototype's geometry and materials
+      // with every other instance of that model. Freeing them here would blank
+      // out the ottoman standing on the other side of the room.
+      if (c.userData.sharedAsset) return;
       // Lines and points own geometry and materials exactly as meshes do. Only
       // Mesh was handled here, so the grid, the selection cage, the snap guides
       // and every found-object wireframe leaked on each rebuild.

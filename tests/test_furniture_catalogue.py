@@ -760,29 +760,50 @@ def test_model_sidecar_only_names_real_catalogue_ids():
     assert not unknown, f"furniture_models.json names ids not in furniture.json: {unknown}"
 
 
-def test_every_declared_model_file_is_actually_committed():
-    """`tier: real` is a claim that a detailed asset exists. Check it.
+def test_every_declared_model_is_a_valid_self_contained_glb():
+    """`tier: real` claims a detailed asset exists, is committed, and stands alone.
 
-    Assets are committed rather than fetched on demand precisely so the defense
-    machine needs no network, which is only true if they are really in the repo.
-    glTF keeps its .bin and textures as separate relative files, so the loader
-    needs all of them, not just the .gltf.
+    Self-contained .glb rather than .gltf plus siblings, for a reason worth
+    recording: a loose `.bin` does not reliably reach the browser. Internet
+    Download Manager (and ad-blocker filter lists, which commonly match `.bin`)
+    intercepts the request -- the identical bytes served as `probe_copy.dat`
+    returned 200 with a full body while `probe_copy.bin` returned an empty 204
+    with net::ERR_ABORTED. curl was unaffected, which is what makes it nasty:
+    it works on the developer's machine and the model silently never appears on
+    a jury laptop. A .glb has no sibling to intercept, and costs one request
+    instead of five.
+
+    So the check is the binary container itself: magic, version, a declared
+    length that matches the file, a BIN chunk, and no external uri left behind.
     """
+    import struct
+
     for cid, m in _model_sidecar()["models"].items():
         assert m["tier"] == "real", f"{cid}: only `real` entries belong in `models`"
-        gltf = ROOT / "public" / m["path"]
-        assert gltf.is_file(), f"{cid}: missing model file {m['path']}"
-        assert gltf.stat().st_size > 0, f"{cid}: {m['path']} is empty"
+        path = ROOT / "public" / m["path"]
+        assert path.suffix == ".glb", f"{cid}: models must ship as self-contained .glb"
+        assert path.is_file(), f"{cid}: missing model file {m['path']}"
 
-        payload = json.loads(gltf.read_text(encoding="utf-8"))
-        for buf in payload.get("buffers", []):
-            uri = buf.get("uri")
-            if uri and not uri.startswith("data:"):
-                assert (gltf.parent / uri).is_file(), f"{cid}: missing buffer {uri}"
-        for img in payload.get("images", []):
-            uri = img.get("uri")
-            if uri and not uri.startswith("data:"):
-                assert (gltf.parent / uri).is_file(), f"{cid}: missing texture {uri}"
+        blob = path.read_bytes()
+        assert len(blob) > 12, f"{cid}: {m['path']} is truncated"
+        magic, version, declared = struct.unpack("<III", blob[:12])
+        assert magic == 0x46546C67, f"{cid}: not a glTF binary container"
+        assert version == 2, f"{cid}: glTF binary version {version}, expected 2"
+        assert declared == len(blob), f"{cid}: header says {declared} bytes, file is {len(blob)}"
+
+        chunks, off = [], 12
+        while off < len(blob):
+            length, ctype = struct.unpack("<II", blob[off:off + 8])
+            chunks.append(ctype)
+            off += 8 + length
+        assert 0x4E4F534A in chunks, f"{cid}: no JSON chunk"
+        assert 0x004E4942 in chunks, f"{cid}: no BIN chunk -- geometry is not embedded"
+
+        json_len = struct.unpack("<I", blob[12:16])[0]
+        payload = json.loads(blob[20:20 + json_len].decode("utf-8"))
+        dangling = [b.get("uri") for b in payload.get("buffers", []) if b.get("uri")]
+        dangling += [i.get("uri") for i in payload.get("images", []) if i.get("uri")]
+        assert not dangling, f"{cid}: still references external files {dangling}"
 
 
 def test_every_declared_model_carries_its_licence():

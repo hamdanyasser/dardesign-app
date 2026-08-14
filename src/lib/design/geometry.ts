@@ -18,7 +18,9 @@
 
 import * as THREE from "three";
 import { CATEGORY_TO_ADE20K } from "./ade20k";
+import { catalogModel } from "./catalog";
 import { getMaterial } from "./materials";
+import { instantiateModel, loadModelProto } from "./modelLoader";
 import type { PlacedObject } from "./types";
 
 /** three 0.150's ColorRepresentation does not accept a bare CSS string in its
@@ -387,10 +389,34 @@ function accentFor(key: string): THREE.MeshStandardMaterial {
   return standardMaterial(key);
 }
 
+/** Stamp the identity every downstream pass reads off the scene graph.
+ *
+ *  Applied to the whole subtree, and applied AGAIN whenever a loaded model
+ *  replaces the procedural stand-in, because both consumers walk descendants
+ *  rather than groups: `pickObject` resolves a raycast hit by climbing to the
+ *  first `uid`, and the segmentation pass paints each mesh by its own `ade`
+ *  and hides anything without one. A subtree that missed this would be
+ *  unselectable and invisible to the ControlNet conditioning. */
+export function stampObjectIdentity(g: THREE.Object3D, o: PlacedObject) {
+  // The ADE20K class this piece will be painted as when the scene is
+  // rendered into seg-ControlNet conditioning. Unmapped categories fall back
+  // to the generic table class rather than going unpainted, because a hole in
+  // the segmentation map reads to the model as "no object here" — which is a
+  // worse lie than a slightly wrong class.
+  const ade = CATEGORY_TO_ADE20K[o.category] ?? CATEGORY_TO_ADE20K.table;
+  g.traverse((c) => {
+    c.userData.ade = ade;
+    c.userData.uid = o.uid;
+  });
+}
+
 /** Build the visual for one placed object, already positioned and rotated.
  *  The returned group's userData carries the uid so a raycast hit can be
- *  resolved back to scene state without a side table of object3d→uid. */
-export function buildObjectMesh(o: PlacedObject): THREE.Group {
+ *  resolved back to scene state without a side table of object3d→uid.
+ *
+ *  `onReady` fires if a real 3D asset finishes loading and replaces the
+ *  procedural stand-in, so the caller can mark the frame dirty. */
+export function buildObjectMesh(o: PlacedObject, onReady?: () => void): THREE.Group {
   const mat: THREE.Material = standardMaterial(o.materialKey);
   const accent: THREE.Material = accentFor(o.materialKey);
   const builder = o.origin === "found" ? null : BUILDERS[o.category];
@@ -402,18 +428,8 @@ export function buildObjectMesh(o: PlacedObject): THREE.Group {
   g.rotation.y = (o.rotationDeg * Math.PI) / 180;
   g.userData.uid = o.uid;
   g.userData.origin = o.origin;
-  // The ADE20K class this piece will be painted as when the scene is
-  // rendered into seg-ControlNet conditioning. Unmapped categories fall back
-  // to the generic table class rather than going unpainted, because a hole in
-  // the segmentation map reads to the model as "no object here" — which is a
-  // worse lie than a slightly wrong class.
-  const ade = CATEGORY_TO_ADE20K[o.category] ?? CATEGORY_TO_ADE20K.table;
-  g.traverse((c) => {
-    c.userData.ade = ade;
-  });
-  g.traverse((c) => {
-    c.userData.uid = o.uid;
-  });
+  stampObjectIdentity(g, o);
+  attachRealModel(g, o, onReady);
   if (o.origin === "found") {
     // Read as present but not authored: the catalogue pieces the user is
     // actually placing must visually dominate what was merely detected.
@@ -430,6 +446,51 @@ export function buildObjectMesh(o: PlacedObject): THREE.Group {
     });
   }
   return g;
+}
+
+/** If this catalogue piece has a real 3D asset, load it and swap it in.
+ *
+ *  The procedural build is already in `g` and stays there until the asset is
+ *  parsed, so the object is never missing, the drag ghost is never empty, and
+ *  a failed fetch degrades to exactly what Build Mode drew before — a piece
+ *  with a shape, not a hole. On success the stand-in children are removed and
+ *  the fitted model takes their place inside the SAME group, so the uid,
+ *  position, rotation and every reference held to it stay valid.
+ *
+ *  `sharedAsset` on the clone keeps DesignWorld.disposeObject from freeing the
+ *  prototype's geometry out from under the other instances. */
+function attachRealModel(g: THREE.Group, o: PlacedObject, onReady?: () => void) {
+  if (o.origin === "found") return;
+  const model = catalogModel(o.catalogId);
+  if (!model) return;
+
+  loadModelProto("/" + model.path)
+    .then((proto) => {
+      // The object may have been removed, or rebuilt for a material change,
+      // while the asset was in flight.
+      if (g.userData.disposed) return;
+      const fitted = instantiateModel(proto, o.widthCm, o.heightCm, o.depthCm);
+      for (const c of [...g.children]) {
+        g.remove(c);
+        c.traverse((n) => {
+          const m = n as THREE.Mesh;
+          m.geometry?.dispose();
+        });
+      }
+      g.add(fitted);
+      g.userData.real = true;
+      // Re-stamp: the fitted subtree is brand new and carries none of the
+      // identity the picker and the segmentation pass read.
+      stampObjectIdentity(g, o);
+      onReady?.();
+    })
+    .catch(() => {
+      // Deliberately silent in the UI: the procedural piece is still standing
+      // there and is a perfectly good representation of the object.
+      if (process.env.NODE_ENV === "development") {
+        console.warn(`[dar] model failed to load for ${o.catalogId}, keeping procedural`);
+      }
+    });
 }
 
 /** Bounding-box helper for the selection cage. */

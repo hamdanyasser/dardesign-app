@@ -20,7 +20,7 @@ is visible in the product, not just in this file.
 
 | Asset | Author(s) | Used for | Size | Source |
 |---|---|---|---|---|
-| Ottoman 01 | Caspian Fortune | leb-ottoman-001, the upholstered footstool | 637 KB | [Ottoman_01](https://polyhaven.com/a/Ottoman_01) |
+| Ottoman 01 | Caspian Fortune | leb-ottoman-001, the upholstered footstool | 636 KB | [Ottoman_01](https://polyhaven.com/a/Ottoman_01) |
 
 ## PBR textures
 

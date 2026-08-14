@@ -124,16 +124,74 @@ def fetch(url: str, timeout: int = 120) -> bytes:
 # Models
 # --------------------------------------------------------------------------
 
-def fetch_model(asset_id: str, force: bool) -> dict | None:
-    """Download the 1k glTF set into public/models/<id>/.
+GLB_MAGIC = 0x46546C67
+CHUNK_JSON = 0x4E4F534A
+CHUNK_BIN = 0x004E4942
 
-    Kept as a .gltf directory rather than converted to a single .glb: GLTFLoader
-    resolves the relative .bin and textures itself, so there is no build step
-    and no extra dependency to justify in an FYP.
+
+def pack_glb(gltf: dict, buffers: dict[str, bytes], images: dict[str, bytes]) -> bytes:
+    """Pack a glTF + its external .bin + its textures into ONE self-contained .glb.
+
+    Two reasons, and the first one is not theoretical.
+
+    A loose `.bin` sibling does not reliably reach the browser. Serving the
+    identical 115,200 bytes as `probe_copy.dat` returned 200 with the full body,
+    while `probe_copy.bin` returned an empty 204 with `net::ERR_ABORTED` --
+    `.bin` is a common ad-blocker and safe-browsing filter pattern, and plenty
+    of people (a jury laptop included) run something that blocks it. curl was
+    unaffected throughout, which is exactly what makes it a nasty failure: it
+    works on the developer's machine and the model silently never appears on
+    someone else's. A .glb has no sibling to block.
+
+    Second, it collapses five requests per model into one.
+
+    Layout is the glTF 2.0 binary container: a 12-byte header, then a JSON chunk
+    padded with spaces, then a BIN chunk padded with zeros, both 4-byte aligned.
     """
-    dest = MODEL_DIR / asset_id
-    gltf_name = f"{asset_id}_1k.gltf"
-    if dest.exists() and (dest / gltf_name).exists() and not force:
+    blob = bytearray()
+
+    def append(data: bytes) -> tuple[int, int]:
+        offset = len(blob)
+        blob.extend(data)
+        while len(blob) % 4:          # bufferView offsets must stay aligned
+            blob.append(0)
+        return offset, len(data)
+
+    views: list[dict] = gltf.get("bufferViews", [])
+    # The original buffer goes in first at offset 0, so every bufferView the
+    # file already declares keeps its byteOffset and needs no rewriting.
+    for uri, data in buffers.items():
+        append(data)
+
+    for img in gltf.get("images", []):
+        uri = img.pop("uri", None)
+        if uri is None or uri.startswith("data:"):
+            continue
+        offset, length = append(images[uri])
+        views.append({"buffer": 0, "byteOffset": offset, "byteLength": length})
+        img["bufferView"] = len(views) - 1
+        img.setdefault("mimeType", "image/png" if uri.lower().endswith(".png") else "image/jpeg")
+
+    gltf["bufferViews"] = views
+    gltf["buffers"] = [{"byteLength": len(blob)}]
+
+    json_chunk = json.dumps(gltf, separators=(",", ":")).encode("utf-8")
+    json_chunk += b" " * (-len(json_chunk) % 4)
+    bin_chunk = bytes(blob)
+    bin_chunk += b"\x00" * (-len(bin_chunk) % 4)
+
+    total = 12 + 8 + len(json_chunk) + 8 + len(bin_chunk)
+    out = bytearray()
+    out += GLB_MAGIC.to_bytes(4, "little") + (2).to_bytes(4, "little") + total.to_bytes(4, "little")
+    out += len(json_chunk).to_bytes(4, "little") + CHUNK_JSON.to_bytes(4, "little") + json_chunk
+    out += len(bin_chunk).to_bytes(4, "little") + CHUNK_BIN.to_bytes(4, "little") + bin_chunk
+    return bytes(out)
+
+
+def fetch_model(asset_id: str, force: bool) -> dict | None:
+    """Download the 1k glTF set and write it as a single self-contained .glb."""
+    dest = MODEL_DIR / f"{asset_id}.glb"
+    if dest.exists() and not force:
         print(f"  = {asset_id} (already present)")
         return read_model_record(asset_id)
 
@@ -149,23 +207,39 @@ def fetch_model(asset_id: str, force: bool) -> dict | None:
         print(f"  ! {asset_id}: no 1k gltf variant", file=sys.stderr)
         return None
 
-    dest.mkdir(parents=True, exist_ok=True)
-    total = 0
-    (dest / gltf_name).write_bytes(fetch(entry["url"]))
-    total += entry.get("size", 0)
+    gltf = json.loads(fetch(entry["url"]))
+    buffers: dict[str, bytes] = {}
+    images: dict[str, bytes] = {}
     for rel, meta in entry.get("include", {}).items():
-        out = dest / rel
-        out.parent.mkdir(parents=True, exist_ok=True)
-        out.write_bytes(fetch(meta["url"]))
-        total += meta.get("size", 0)
+        data = fetch(meta["url"])
+        key = rel.split("/")[-1]
+        if rel.lower().endswith(".bin"):
+            buffers[key] = data
+        else:
+            images[key] = data
+
+    # glTF references its siblings by relative uri ("textures/foo.jpg"); index
+    # both maps by basename so the lookup matches however the path is written.
+    gltf_buffers = {b.get("uri", "").split("/")[-1]: buffers.get(b.get("uri", "").split("/")[-1], b"")
+                    for b in gltf.get("buffers", []) if b.get("uri")}
+    gltf_images = {i["uri"].split("/")[-1]: images.get(i["uri"].split("/")[-1], b"")
+                   for i in gltf.get("images", []) if i.get("uri")}
+    for img in gltf.get("images", []):
+        if img.get("uri"):
+            img["uri"] = img["uri"].split("/")[-1]
+
+    MODEL_DIR.mkdir(parents=True, exist_ok=True)
+    glb = pack_glb(gltf, gltf_buffers, gltf_images)
+    dest.write_bytes(glb)
+    total = len(glb)
 
     authors = ", ".join(info.get("authors", {}).keys()) or "Poly Haven"
-    print(f"  + {asset_id}  ({total/1024:.0f} KB)  by {authors}")
+    print(f"  + {asset_id}.glb  ({total/1024:.0f} KB, self-contained)  by {authors}")
     return {
         "assetId": asset_id,
         "name": info.get("name", asset_id),
         "authors": authors,
-        "path": f"models/{asset_id}/{gltf_name}",
+        "path": f"models/{asset_id}.glb",
         "source": f"https://polyhaven.com/a/{asset_id}",
         "license": "CC0-1.0",
         "bytes": total,
@@ -174,16 +248,15 @@ def fetch_model(asset_id: str, force: bool) -> dict | None:
 
 def read_model_record(asset_id: str) -> dict:
     """Rebuild the manifest row for an asset already on disk."""
-    d = MODEL_DIR / asset_id
-    total = sum(f.stat().st_size for f in d.rglob("*") if f.is_file())
+    f = MODEL_DIR / f"{asset_id}.glb"
     return {
         "assetId": asset_id,
         "name": asset_id.replace("_", " "),
         "authors": "see polyhaven.com",
-        "path": f"models/{asset_id}/{asset_id}_1k.gltf",
+        "path": f"models/{asset_id}.glb",
         "source": f"https://polyhaven.com/a/{asset_id}",
         "license": "CC0-1.0",
-        "bytes": total,
+        "bytes": f.stat().st_size if f.is_file() else 0,
     }
 
 

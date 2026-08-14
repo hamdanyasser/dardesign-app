@@ -10,7 +10,7 @@
   "models": {
     "leb-ottoman-001": {
       "tier": "real",
-      "path": "models/Ottoman_01/Ottoman_01_1k.gltf",
+      "path": "models/Ottoman_01.glb",
       "assetName": "Ottoman 01",
       "author": "Caspian Fortune",
       "source": "https://polyhaven.com/a/Ottoman_01",
