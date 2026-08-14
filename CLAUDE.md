@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**DarDesign** is a bilingual (English/Arabic) AI interior design web app. Users upload a room photo, choose an Arabic architectural style (Lebanese, Khaleeji, or Moroccan), and get an AI-generated redesign. The app has a gold-on-dark luxury aesthetic with full RTL support.
+**DarDesign** is a bilingual (English/Arabic) AI interior design web app. Users upload a room photo, choose an Arabic architectural style (Lebanese, Khaleeji, or Moroccan), and get an AI-generated redesign. The app is an architectural editorial in **limestone and cobalt, light by default**, with full RTL support. (It was gold-on-near-black until the 2026-08-14 repalette; older notes and screenshots showing that are out of date — see "Color Palette" below.)
 
 **Stack:** Next.js 16 App Router (Turbopack), React 19, TypeScript 5, Tailwind CSS 3.4, shadcn/ui (radix-nova style), Lucide icons. Upgraded from Next 14 / React 18 on 2026-08-12 as part of the visual overhaul.
 
@@ -30,7 +30,7 @@ npm run lint                      # BROKEN under Next 16 — see below
 ### Backend + tests
 
 ```bash
-python -m pytest tests -q                          # full suite (531 tests, no GPU, ~20s)
+python -m pytest tests -q                          # full suite (579 tests, no GPU, ~25s)
 python -m pytest tests/test_subscriptions.py -q    # one file
 python -m pytest tests/test_api.py -k redesign -q  # one test / pattern
 python -m uvicorn backend.main:app --port 8000     # serve the API
@@ -39,6 +39,8 @@ python -m uvicorn backend.main:app --port 8000     # serve the API
 Every test needs `DARDESIGN_LIGHT=1` — the suite exercises the real FastAPI app with the placeholder render branch. **Set it per shell, not inline**: `$env:DARDESIGN_LIGHT="1"` in PowerShell (the primary shell here — `VAR=x cmd` is a parse error), `DARDESIGN_LIGHT=1 python -m pytest …` in Git Bash.
 
 The `Makefile` wraps the same commands (`make test`, `make backend-light`, `make smoke-prompt`, plus the Kaggle-only training/eval targets) but its recipes are POSIX — on Windows use Git Bash or copy the command bodies.
+
+**A green local suite does not prove the requirements files resolve.** `google-genai` (the Gemini planner) needs `pydantic>=2.12.5` while both requirements files pinned `2.10.3`, so a clean `pip install -r backend/requirements-light.txt` was `ResolutionImpossible` — CI failed before running a single test — while every local run passed, because the venv already held 2.13.4 from an earlier resolve and had quietly diverged from the pin. Pin bumped to `2.13.4`. If you change a dependency, trust CI's fresh install over your own environment.
 
 ### The local data backend (Windows)
 
@@ -64,7 +66,7 @@ src/
 │   ├── ui/                      # shadcn primitives (button, card, badge, separator, switch, dropdown-menu)
 │   ├── dar/                     # DarCinema — the DEFAULT cinematic RTL landing (Claude Design handoff), scoped under .dar-cinema
 │   │   ├── DarCinema.tsx         # 5-scene scrollytelling: intro bloom → threshold tunnel (scroll 3D) → 3D scan → souls carousel → orbit room → provenance
-│   │   └── dar-cinema.css        # ~180 lines, scoped under .dar-cinema (warm charcoal/gold v2 tokens, Reem Kufi + Tajawal, dark/light toggle)
+│   │   └── dar-cinema.css        # scoped under .dar-cinema (Reem Kufi + Tajawal, dark/light toggle)
 │   ├── cinema/                  # Shared cinematic pieces for /studio + error + 404 (ArchCanvas, DissolveCanvas, DustLayer, MotifTiles, copy, hooks, cinema.css). CinemaChrome was deleted 2026-08-12 — the redesign's sidebar replaced it and nothing imported it
 │   ├── design/                  # Build Mode UI (see "Build Mode" below)
 │   │   ├── DesignCanvas.tsx      # Pointer/key gestures → store actions; owns no scene logic
@@ -178,21 +180,29 @@ Outside `src/`, the directories that are load-bearing rather than incidental:
 
 All colors are defined via `--dd-*` variables in `globals.css` under `@layer base`. Theme switching uses `[data-theme="dark"]` and `[data-theme="light"]` selectors.
 
+**Light is the default, and `--dd-gold` holds cobalt (repalette 2026-08-14, `72adf0b`).** Two facts that surprise people reading older notes:
+
+- **Unset falls to LIGHT, not to the OS.** The blocking script in `layout.tsx` writes `data-theme="light"` when `dd-theme` is neither value. The app is presented from a projector in a lit room; a demo machine that happens to sit in dark mode must not throw the whole app into the dark palette on stage.
+- **`--dd-gold` keeps its NAME while holding `#1b4fa0` cobalt in light.** It is referenced in hundreds of places and renaming it days before a defense buys nothing but risk. Read the token, not the name. Gold-on-near-black is also the single most over-used generative-design palette there is, and a metallic yellow drifts to muddy olive under projector gamma.
+
 | Variable | Dark Value | Light Value | Purpose |
 |----------|-----------|-------------|---------|
-| `--dd-bg` | `#0a0a0f` | `#faf8f5` | Page background |
+| `--dd-bg` | `#0a0a0f` | `#f2f1ea` | Page background |
 | `--dd-surface` | `#12121a` | `#ffffff` | Card backgrounds |
-| `--dd-surface-strong` | `#181821` | `#f2ede4` | Elevated surfaces |
-| `--dd-gold` | `#d4af37` | `#b8960c` | Primary accent |
-| `--dd-gold-hover` | `#f0d78c` | `#d4af37` | Gold hover state |
-| `--dd-gold-dim` | `#8b7432` | `#9c7d08` | Muted gold |
-| `--dd-text` | `#f5f0e8` | `#1a1a2e` | Primary text |
-| `--dd-text-soft` | `#e8e0d0` | `#312c46` | Secondary text |
-| `--dd-text-secondary` | `#8a8598` | `#6b6580` | Tertiary/muted text |
-| `--dd-ink` | `#16110a` | `#16110a` | Text on gold |
-| `--dd-glass-bg` | `rgba(10,10,15,0.8)` | `rgba(250,248,245,0.8)` | Glassmorphism bg |
+| `--dd-surface-strong` | `#181821` | `#e6e5db` | Elevated surfaces |
+| `--dd-gold` | `#d4af37` | `#1b4fa0` | Primary accent — **cobalt in light** |
+| `--dd-gold-hover` | `#f0d78c` | `#123c7c` | Accent hover |
+| `--dd-gold-dim` | `#8b7432` | `#5b7cb8` | Muted accent |
+| `--dd-text` | `#f5f0e8` | `#14202f` | Primary text |
+| `--dd-text-soft` | `#e8e0d0` | `#2c3a4d` | Secondary text |
+| `--dd-text-secondary` | `#8a8598` | `#53617a` | Tertiary/muted text |
+| `--dd-ink` | `#16110a` | `#ffffff` | Text on the accent |
+| `--dd-border` | `rgba(212,175,55,.15)` | `rgba(20,32,47,.18)` | Hairlines |
+| `--dd-glass-bg` | `rgba(10,10,15,0.8)` | `rgba(242,241,234,0.86)` | Glassmorphism bg |
 | `--error` | `#e85d4a` | `#e85d4a` | Error states |
 | `--success` | `#4a9e6e` | `#4a9e6e` | Success states |
+
+Known drift: `layout.tsx`'s `themeColor` meta still declares light as `#faf8f5` while `--dd-bg` is now `#f2f1ea`. It only tints browser chrome, so it is cosmetic — but it is the one place the old cream survives.
 
 **Tailwind aliases** (in `tailwind.config.ts`): `charcoal`, `charcoal-soft`, `charcoal-hover`, `gold`, `gold-light`, `gold-dim`, `cream`, `cream-soft`, `cream-muted` — all map to `--dd-*` via intermediate variables.
 
@@ -308,6 +318,11 @@ Every component uses `const { copy, isArabic } = useThemeLanguage()` and:
 - Use `cn()` from `@/lib/utils` for conditional class merging
 - All components are `"use client"` — no server components beyond layout
 
+### Accessibility traps this codebase already fell into
+
+- **The keyboard focus ring must not live only in `:where()` inside `@layer base`.** That was the original rule and it loses twice — unlayered CSS outranks any layer, and every component selector outranks specificity 0. Measured result: the Studio culture picker matched `:focus-visible` with `outline-width: 0px`. There is now an unlayered rule with real specificity at the end of `globals.css`; `.cinema` still wins inside itself because `cinema.css` loads later at equal specificity.
+- **A `display: none` file input is not keyboard-reachable**, so a `<div>` dropzone around one leaves the flow with no keyboard entry point at all — which is exactly what Studio shipped with. The dropzone carries `role="button"`, `tabIndex`, an `aria-label` and an Enter/Space handler, all gated on the same condition as its `onClick`.
+
 ### File Conventions
 - All components: default export, PascalCase filename matching component name
 - shadcn components live in `src/components/ui/`, custom components in `src/components/`
@@ -411,6 +426,20 @@ Demo path: `/` (DarCinema landing, CTA → `/studio`) → **`/studio`** (upload 
 
 ---
 
+## The landing (`src/components/dar/`)
+
+Five scroll-driven acts. Things that are easy to break:
+
+- **The framed slots carry REAL renders, not placeholders.** `ImageSlot` takes a `src`; all four slots (tunnel end, scanner frame, and the three carousel cards) point at `DEMO_ROOM` = `public/demo/spacejoy-GQQyH0yNqLk-unsplash`. Deliberately the **same room** across all four, because "same bones, three souls" is the page's whole argument and it was previously asserted in text over empty boxes. These are real `/redesign` outputs — never substitute stock photography. Omitting `src` falls back to the old lettered placeholder, so a missing asset degrades to a label rather than a broken-image icon.
+- **The act materials are inline-SVG tessellations, not gradients** (`tile()` helper). A `repeating-linear-gradient` rug is a barcode and a 46px `conic-gradient` is harlequin argyle, which is what the orbit room used to look like while its own caption said "zellige mosaic dado". Tile sizes sit at 30–44px; larger reads as pattern-on-a-wall rather than material. `tile()` runs `encodeURIComponent` — hand-escaping a `#` truncates the data URI and the surface silently renders bare.
+- **The orbit room's faces are shaded apart.** Back wall, side walls, floor and ceiling once shared one background and the box read as unfolded cardboard. One `filter: brightness()` per face is most of what makes it read as an interior.
+- **Do not add padding to the sticky act panes.** Their heights feed the RAF scroll math, so padding shifts every scene's timing and breaks the choreography. This was tried to stop headlines crowding the fixed header on short viewports and reverted; the crowding is cosmetic, the breakage is not.
+- The fixed top bar offsets by `--app-sidebar-width` so it is not drawn over the app sidebar, and drops its tagline below 560px — brand + tagline + CTA are all `nowrap` and total ~457px, which cannot fit a phone.
+
+**`--app-sidebar-width` is zeroed inside the `max-width: 900px` media query**, alongside `.app-sidebar { display: none }`. It used to stay `256px` there while `.app-main` compensated by hand, so every *other* consumer — the landing header, `.dar-build` — was shoved a quarter of the screen sideways with nothing there. Anything positioning against that variable is correct at both widths now; don't reintroduce a per-component override.
+
+---
+
 ## Narrative layer (`src/components/story/`)
 
 Three client components that turn data `/redesign` **already returned** into a bilingual narrative. They never fetch, generate, save, or manufacture evidence. Integrated into `/studio` on 2026-08-11 from the `sprint/story` worktree.
@@ -446,6 +475,7 @@ The loop: photo → `/redesign` → **Design it yourself** → move/add furnitur
 - **Placement has two tiers, and conflating them made the editor feel broken.** *Blocking* = physics the user cannot mean (out of bounds; inside a piece they placed). *Advisory* = judgement (standing a sofa where the photo found the old one; `must_touch_wall`). Advisories are stated in amber and **never refuse the drop** — replacing existing furniture is the most likely act of redesign. Collision is oriented-rectangle SAT, so a sofa rotated into a corner is judged correctly.
 - **Found objects are locked** by default: they describe the room as it is, so moving one silently turns a measurement into a fiction. The `N found` chip is also the layer toggle; hiding never changes collision.
 - **Furniture is procedural geometry at real ontology dimensions.** The cut-out PNGs appear in the catalogue rail and nowhere else — a billboarded photo among lit volumes reads as a sticker the moment the camera moves. The look is a deliberate architect's maquette, which also means DAR never implies it rendered something it did not.
+- **Every catalogue category needs an entry in `BUILDERS` (`geometry.ts`).** `buildObjectMesh` falls through to `buildFound()` for an unknown category, and that is the deliberately abstract translucent box reserved for objects read off a *photograph* — so a piece the user chose renders as a survey volume, which looks like a bug and weakens the segmentation the renderer is conditioned on. This shipped broken for nine of 27 items (every `armchair`, `console`, `cabinet` and `screen`) until 2026-08-14. `test_every_catalogue_category_has_a_shape_builder` parses the map out of the TS source and compares it to `furniture.json`, so adding a category without a builder now fails.
 
 ### Render with DAR
 
