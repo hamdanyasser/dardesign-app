@@ -567,6 +567,30 @@ Room → the user writes what they want → an LLM plans the furniture → it ap
 - **A category the target culture lacks resolves through `ontology/category_substitutes.json`** and is **reported** ("nearest equivalent"), never silent. That file is shared with `backend/design_planner.py`'s count enforcement precisely so a second hand-written table cannot drift, the way `ontology.json`'s two copies already do. A pytest asserts the backend loads it verbatim; a vitest asserts every piece in every culture converts into every other culture, so a room can never be left half-converted.
 - The rail switcher also stopped using `replace`: undoable was optional when the action was a palette swap and is not when it replaces furniture the user chose.
 
+### Redesign — remaking a room in a named culture (2026-08-14)
+
+*"redesign it into a Lebanese culture room"* is a third intent beside `furnish` and `edit`, and it splits the work deliberately: **DAR swaps the furniture, the model supplies the arrangement.**
+
+- **The swap is deterministic.** `restyleTo` maps each piece to its counterpart by category and nearest footprint, from the ontology. The system prompt tells the model **not** to emit `add`/`remove` for the swap — it would double-handle the room.
+- **The arrangement is the model's job**, because that is the one thing the ontology cannot state: a Moroccan room is not a Lebanese room with Moroccan furniture, it is furniture pushed to the walls around a cleared centre.
+- **`restyleObjects()` lives in `culture.ts`, and `restyleTo` calls it.** One implementation on purpose: the panel gates the model's moves against the footprints the room will *have after* the swap — a Moroccan sedari is not the size of the Lebanese sofa it replaces, so a move validated against the old footprint can collide once applied. Two copies of that rule would put preview and result quietly out of step. **The uid survives the swap**, which is what lets the model's moves land at all.
+
+**`conventions_for(culture)` fetches by culture, NOT by query — and that is measured, not assumed.** Each `knowledge/<culture>.json` carries 5 `spatial_convention` entries. For the brief *"redesign it into a Lebanese culture room"*, BM25's top-5 came back as **one materials entry ("Mount Lebanon limestone") and zero conventions** — the brief is three words of intent against 35 chunks, and the culture name appears in all of them, so the layout rules are exactly what gets crowded out. When the answer does not depend on the query, retrieval is the wrong tool: ask for them. `retrieve()` is untouched for every other brief.
+
+- The target culture is settled **before** the call by `detect_culture` (the same lexical detector retrieval already owns, with the room's culture as fallback), because the model is otherwise the thing that decides it. Works on Arabic briefs.
+- **The conventions are unverified and uncited** — unlike the vocabulary entries, none of the 15 carries a sign-off or a source. The prompt says so, `conventions[].verified` is hard-coded `False`, and the panel prints "unverified". Do not let this claim drift.
+- Empty for `"all"`, for Persian (deliberately absent from the KB), and with `DARDESIGN_RAG=0`. Empty is a working state — the prompt is then byte-for-byte what it was and the plan is a re-skin.
+- A **rules** plan reports `conventions: []`. Rules cannot arrange a room to a convention, and reporting them would claim an influence that did not happen — the same discipline as `evidenceMeta.injected`.
+
+**Verified live (2026-08-14)** on a deliberately un-Moroccan Lebanese room, everything clustered mid-floor:
+
+```
+BEFORE  centre occupied 79.1%   seating at wall 0/2
+AFTER   centre occupied 28.6%   seating at wall 2/2
+```
+
+The 28.6% remaining is the coffee table, centred — which the Moroccan convention explicitly allows ("at most a low table or a rug"). Those two numbers are computed ad hoc in the verification script; **stage 2 is to compute them in the UI** and report PASS/PARTIAL per convention, so "how do you know it is Moroccan?" has a measured answer rather than a prompt.
+
 **Swapping the catalogue ids was not enough — the maquette had nothing to show it with.** Converting worked, and the room still looked the same, because `TAG_TO_MATERIAL` in `materials.ts` is **culture-blind**: `fabric → linen`, `wood → cedar`, `stone → limestone`, for all three. Measured: the Moroccan sedari (tagged `brocade, fabric, cedar, wood`) resolved to `linen #c9b99a`, **pixel-identical to the Lebanese sofa**, and five of Moroccan's nine pieces came out plain cedar brown. `ontology/culture_palette.json` now reads a **generic** tag in the culture's own terms (`fabric` is wool terracotta in Moroccan, velvet in Khaleeji, linen in Lebanese) while a **specific** tag — velvet, marble, limestone, leather, zellige — still means itself everywhere. `materialForCulture()` replaces `materialForTags()` inside `defaultMaterialFor`.
 
 - **Upholstered categories prefer an upholstery material over a wood one**, whichever tag came first. `mor-armchair-001` is tagged `cedar, brocade, fabric, wood`, so honouring tag order alone rendered the "Brocade armchair" as a plain wooden chair. `chair` is deliberately *not* in that list — a carved wooden chair is wood.
