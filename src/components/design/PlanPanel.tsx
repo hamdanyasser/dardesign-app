@@ -15,13 +15,21 @@
    ============================================================ */
 
 import { useEffect, useState } from "react";
-import { ApiError, fetchPlannerStatus, planLayout, type DesignPlan } from "@/lib/api";
+import {
+  ApiError,
+  checkRenderHost,
+  fetchPlannerStatus,
+  planLayout,
+  type DesignPlan,
+  type RenderHostStatus,
+} from "@/lib/api";
 import { catalogItem } from "@/lib/design/catalog";
 import { getMaterial } from "@/lib/design/materials";
 import { gatePlan, planOperationCount, type GatedPlan } from "@/lib/design/planner";
 import {
   conversionOps,
   planCultureConversion,
+  restyleObjects,
   type CultureConversion,
 } from "@/lib/design/culture";
 import type { WallOpening } from "@/lib/design/roomModel";
@@ -83,12 +91,15 @@ export default function PlanPanel({
   shellSource,
   isArabic,
   onApply,
+  onRender,
 }: {
   scene: DesignScene;
   openings: WallOpening[];
   shellSource: string;
   isArabic: boolean;
   onApply: (gated: GatedPlan, plan: DesignPlan) => void;
+  /** Opens the hand-off panel — the step that turns the maquette into a render. */
+  onRender: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const [brief, setBrief] = useState("");
@@ -97,6 +108,19 @@ export default function PlanPanel({
   const [plan, setPlan] = useState<DesignPlan | null>(null);
   const [gated, setGated] = useState<GatedPlan | null>(null);
   const [converted, setConverted] = useState<CultureConversion[]>([]);
+  /** Set on a redesign: how many pieces the deterministic restyle swapped, and
+   *  how many had no counterpart in the target culture and stayed as they were. */
+  const [restyled, setRestyled] = useState<{ changed: number; unmatched: number } | null>(null);
+  /** Set once a plan has landed: the panel stops being a form and becomes the
+   *  hand-off to the render, which is the step people were not finding. */
+  const [applied, setApplied] = useState<{
+    culture: string;
+    intent: string;
+    summary: string;
+  } | null>(null);
+  /** Probed when a plan lands, so an expired tunnel is stated before someone
+   *  waits 35s for it. null = not asked yet. */
+  const [host, setHost] = useState<RenderHostStatus | null>(null);
   const [elapsed, setElapsed] = useState(0);
   const [status, setStatus] = useState<{ configured: boolean; model: string | null } | null>(null);
 
@@ -116,6 +140,21 @@ export default function PlanPanel({
      are the honest thing to show: /api/design/plan returns once and has no
      intermediate state, so a percentage would be an invented animation —
      the same reason Studio's loading scene shows time and not progress. */
+  /* Probe the generator the moment a plan is applied, not when the render
+     button is pressed. The render host is a tunnel whose URL rotates every
+     session, so "gone" is the ordinary morning-after state of a working setup;
+     finding out after a 35-second wait is the worst possible moment. */
+  useEffect(() => {
+    if (!applied) return;
+    let alive = true;
+    checkRenderHost().then((s) => {
+      if (alive) setHost(s);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [applied]);
+
   useEffect(() => {
     if (!busy) return;
     setElapsed(0);
@@ -130,6 +169,7 @@ export default function PlanPanel({
     setPlan(null);
     setGated(null);
     setConverted([]);
+    setRestyled(null);
     try {
       const result = await planLayout({
         widthCm: scene.room.widthCm,
@@ -190,14 +230,28 @@ export default function PlanPanel({
          model MOVED is converted at its new spot — the user asked for both
          and the two are not in conflict. */
       const target = result.understood.culture as SceneCulture;
+      /* A redesign converts the furniture deterministically (restyleTo) and
+         asks the model only for the ARRANGEMENT. So the moves have to be
+         judged against the room as it will be AFTER the swap: a Moroccan
+         sedari is not the size of the Lebanese sofa it replaces, and a move
+         validated against the old footprint can collide once applied. Same
+         uids survive the swap, which is what lets the model's moves land. */
+      const isRedesign = result.understood.intent === "redesign" && target !== "all";
+      const restyled = isRedesign ? restyleObjects(scene.objects, target) : null;
+      const gateScene = restyled ? { ...scene, objects: restyled.objects } : scene;
+      setRestyled(restyled ? { changed: restyled.changed, unmatched: restyled.unmatched.length } : null);
+
       const modelMoves = result.moves ?? [];
       const modelRemovals = result.removals ?? [];
       const handled = new Set(modelRemovals.map((r) => r.targetUid));
       const movedTo = new Map(modelMoves.map((m) => [m.targetUid, m]));
 
-      const { conversions } = planCultureConversion(scene.objects, target, {
-        skipUids: handled,
-      });
+      // On a redesign the pieces are already converted in `gateScene`, so the
+      // remove-and-replace conversion must not run as well — it would try to
+      // convert pieces that are no longer foreign and double-handle the room.
+      const { conversions } = isRedesign
+        ? { conversions: [] as CultureConversion[] }
+        : planCultureConversion(scene.objects, target, { skipUids: handled });
       // Convert at the moved position where the model also moved the piece.
       const placed = conversions.map((c) => {
         const m = movedTo.get(c.uid);
@@ -211,7 +265,7 @@ export default function PlanPanel({
       // Conversion additions go FIRST so they claim the spots their originals
       // held before any newly designed piece competes for the same floor.
       setGated(
-        gatePlan([...ops.items, ...result.items], scene, openings, {
+        gatePlan([...ops.items, ...result.items], gateScene, openings, {
           removals: [...modelRemovals, ...ops.removals],
           // A converted piece is being replaced, so the model's move for it is
           // already expressed by where the replacement stands.
@@ -243,6 +297,86 @@ export default function PlanPanel({
         <span aria-hidden>✦</span>
         {isArabic ? "صِف غرفتك" : "Describe your room"}
       </button>
+    );
+  }
+
+  /* ---- the plan has landed: hand off to the render --------------------
+     The maquette is the control signal, not the deliverable — the photoreal
+     image comes from SDXL conditioned on the layout that was just applied.
+     Nothing used to say so, so the flow ended with a room full of study-model
+     volumes and no indication that the generation step existed.              */
+  if (applied) {
+    const cult = CULTURE_LABEL[applied.culture] ?? CULTURE_LABEL.all;
+    const cultureName = isArabic ? cult.ar : cult.en;
+    return (
+      <aside className="planner" aria-label={isArabic ? "الغرفة جاهزة" : "Room ready"}>
+        <div className="insp-head">
+          <div style={{ minWidth: 0 }}>
+            <div className="insp-title">{isArabic ? "طُبِّق التصميم" : "Applied"}</div>
+            <div className="insp-sub">{applied.summary}</div>
+          </div>
+          <button
+            className="insp-x"
+            onClick={() => {
+              setApplied(null);
+              setOpen(false);
+            }}
+            aria-label={isArabic ? "إغلاق" : "Close"}
+          >
+            ✕
+          </button>
+        </div>
+
+        <p className="plan-notes">
+          {isArabic
+            ? `غرفتك الآن ${cultureName}. ما تراه نموذج دراسي — الصورة الواقعية تُولَّد منه.`
+            : `Your room is now ${cultureName}. What you see is a study model — the photoreal image is generated from it.`}
+        </p>
+
+        <button
+          className="plan-go"
+          disabled={host !== null && !host.reachable}
+          onClick={onRender}
+        >
+          {isArabic ? "أنشئ صورة واقعية" : "Render this room"}
+        </button>
+
+        {/* State the pipeline plainly. "Render" is otherwise a black box, and
+            the whole argument of this project is that it is not one. */}
+        <p className="plan-foot">
+          {isArabic
+            ? `SDXL مع ضبط ${cultureName}، مشروطاً بعمق وتقسيم هذه الغرفة — نحو ٣٥ ثانية.`
+            : `SDXL with the ${cultureName} cultural model, conditioned on this room's depth and segmentation — about 35s.`}
+        </p>
+
+        {host !== null && !host.reachable && (
+          <p className="plan-warn" role="status">
+            {isArabic
+              ? "لا يمكن الوصول إلى خادم التوليد. شغّل دفتر Kaggle ثم: npm run dev:tunnel <العنوان الجديد>"
+              : "The generator is unreachable — the tunnel URL rotates every session. Start the Kaggle notebook, then run: npm run dev:tunnel <new-url>"}
+          </p>
+        )}
+        {host?.reachable && host.lightMode && (
+          <p className="plan-warn" role="status">
+            {isArabic
+              ? "الخادم في وضع المعاينة ولن يُصدر صورة حقيقية."
+              : "The host is in preview mode — it will answer, but it will not produce a real render."}
+          </p>
+        )}
+
+        <button
+          className="plan-chip"
+          style={{ marginTop: 10 }}
+          onClick={() => {
+            setApplied(null);
+            setPlan(null);
+            setGated(null);
+            setBrief("");
+          }}
+        >
+          {isArabic ? "خطِّط مرة أخرى" : "Plan something else"}
+        </button>
+      </aside>
     );
   }
 
@@ -509,6 +643,63 @@ export default function PlanPanel({
 
           <p className="plan-notes">{isArabic ? plan.notesAr : plan.notesEn}</p>
 
+          {/* A redesign: what DAR swapped, and the layout rules the model was
+              asked to arrange the room by. The two are kept apart on purpose —
+              the conversion is deterministic and always happens, the
+              arrangement is the model's work and may or may not have landed.
+              Stage 2 measures the second half; until then the panel states the
+              rules without claiming they were satisfied. */}
+          {restyled && (
+            <section
+              className="und"
+              aria-label={isArabic ? "إعادة تصميم ثقافية" : "Cultural redesign"}
+            >
+              <div className="insp-sub">
+                {isArabic
+                  ? `أُعيد تصميمها ${CULTURE_LABEL[plan.understood.culture]?.ar ?? ""}`
+                  : `Redesigned as ${CULTURE_LABEL[plan.understood.culture]?.en ?? ""}`}
+              </div>
+              <p className="und-line und-mut">
+                {isArabic
+                  ? `بُدِّلت ${restyled.changed} قطعة إلى مقابلها، وأعاد النموذج ترتيب الغرفة.`
+                  : `${restyled.changed} piece${restyled.changed === 1 ? "" : "s"} swapped for their counterparts; the model rearranged the room.`}
+                {restyled.unmatched > 0 && (
+                  <span className="und-warn">
+                    {isArabic
+                      ? ` · ${restyled.unmatched} بلا مقابل، بقيت كما هي`
+                      : ` · ${restyled.unmatched} had no counterpart and stayed`}
+                  </span>
+                )}
+              </p>
+
+              {(plan.conventions ?? []).length > 0 && (
+                <>
+                  <div className="insp-sub" style={{ marginTop: 8 }}>
+                    {isArabic ? "أعراف التوزيع" : "Layout conventions"}
+                    <span className="und-warn"> {isArabic ? "غير موثّقة" : "unverified"}</span>
+                  </div>
+                  <ul className="conv-rules">
+                    {(plan.conventions ?? []).map((c) => (
+                      <li key={c.id}>
+                        <span className="conv-title">{isArabic ? c.titleAr : c.titleEn}</span>
+                        {(isArabic ? c.avoidAr : c.avoidEn) && (
+                          <span className="conv-avoid">
+                            {isArabic ? c.avoidAr : c.avoidEn}
+                          </span>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                  <p className="und-line und-mut">
+                    {isArabic
+                      ? "إرشاد تحريري من قاعدة معرفة دار، بلا توثيق أو مرجع."
+                      : "Editorial guidance from DAR's knowledge base — no sign-off, no citation."}
+                  </p>
+                </>
+              )}
+            </section>
+          )}
+
           {/* Culture conversion, stated piece by piece. This is the most
               consequential thing a plan can do to a room you built — it
               replaces furniture you chose — so it is named in full before the
@@ -663,7 +854,15 @@ export default function PlanPanel({
                 disabled={total === 0}
                 onClick={() => {
                   onApply(gated, plan);
-                  setOpen(false);
+                  // Deliberately NOT setOpen(false). Closing here is what made
+                  // the flow dead-end: the room changed, the panel vanished,
+                  // and nothing on screen said the photoreal step existed at
+                  // all. The panel becomes the bridge to it instead.
+                  setApplied({
+                    culture: plan.understood.culture,
+                    intent: plan.understood.intent ?? "furnish",
+                    summary: parts.join(" · "),
+                  });
                 }}
               >
                 {total === 0

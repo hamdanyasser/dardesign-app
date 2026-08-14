@@ -23,7 +23,7 @@
    ============================================================ */
 
 import substituteData from "../../../ontology/category_substitutes.json";
-import { CATALOG, catalogItem } from "./catalog";
+import { CATALOG, catalogItem, defaultMaterialFor } from "./catalog";
 import type { CatalogItem, PlacedObject, SceneCulture } from "./types";
 
 /** Shared with backend/design_planner.py — one file, so the two cannot drift. */
@@ -127,6 +127,69 @@ export function planCultureConversion(
   }
 
   return { conversions, kept };
+}
+
+/**
+ * A scene's pieces restyled to another culture IN PLACE — same uids, same
+ * positions, swapped identity and footprint.
+ *
+ * This is the rule `restyleTo` applies, lifted out of the reducer so exactly
+ * one implementation exists. The panel needs it too: a redesign gates the
+ * model's `move` operations, and it has to gate them against the footprints
+ * the room will HAVE, not the ones it has now. A Moroccan sedari is not the
+ * size of the Lebanese sofa it replaces, so a move validated before the swap
+ * can collide after it. Two copies of this logic would put the preview and the
+ * applied result quietly out of step.
+ *
+ * Keeping the uid is what makes a redesign possible at all: the model plans
+ * moves against the pieces it was shown, and they must still be there — as
+ * their counterparts — when those moves land.
+ *
+ * Exact category match only, no substitution chain: `unmatched` is reported so
+ * the UI can say a piece had no counterpart, which is honest, where silently
+ * substituting a different category would not be.
+ */
+export function restyleObjects(
+  objects: PlacedObject[],
+  culture: SceneCulture,
+): { objects: PlacedObject[]; changed: number; unmatched: PlacedObject[] } {
+  if (culture === "all") return { objects, changed: 0, unmatched: [] };
+
+  let changed = 0;
+  const unmatched: PlacedObject[] = [];
+
+  const next = objects.map((o) => {
+    if (o.origin === "found" || !o.catalogId) return o;
+    const from = catalogItem(o.catalogId);
+    if (!from || from.culture === culture) return o;
+
+    const candidates = CATALOG.filter(
+      (c) => c.culture === culture && c.category === from.category,
+    );
+    if (!candidates.length) {
+      unmatched.push(o);
+      return o;
+    }
+    // Nearest by footprint, so a 240cm majlis does not become a 50cm chair.
+    const to = [...candidates].sort(
+      (a, b) =>
+        Math.abs(a.widthCm - from.widthCm) + Math.abs(a.depthCm - from.depthCm) -
+        (Math.abs(b.widthCm - from.widthCm) + Math.abs(b.depthCm - from.depthCm)),
+    )[0];
+    changed++;
+    return {
+      ...o,
+      catalogId: to.id,
+      labelEn: to.nameEn,
+      labelAr: to.nameAr,
+      widthCm: to.widthCm,
+      depthCm: to.depthCm,
+      heightCm: to.heightCm,
+      materialKey: defaultMaterialFor(to),
+    };
+  });
+
+  return { objects: next, changed, unmatched };
 }
 
 /**

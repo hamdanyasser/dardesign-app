@@ -513,6 +513,10 @@ function BuildModeReady({
           openings={openings}
           shellSource={scene.provenance.shellSource}
           isArabic={isArabic}
+          // The maquette is the control signal; this is the step that turns it
+          // into the photoreal image, and it was previously only reachable
+          // through the Finish button in the top bar.
+          onRender={() => setHandoff(true)}
           onApply={(gated, plan) => {
             // One gesture, so a whole plan is one undo. `replace` would have
             // been fewer lines and would have wiped undo/redo entirely — an AI
@@ -550,6 +554,15 @@ function BuildModeReady({
             }
             if (u.floorMaterialKey) {
               dispatch({ type: "setShellMaterial", surface: "floor", materialKey: u.floorMaterialKey });
+            }
+            // A redesign converts the furniture DETERMINISTICALLY and takes only
+            // the arrangement from the model. restyleTo runs first and keeps
+            // every uid, which is what lets the moves below land on the pieces
+            // the model planned against — as their counterparts in the new
+            // culture. It is the same mapping the panel previewed the moves
+            // against, so what was gated is what gets applied.
+            if (u.intent === "redesign" && u.culture !== "all") {
+              dispatch({ type: "restyleTo", culture: u.culture as SceneCulture });
             }
             // Remove → move → add, the order the gate judged them in. Applying
             // an add before a removal would drop it into floor that is about to

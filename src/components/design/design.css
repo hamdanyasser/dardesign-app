@@ -685,6 +685,21 @@ html[lang="ar"] .dar-build .handoff-title { font-family: var(--f-display-ar); }
   text-transform: uppercase;
 }
 
+/* The layout conventions a redesign was asked to satisfy. The `avoid` line is
+   set quieter than the title but kept, because the conventions were written
+   with the failure case in them and that sentence is the useful half. */
+.dar-build .conv-rules { list-style: none; padding: 0; margin: 5px 0 6px; }
+.dar-build .conv-rules li {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 3px 0;
+  border-bottom: 1px solid var(--hairline-2);
+}
+.dar-build .conv-rules li:last-child { border-bottom: 0; }
+.dar-build .conv-title { font-size: 0.74rem; }
+.dar-build .conv-avoid { font-size: 0.68rem; opacity: 0.6; line-height: 1.4; }
+
 /* Requested vs placed, one line per stated count. Mono on the figures only —
    they are measurements, and the house rule keeps mono off everything else. */
 .dar-build .und-counts { list-style: none; padding: 0; margin: 5px 0 3px; }

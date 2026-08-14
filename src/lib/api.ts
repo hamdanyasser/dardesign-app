@@ -1510,6 +1510,44 @@ function dataUrlToBlob(dataUrl: string): Blob {
   return new Blob([buf], { type: mime });
 }
 
+export interface RenderHostStatus {
+  /** False when the tunnel is gone — the single most common demo failure. */
+  reachable: boolean;
+  /** True when the host is in DARDESIGN_LIGHT: it answers, but never renders. */
+  lightMode: boolean;
+}
+
+/**
+ * Can the generator actually be reached right now?
+ *
+ * Asked BEFORE offering a render rather than after one fails. The render host
+ * is a Kaggle tunnel whose URL rotates every session, so "unreachable" is the
+ * normal end state of a working setup, not an exception — a 530 from a expired
+ * `trycloudflare` tunnel is what a demo machine sees the morning after. Telling
+ * someone that before they press a button beats a 35-second wait and a stack
+ * trace.
+ *
+ * Deliberately short-timeout and never throws: this decorates a button, and a
+ * slow probe must not be the reason a plan feels broken.
+ */
+export async function checkRenderHost(timeoutMs = 6000): Promise<RenderHostStatus> {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const res = await safeFetch(`${API_URL}/healthz`, {
+      headers: COMMON_HEADERS,
+      signal: ctrl.signal,
+    });
+    if (!res.ok) return { reachable: false, lightMode: false };
+    const body = (await res.json()) as { ok?: boolean; light_mode?: boolean };
+    return { reachable: !!body?.ok, lightMode: !!body?.light_mode };
+  } catch {
+    return { reachable: false, lightMode: false };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 /** Post Build Mode's rendered depth + ADE20K segmentation to the generator.
  *
  *  These are the same two control images `/redesign` normally derives from the
@@ -1658,6 +1696,32 @@ export interface PlanCount {
 }
 
 /**
+ * One documented way a culture arranges a room, from
+ * `ontology/knowledge/<culture>.json`.
+ *
+ * On a redesign these are fetched BY CULTURE rather than by searching the
+ * brief, because a three-word brief ranks the thirty vocabulary entries above
+ * the five layout rules and the redesign would arrive with no spatial guidance
+ * at all. Measured on "redesign it into a Lebanese culture room": BM25's top-5
+ * contained zero conventions.
+ *
+ * `verified` is always false and is not a placeholder — unlike the vocabulary
+ * entries, none of the fifteen conventions carries a sign-off or a citation.
+ * Anything that displays one must say so.
+ */
+export interface PlanConvention {
+  id: string;
+  culture: string;
+  titleEn: string;
+  titleAr: string;
+  guidanceEn: string;
+  guidanceAr: string;
+  avoidEn: string;
+  avoidAr: string;
+  verified: boolean;
+}
+
+/**
  * DAR's reading of the brief. Every field is validated server-side against a
  * real vocabulary — a culture we have, a room type the prompt builder knows,
  * a material on the actual swatch list — so `null` always means "not said"
@@ -1667,10 +1731,12 @@ export interface PlanUnderstood {
   culture: string;
   /**
    * "furnish" — design the room being described. "edit" — change the room
-   * that is already on screen. Getting this wrong is what makes a planner
-   * answer "move these chairs" by adding a second set of furniture.
+   * that is already on screen. "redesign" — remake it in a named culture,
+   * where DAR swaps the furniture deterministically and the model supplies
+   * only the arrangement. Getting this wrong is what makes a planner answer
+   * "move these chairs" by adding a second set of furniture.
    */
-  intent?: "furnish" | "edit";
+  intent?: "furnish" | "edit" | "redesign";
   roomType: string;
   capacity: number | null;
   /** 0..1 — the same LoRA scale /restyle exposes. */
@@ -1740,6 +1806,10 @@ export interface DesignPlan {
   substitutions?: PlanSubstitution[];
   /** Requested vs planned counts, when the brief stated a number. */
   counts?: PlanCount[];
+  /** The layout rules this plan was asked to satisfy. Empty unless the brief
+   *  named a culture the knowledge base covers, and always empty on a
+   *  rule-based plan — rules cannot arrange a room to a convention. */
+  conventions?: PlanConvention[];
   /** DAR's own arithmetic over the placed pieces, estimated from real widths. */
   seatingEstimate: number;
   placedCounts: Record<string, number>;
