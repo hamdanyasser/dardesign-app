@@ -25,10 +25,9 @@ import {
   colorOf,
   setMaterialRepaint,
   skirtingMaterial,
-  standardMaterial,
   surfaceMaterial,
 } from "./geometry";
-import { MATERIALS, cultureAccent } from "./materials";
+import { cultureAccent } from "./materials";
 import { LightingRig } from "./lighting";
 import type { TimeOfDay } from "./lighting";
 import type { WallOpening } from "./roomModel";
@@ -147,13 +146,6 @@ export class DesignWorld {
     this.scene = new THREE.Scene();
     this.camera = new THREE.PerspectiveCamera(38, 1, 10, 8000);
 
-    // The shared material cache in geometry.ts hands the SAME instance to every
-    // object using a key, so disposeObject must not free them when one object
-    // is removed — the other twenty are still drawing with it. This call marks
-    // them, and it is not optional: without it a rebuild disposes a material
-    // that live meshes still reference (and, once maps are attached, orphans
-    // their textures too). It used to be exported and never called.
-    protectSharedMaterials(Object.keys(MATERIALS));
     // Texture and pattern loads are async, and the render loop is idle-gated —
     // without this a map could arrive after the scene had settled and never be
     // drawn until the user happened to move the camera.
@@ -1212,9 +1204,3 @@ function disposeUnshared(m: THREE.Material) {
   m.dispose();
 }
 
-/** Marks the shared cache materials so disposeObject leaves them alone. */
-export function protectSharedMaterials(keys: string[]) {
-  for (const k of keys) {
-    (standardMaterial(k) as THREE.Material & { __shared?: boolean }).__shared = true;
-  }
-}

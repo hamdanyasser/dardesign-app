@@ -101,6 +101,15 @@ export function standardMaterial(key: string): THREE.MeshStandardMaterial {
     roughness: spec.roughness,
     metalness: spec.metalness,
   });
+  // Marked at birth rather than by a separate pass over MATERIALS. Every
+  // instance in this cache is handed to many objects, so DesignWorld's
+  // disposal must never free one; doing it here also means a key added later
+  // is protected without anyone remembering to re-run a registration step —
+  // and, more usefully, nothing has to be CREATED to be protected. The pass
+  // that did this eagerly instantiated all 20 materials at startup, which
+  // through dress() fetched all 14 texture sets (~2.2 MB) even for materials
+  // the room never uses.
+  (mat as THREE.Material & { __shared?: boolean }).__shared = true;
   if (spec.glow) {
     mat.emissive = albedo(spec.hex);
     mat.emissiveIntensity = spec.glow;
