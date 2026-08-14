@@ -9,7 +9,8 @@
    ones it does not, following the same rule as the rest of the app.
    ============================================================ */
 
-import { catalogItem } from "@/lib/design/catalog";
+import { catalogItem, catalogModel, modelTier } from "@/lib/design/catalog";
+import { BUILT_CATEGORIES } from "@/lib/design/geometry";
 import {
   FLOOR_CHOICES,
   WALL_CHOICES,
@@ -17,11 +18,38 @@ import {
   materialChoicesFor,
 } from "@/lib/design/materials";
 import { SNAP_ROTATION_DEG } from "@/lib/design/placement";
-import type { DesignScene, PlacedObject } from "@/lib/design/types";
+import type { DesignScene, ModelTier, PlacedObject } from "@/lib/design/types";
 
 interface Common {
   isArabic: boolean;
 }
+
+/** The three honest answers to "what am I looking at?".
+ *
+ *  DAR must never imply it has scanned or rendered furniture it has not, and
+ *  this is where that promise is kept in the product rather than in a README.
+ *  There is no CC0 library of Lebanese, Khaleeji or Moroccan furniture, so
+ *  almost everything here is DAR's own drawing — and it says so. */
+const TIER_LABEL: Record<ModelTier, { en: string; ar: string }> = {
+  real: { en: "Real model", ar: "مجسّم حقيقي" },
+  procedural: { en: "Enhanced procedural", ar: "مولّد محسّن" },
+  massing: { en: "Fallback massing", ar: "كتلة تقريبية" },
+};
+
+const TIER_NOTE: Record<ModelTier, { en: string; ar: string }> = {
+  real: {
+    en: "An actual scanned 3D asset, scaled to fit this piece's catalogue dimensions.",
+    ar: "مجسّم ثلاثي الأبعاد ممسوح ضوئيًا، مُحجّم ليطابق أبعاد القطعة في الكتالوج.",
+  },
+  procedural: {
+    en: "Drawn by DAR from the ontology — real silhouette, legs, cushions and ornament, but generated rather than scanned.",
+    ar: "رسمته دار من الأنطولوجيا — شكل وأرجل ووسائد وزخرفة حقيقية، لكنه مولّد وليس ممسوحًا.",
+  },
+  massing: {
+    en: "Read off your photograph. DAR knows this object's footprint and its class, not its form — so it is drawn as a volume, not invented.",
+    ar: "مقروء من صورتك. تعرف دار مساحته وفئته، لا شكله — لذلك يُرسم ككتلة دون اختلاق.",
+  },
+};
 
 export function ObjectInspector({
   isArabic,
@@ -43,6 +71,11 @@ export function ObjectInspector({
   const found = object.origin === "found";
   const choices = materialChoicesFor(object.category);
   const mat = getMaterial(object.materialKey);
+  const model = catalogModel(object.catalogId);
+  const tier = modelTier(
+    { catalogId: object.catalogId, category: object.category, origin: object.origin },
+    BUILT_CATEGORIES,
+  );
 
   return (
     <aside className="inspector" aria-label={isArabic ? "خصائص العنصر" : "Object properties"}>
@@ -147,6 +180,32 @@ export function ObjectInspector({
           </div>
         </>
       )}
+
+      {/* How much DAR actually knows about this object's FORM.
+          The difference between a scanned object, DAR's drawing of an object,
+          and a box where a photograph found something is a claim about
+          evidence, and the product should not blur it. */}
+      <div className="insp-section">
+        <div className="insp-label">{isArabic ? "المجسّم" : "3D form"}</div>
+        <div className={"prov prov-" + tier}>
+          <span className="prov-dot" aria-hidden />
+          <span>{isArabic ? TIER_LABEL[tier].ar : TIER_LABEL[tier].en}</span>
+        </div>
+        <p style={{ fontSize: "0.66rem", lineHeight: 1.5, color: "var(--fg-mute)", margin: "6px 0 0" }}>
+          {isArabic ? TIER_NOTE[tier].ar : TIER_NOTE[tier].en}
+        </p>
+        {model && (
+          <p style={{ fontSize: "0.64rem", lineHeight: 1.5, color: "var(--fg-mute)", margin: "6px 0 0" }}>
+            {/* Name the ASSET, never the catalogue piece: the model is a real
+                scanned object standing in, and saying which one is the whole
+                point of the distinction. */}
+            <a href={model.source} target="_blank" rel="noreferrer" style={{ color: "var(--brass)" }}>
+              {model.assetName}
+            </a>{" "}
+            · {model.author} · {model.license}
+          </p>
+        )}
+      </div>
 
       {item && (
         <div className="insp-section">

@@ -152,6 +152,24 @@ export function gatePlan(
       continue;
     }
 
+    // Culture coherence. One room, one design language, unless the room asked
+    // for all three.
+    //
+    // The backend enforces this too (validate_items), and the schema enum now
+    // makes it unrepresentable for a concrete culture — but this gate is the
+    // one that is always in force. gatePlan also runs over the RULES fallback
+    // when no model is configured, and over anything a future caller hands it,
+    // and it is the last thing between a plan and the user's room. A
+    // wrong-culture piece must not pass silently; it is dropped and named.
+    if (scene.culture !== "all" && item.culture !== scene.culture) {
+      dropped.push({
+        catalogId: planned.catalogId,
+        reasonEn: `A ${item.culture} piece in a ${scene.culture} room.`,
+        reasonAr: `قطعة ${item.culture} في غرفة ${scene.culture}.`,
+      });
+      continue;
+    }
+
     const uid = `__plan_${i}__`;
     const rot = Number.isFinite(planned.rotationDeg) ? planned.rotationDeg : 0;
 

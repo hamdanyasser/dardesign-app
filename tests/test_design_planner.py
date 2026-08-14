@@ -446,7 +446,12 @@ def test_gemini_path_uses_the_same_schema_and_validator():
     assert len(r["items"]) == 2
     schema = fake.last_config["response_schema"]
     enum = schema["properties"]["items"]["items"]["properties"]["catalogId"]["enum"]
-    assert len(enum) == 27, "gate 1 must hold on this provider too"
+    # A concrete culture is offered only its own nine. This asserted 27 while
+    # both call sites passed "all" unconditionally; narrowing the enum is the
+    # point of that change, and gate 1 holding on this provider is what the
+    # test is really for -- so it checks the ids, not just the count.
+    assert len(enum) == 9, "gate 1 must hold on this provider too"
+    assert all(i.startswith("leb-") for i in enum)
     assert fake.last_config["response_mime_type"] == "application/json"
 
 
@@ -543,3 +548,44 @@ def test_planner_status_is_public_and_honest():
     assert r.status_code == 200
     body = r.json()
     assert body["configured"] is False and body["model"] is None
+
+
+# --------------------------------------------------------------------------
+# gate 1 — the enum the model is ACTUALLY sent
+# --------------------------------------------------------------------------
+
+
+def test_a_concrete_culture_narrows_the_enum_the_model_receives():
+    """Gate 1 has to hold on the call path, not just in plan_schema().
+
+    Both call sites used to pass "all" unconditionally, so a room that had
+    already declared itself Moroccan still offered the model all 27 ids and a
+    Lebanese console had to survive all the way to validate_items before it
+    died. test_schema_enum_is_exactly_that_culture exercises plan_schema
+    directly and so could not see this. Narrowed, a cross-culture pick is
+    unrepresentable rather than merely rejected.
+    """
+    client = _FakeClient({
+        "understood": _understood(culture="moroccan"),
+        "items": [], "notesEn": "", "notesAr": "",
+    })
+    planner.plan(ROOM, "moroccan", "a calm room", client=client)
+
+    schema = client.last_kwargs["output_config"]["format"]["schema"]
+    enum = schema["properties"]["items"]["items"]["properties"]["catalogId"]["enum"]
+    assert len(enum) == 9, "a concrete culture must not be offered the whole catalogue"
+    assert all(i.startswith("mor-") for i in enum)
+
+
+def test_all_still_receives_every_id():
+    """"all" must keep all 27: a model that has not read the brief yet cannot
+    choose a culture from nine ids, and choosing it is the point of `understood`."""
+    client = _FakeClient({
+        "understood": _understood(culture="all"),
+        "items": [], "notesEn": "", "notesAr": "",
+    })
+    planner.plan(ROOM, "all", "surprise me", client=client)
+
+    schema = client.last_kwargs["output_config"]["format"]["schema"]
+    enum = schema["properties"]["items"]["items"]["properties"]["catalogId"]["enum"]
+    assert len(enum) == 27
