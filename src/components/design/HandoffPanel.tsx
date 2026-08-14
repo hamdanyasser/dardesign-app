@@ -24,7 +24,13 @@
    ============================================================ */
 
 import { useCallback, useMemo, useState } from "react";
-import { ApiError, renderEndpoint, renderScene, type SceneRenderResult } from "@/lib/api";
+import {
+  ApiError,
+  checkRenderHost,
+  renderEndpoint,
+  renderScene,
+  type SceneRenderResult,
+} from "@/lib/api";
 import { catalogItem, CULTURE_LABEL } from "@/lib/design/catalog";
 import { getMaterial } from "@/lib/design/materials";
 import type { DesignScene } from "@/lib/design/types";
@@ -126,14 +132,38 @@ export default function HandoffPanel({
       });
       setResult(r);
     } catch (e) {
-      const msg =
-        e instanceof ApiError
-          ? isArabic
-            ? e.message_ar
-            : e.message_en
-          : isArabic
-            ? `تعذّر الوصول إلى محرك العرض على ${renderEndpoint()}. عنوان النفق يتغيّر كل جلسة — أعد تعيينه عبر npm run dev:tunnel.`
-            : `Could not reach the renderer at ${renderEndpoint()}. The tunnel URL rotates each session — re-point it with npm run dev:tunnel.`;
+      /* A guessed cause is worse than an unknown one. This used to print "could
+         not reach the renderer — the tunnel URL rotates" for ANY error that was
+         not an ApiError, so a mid-render timeout, an aborted request and a
+         genuinely dead tunnel were indistinguishable. Measured 2026-08-14: that
+         message named a tunnel whose /healthz answered 200 and which completed a
+         real 31s render seconds later, and it sent an hour into re-pointing a URL
+         that was already correct.
+
+         So: ask the host before blaming it, and otherwise say what actually
+         threw and how long it ran. Same discipline as plan.warning — the honest
+         report of a failure is what makes the next one diagnosable. */
+      let msg: string;
+      if (e instanceof ApiError) {
+        msg = isArabic ? e.message_ar : e.message_en;
+      } else {
+        const secs = Math.round((Date.now() - t0) / 1000);
+        const host = await checkRenderHost();
+        const name = e instanceof Error ? e.name : "Error";
+        const detail = e instanceof Error && e.message ? e.message : String(e);
+        if (!host.reachable) {
+          msg = isArabic
+            ? `تعذّر الوصول إلى محرك العرض على ${renderEndpoint()} (${name} بعد ${secs}ث). عنوان النفق يتغيّر كل جلسة — أعد تعيينه عبر npm run dev:tunnel.`
+            : `Could not reach the renderer at ${renderEndpoint()} (${name} after ${secs}s). The tunnel URL rotates each session — re-point it with npm run dev:tunnel.`;
+        } else {
+          // The host answered, so the URL is fine and re-pointing it would be a
+          // wild goose chase. A render that dies while the host stays healthy is
+          // usually the connection being dropped mid-flight.
+          msg = isArabic
+            ? `المحرك يستجيب، لكن العرض فشل بعد ${secs}ث: ${name} — ${detail}. غالبًا انقطع الاتصال أثناء العرض؛ أعد المحاولة.`
+            : `The renderer is reachable, but the render failed after ${secs}s: ${name} — ${detail}. That usually means the connection dropped mid-render rather than a bad URL; try again.`;
+        }
+      }
       setErr(msg);
     } finally {
       clearInterval(tick);

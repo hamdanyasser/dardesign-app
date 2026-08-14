@@ -47,6 +47,10 @@ import math
 import os
 from typing import Any
 
+# Both provider SDKs speak httpx underneath, so its exception hierarchy is what
+# a transport failure actually arrives as. Pinned in both requirements files.
+import httpx
+
 from .furniture import CULTURES, items_for_culture
 from .knowledge import KB_CULTURES
 from .retrieval import (
@@ -1529,6 +1533,20 @@ def is_retryable(exc: Exception) -> bool:
     if isinstance(exc, json.JSONDecodeError):
         return True
     # No status at all is usually a socket or DNS blip on the way out.
+    #
+    # httpx.TransportError must be named explicitly: it descends from Exception,
+    # NOT from the builtin ConnectionError or OSError, so the isinstance check
+    # below could never match it even though this branch was written to. Both
+    # providers speak httpx underneath, so in practice EVERY transport failure
+    # arrived here classed unrecoverable.
+    #
+    # Measured 2026-08-14: one DNS blip ("[Errno 11001] getaddrinfo failed")
+    # burned the entire four-model chain in 39 MILLISECONDS with zero retries
+    # and dropped the user on the rules path — for a hiccup that had cleared by
+    # the time anyone read the message. Retrying costs one backoff and gets the
+    # brief answered.
+    if isinstance(exc, httpx.TransportError):
+        return True
     return isinstance(exc, (ConnectionError, TimeoutError))
 
 

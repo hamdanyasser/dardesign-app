@@ -393,6 +393,25 @@ def test_an_unparseable_body_is_retried():
     assert planner.is_retryable(exc)
 
 
+@pytest.mark.parametrize("exc", [
+    httpx.ConnectError("[Errno 11001] getaddrinfo failed"),
+    httpx.ReadTimeout("timed out"),
+    httpx.ConnectTimeout("timed out"),
+])
+def test_a_transport_blip_is_retried(exc):
+    """httpx errors do NOT descend from the builtin ConnectionError.
+
+    They inherit straight from Exception, so `isinstance(exc, ConnectionError)`
+    never matched them and every transport failure was classed unrecoverable —
+    despite the branch being written to catch exactly this.
+
+    Measured: one DNS blip burned the whole four-model chain in 39ms with zero
+    retries and served a rule-based room, for a hiccup that had already cleared.
+    """
+    assert not issubclass(type(exc), ConnectionError), "guards the premise"
+    assert planner.is_retryable(exc)
+
+
 def test_a_bad_request_is_still_not_retried():
     """Guards the boundary: retrying a 400 earns the same refusal twice."""
     class _Err(Exception):
