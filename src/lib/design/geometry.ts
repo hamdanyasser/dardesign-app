@@ -20,7 +20,10 @@ import * as THREE from "three";
 import { CATEGORY_TO_ADE20K } from "./ade20k";
 import { catalogModel } from "./catalog";
 import { getMaterial } from "./materials";
+import type { MaterialSpec } from "./materials";
 import { instantiateModel, loadModelProto } from "./modelLoader";
+import { pattern } from "./patterns";
+import { applyMapSet, repeatCm, tiled } from "./textures";
 import type { PlacedObject } from "./types";
 
 /** three 0.150's ColorRepresentation does not accept a bare CSS string in its
@@ -36,6 +39,38 @@ export function colorOf(hex: string): THREE.Color {
 /* Materials are shared per key so twenty poufs cost one material. */
 const matCache = new Map<string, THREE.MeshStandardMaterial>();
 
+/** Callback so an async map arriving can wake the idle-gated render loop.
+ *  Set by DesignWorld; a no-op elsewhere (tests, SSR). */
+let notifyDirty: (() => void) | null = null;
+export function setMaterialRepaint(fn: (() => void) | null) {
+  notifyDirty = fn;
+}
+
+/** Dress a material with whatever `spec` says it is made of.
+ *
+ *  Two different things, and they are mutually exclusive on purpose:
+ *
+ *  A PATTERNED surface (encaustic, zellige) is drawn by patterns.ts and the
+ *  ornament carries its own colour, so the map goes on at full strength and
+ *  material.color is forced to white — leaving the ontology hex multiplied in
+ *  would tint the whole tessellation one flat colour and lose the ivory and
+ *  the saffron.
+ *
+ *  A PHOTOGRAPHED surface gets the CC0 set, whose colour map is greyscale, so
+ *  material.color KEEPS the ontology hex and the texture only modulates value. */
+function dress(mat: THREE.MeshStandardMaterial, spec: MaterialSpec, repeat: number) {
+  if (spec.pattern) {
+    const tex = pattern(spec.pattern);
+    if (tex) {
+      mat.map = tiled(tex, repeat);
+      mat.color = new THREE.Color(0xffffff);
+      mat.needsUpdate = true;
+    }
+    return;
+  }
+  applyMapSet(mat, spec.key, repeat, () => notifyDirty?.());
+}
+
 export function standardMaterial(key: string): THREE.MeshStandardMaterial {
   const hit = matCache.get(key);
   if (hit) return hit;
@@ -49,8 +84,52 @@ export function standardMaterial(key: string): THREE.MeshStandardMaterial {
     mat.emissive = colorOf(spec.hex);
     mat.emissiveIntensity = spec.glow;
   }
+  // Furniture is small, so one tile across the piece is about right; the floor
+  // and walls compute a real repeat from their own span instead.
+  dress(mat, spec, 1);
   matCache.set(key, mat);
   return mat;
+}
+
+/** A material for a large architectural surface, tiled at true physical scale.
+ *
+ *  Not cached: the floor and each wall have different spans, and the repeat
+ *  lives on the texture. A 5.2m floor of 20cm encaustic tiles has to show 26
+ *  tiles, not one stretched one — getting this wrong is the difference between
+ *  a tiled floor and a photograph of a tile. */
+export function surfaceMaterial(
+  key: string,
+  spanCm: number,
+  opts: { side?: THREE.Side; transparent?: boolean } = {},
+): THREE.MeshStandardMaterial {
+  const spec = getMaterial(key);
+  const mat = new THREE.MeshStandardMaterial({
+    color: colorOf(spec.hex),
+    roughness: spec.roughness,
+    metalness: spec.metalness,
+    ...(opts.side ? { side: opts.side } : {}),
+    ...(opts.transparent ? { transparent: true, opacity: 1 } : {}),
+  });
+  dress(mat, spec, Math.max(1, Math.round(spanCm / repeatCm(key))));
+  return mat;
+}
+
+/** The skirting band: the wall material, one step darker.
+ *
+ *  Darkening multiplies material.color, which for a PATTERNED surface is white
+ *  and carries no colour information — so that case is left alone rather than
+ *  turning an ornament grey. Wall materials are never patterned today; the
+ *  guard is here so that stays true if one ever is. */
+export function skirtingMaterial(
+  key: string,
+  spanCm: number,
+  opts: { transparent?: boolean } = {},
+): THREE.MeshStandardMaterial {
+  const m = surfaceMaterial(key, spanCm, opts);
+  if (!getMaterial(key).pattern) m.color.multiplyScalar(0.72);
+  m.roughness = 0.85;
+  m.metalness = 0;
+  return m;
 }
 
 export function disposeMaterialCache(): void {

@@ -15,6 +15,7 @@
    ============================================================ */
 
 import type { StyleId } from "@/context/ImageContext";
+import type { PatternKey } from "./patterns";
 import type { SceneCulture } from "./types";
 
 export interface MaterialSpec {
@@ -29,6 +30,12 @@ export interface MaterialSpec {
   glow?: number;
   /** Source note, surfaced in the inspector. Keeps provenance visible. */
   source: string;
+  /** Patterned surfaces are DRAWN, not photographed — see patterns.ts. For
+   *  these the ornament carries the colour (a zellige floor is cobalt AND
+   *  ivory AND saffron), so the flat `hex` above is only the fallback used
+   *  before the canvas exists, and the material's own colour goes to white so
+   *  the tessellation reads as authored. */
+  pattern?: PatternKey;
 }
 
 function m(
@@ -40,8 +47,13 @@ function m(
   metalness: number,
   source: string,
   glow?: number,
+  pattern?: PatternKey,
 ): MaterialSpec {
-  return { key, nameEn, nameAr, hex, roughness, metalness, source, ...(glow ? { glow } : {}) };
+  return {
+    key, nameEn, nameAr, hex, roughness, metalness, source,
+    ...(glow ? { glow } : {}),
+    ...(pattern ? { pattern } : {}),
+  };
 }
 
 /** The shared material vocabulary. Keys are stable and stored in scenes. */
@@ -55,7 +67,7 @@ export const MATERIALS: Record<string, MaterialSpec> = {
   // Deeper than the palette's own terracotta: a floor fills a third of the
   // frame and takes the key light almost square-on, so the swatch value that
   // looks right on a chip renders as pale peach across a whole floor plate.
-  encaustic: m("encaustic", "Encaustic tile", "بلاط مزخرف", "#8f4f2e", 0.68, 0, "lebanese · encaustic floor tiles"),
+  encaustic: m("encaustic", "Encaustic tile", "بلاط مزخرف", "#8f4f2e", 0.68, 0, "lebanese · encaustic floor tiles", undefined, "encaustic"),
 
   /* woods */
   cedar: m("cedar", "Cedar", "أرز", "#8a5a33", 0.75, 0, "lebanese · carved cedar wood"),
@@ -74,7 +86,7 @@ export const MATERIALS: Record<string, MaterialSpec> = {
   wool: m("wool", "Kilim wool", "صوف كليم", "#a8442a", 0.99, 0, "moroccan · Marrakech terracotta"),
 
   /* ceramic + glass */
-  zellige: m("zellige", "Zellige", "زليج", "#0040c0", 0.35, 0.05, "moroccan · cobalt Majorelle blue"),
+  zellige: m("zellige", "Zellige", "زليج", "#0040c0", 0.35, 0.05, "moroccan · cobalt Majorelle blue", undefined, "zellige"),
   saffron: m("saffron", "Saffron glaze", "طلاء زعفراني", "#e3a92f", 0.4, 0.05, "moroccan · saffron yellow"),
   glass: m("glass", "Glass", "زجاج", "#cfd8d4", 0.1, 0.1, "khal-side-001 · glass"),
 

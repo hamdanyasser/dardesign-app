@@ -20,8 +20,15 @@
 
 import * as THREE from "three";
 import { ADE20K_CEILING, ADE20K_DOOR, ADE20K_FLOOR, ADE20K_WALL, ADE20K_WINDOW, ade20kHex } from "./ade20k";
-import { buildObjectMesh, colorOf, standardMaterial } from "./geometry";
-import { MATERIALS, cultureAccent, getMaterial } from "./materials";
+import {
+  buildObjectMesh,
+  colorOf,
+  setMaterialRepaint,
+  skirtingMaterial,
+  standardMaterial,
+  surfaceMaterial,
+} from "./geometry";
+import { MATERIALS, cultureAccent } from "./materials";
 import type { WallOpening } from "./roomModel";
 import type { DesignScene, PlacedObject } from "./types";
 
@@ -145,6 +152,10 @@ export class DesignWorld {
     // that live meshes still reference (and, once maps are attached, orphans
     // their textures too). It used to be exported and never called.
     protectSharedMaterials(Object.keys(MATERIALS));
+    // Texture and pattern loads are async, and the render loop is idle-gated —
+    // without this a map could arrive after the scene had settled and never be
+    // drawn until the user happened to move the camera.
+    setMaterialRepaint(() => this.markDirty());
 
     this.scene.add(this.shellGroup, this.objectGroup, this.helperGroup, this.guideGroup);
     this.setupLights();
@@ -236,12 +247,9 @@ export class DesignWorld {
     this.roomH = h;
     this.accent = colorOf(cultureAccent(scene.culture));
 
-    const floorSpec = getMaterial(scene.room.floorMaterialKey);
-    const floorMat = new THREE.MeshStandardMaterial({
-      color: colorOf(floorSpec.hex),
-      roughness: floorSpec.roughness,
-      metalness: floorSpec.metalness,
-    });
+    // Tiled from the room's own span, so 20cm encaustic tiles read as 26
+    // tiles across a 5.2m floor rather than one stretched photograph.
+    const floorMat = surfaceMaterial(scene.room.floorMaterialKey, Math.max(w, d));
     this.buildPlinth(w, d);
 
     const floor = new THREE.Mesh(new THREE.BoxGeometry(w, 8, d), floorMat);
@@ -261,15 +269,23 @@ export class DesignWorld {
     grid.position.y = 0.6;
     this.shellGroup.add(grid);
 
-    const wallSpec = getMaterial(scene.room.wallMaterialKey);
-    const wallMat = new THREE.MeshStandardMaterial({
-      color: colorOf(wallSpec.hex),
-      roughness: wallSpec.roughness,
-      metalness: 0,
-      transparent: true,
-      opacity: 1,
-      side: THREE.DoubleSide,
-    });
+    // Each wall builds its OWN material rather than cloning one.
+    //
+    // It needs one regardless, so the four can fade independently — but
+    // cloning was also silently losing the textures: buildShell runs
+    // synchronously and the maps arrive from a fetch a moment later, so a
+    // clone taken now copies a material that has no map yet and never
+    // receives one. Only the original, which is not in the scene, got dressed.
+    // The tiled views are cached by (texture, repeat), so four calls cost four
+    // materials and zero extra GPU uploads.
+    const newWallMat = () => {
+      const m = surfaceMaterial(scene.room.wallMaterialKey, Math.max(w, h), {
+        side: THREE.DoubleSide,
+        transparent: true,
+      });
+      m.metalness = 0;
+      return m;
+    };
 
     const t = 10;
     const defs: Array<{ w: number; h: number; d: number; pos: [number, number, number]; n: THREE.Vector3; id: WallOpening["wall"] }> = [
@@ -279,7 +295,7 @@ export class DesignWorld {
       { w: t, h, d, pos: [w / 2, h / 2, 0], n: new THREE.Vector3(-1, 0, 0), id: "east" },
     ];
     for (const def of defs) {
-      const mesh = new THREE.Mesh(new THREE.BoxGeometry(def.w, def.h, def.d), wallMat.clone());
+      const mesh = new THREE.Mesh(new THREE.BoxGeometry(def.w, def.h, def.d), newWallMat());
       mesh.position.set(...def.pos);
       mesh.receiveShadow = true;
       mesh.userData.wall = def.id;
@@ -299,10 +315,7 @@ export class DesignWorld {
           skirtH,
           def.id === "west" || def.id === "east" ? def.d : t + 2,
         ),
-        new THREE.MeshStandardMaterial({
-          color: colorOf(wallSpec.hex).multiplyScalar(0.72),
-          roughness: 0.85,
-          metalness: 0,
+        skirtingMaterial(scene.room.wallMaterialKey, def.w, {
           transparent: true,
         }),
       );
@@ -1149,14 +1162,16 @@ export class DesignWorld {
 }
 
 /** Frees a material unless it is one of the shared cache instances that other
- *  live objects are still drawing with. Also releases any maps it owns, which
- *  a bare dispose() does not do. */
+ *  live objects are still drawing with.
+ *
+ *  Textures are deliberately NOT freed here. They are owned by the caches in
+ *  textures.ts and patterns.ts and shared by (source, repeat) across every
+ *  material that wants that tiling — so disposing the maps of one wall would
+ *  blank the floor, the furniture and anything else on the same image. They
+ *  are bounded (14 sets plus 5 patterns) and outlive a DesignWorld on purpose,
+ *  so remounting /design does not re-decode them. */
 function disposeUnshared(m: THREE.Material) {
   if ((m as THREE.Material & { __shared?: boolean }).__shared) return;
-  for (const slot of ["map", "normalMap", "roughnessMap", "aoMap", "metalnessMap", "emissiveMap", "alphaMap"] as const) {
-    const tex = (m as unknown as Record<string, unknown>)[slot];
-    if (tex instanceof THREE.Texture) tex.dispose();
-  }
   m.dispose();
 }
 
