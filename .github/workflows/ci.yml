@@ -1,6 +1,9 @@
 # DarDesign CI — every push proves the API contract + the frontend build.
 # Backend runs the full pytest suite in DARDESIGN_LIGHT (no GPU needed);
-# frontend runs the production Next.js build (type check + lint included).
+# frontend runs the production Next.js build (type check included) and the
+# vitest suite over src/lib/design/ — the placement engine and the trust gate
+# that decides what a planned layout may do to a user's room. A build proves
+# the app compiles; it cannot prove the gate refuses what it should.
 name: ci
 
 on:
@@ -32,4 +35,5 @@ jobs:
           node-version: 20
           cache: npm
       - run: npm ci
+      - run: npm test
       - run: npm run build

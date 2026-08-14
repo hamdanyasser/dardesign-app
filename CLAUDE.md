@@ -12,7 +12,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Commands
 
-**This is a two-language repo** — a Next.js frontend *and* a FastAPI backend (`backend/`, `tests/`, `scripts/`) in one tree. CI runs both ([.github/workflows/ci.yml](.github/workflows/ci.yml)): `pytest` under `DARDESIGN_LIGHT=1` and `npm run build`. Run both before claiming a change is green.
+**This is a two-language repo** — a Next.js frontend *and* a FastAPI backend (`backend/`, `tests/`, `scripts/`) in one tree. CI runs both ([.github/workflows/ci.yml](.github/workflows/ci.yml)): `pytest` under `DARDESIGN_LIGHT=1`, then `npm test` and `npm run build`. Run all three before claiming a change is green.
 
 ### Frontend
 
@@ -20,8 +20,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 npm run dev                       # next dev on :3000
 npm run dev:tunnel <url>          # write .env.local + probe /healthz + next dev — the normal session start
 npm run build                     # production build; type check included. Must pass with zero errors
+npm test                          # vitest over src/lib/design/ — the placement engine + plan trust gate
 npm run lint                      # BROKEN under Next 16 — see below
 ```
+
+**`npm test` is deliberately narrow** (added 2026-08-14, `vitest.config.ts`): it covers `src/lib/design/`, the pure no-React/no-THREE modules that decide whether something may enter a user's room — `gatePlan`, `evaluatePlacement`, `findSpot`. A build proves the app compiles; it cannot prove the gate refuses what it should, and `gatePlan` is the last thing standing between a language model and the scene. There is still **no component/DOM testing setup** and adding one is a different project; don't reach for `@testing-library` here.
 
 **`npm run lint` does not work.** Next 16 removed the `next lint` command, so the script fails with `Invalid project directory provided, no such directory: …\lint`. CI never ran it (the frontend job is `npm run build` alone), so nothing is silently unchecked that used to be checked — but `npm run build` is currently the only frontend gate. Fixing it means migrating to the ESLint 9 flat config (`eslint.config.mjs`) that `eslint-config-next` v16 expects; the repo still has the eslintrc-format `.eslintrc.json`.
 
@@ -30,7 +33,7 @@ npm run lint                      # BROKEN under Next 16 — see below
 ### Backend + tests
 
 ```bash
-python -m pytest tests -q                          # full suite (579 tests, no GPU, ~25s)
+python -m pytest tests -q                          # full suite (713 tests, no GPU, ~35s)
 python -m pytest tests/test_subscriptions.py -q    # one file
 python -m pytest tests/test_api.py -k redesign -q  # one test / pattern
 python -m uvicorn backend.main:app --port 8000     # serve the API
@@ -49,6 +52,8 @@ powershell -ExecutionPolicy Bypass -File scripts\run-local-backend.ps1
 ```
 
 The one command for day-to-day work with accounts and saved designs. It generates/reuses the session-signing key in `.dardesign-secret` (without a stable key every restart logs you out), loads `.dardesign-smtp` if present, sets `DARDESIGN_LIGHT=1`, and serves on :8000. It **never renders** — see "Two backends" below.
+
+**It now refuses to run when :8000 is already listening, and that guard is load-bearing.** The banner (`planner : gemini - …`) is assembled by a short-lived Python subprocess that imports the *current* checkout, so it reported the model your edits would use — and then uvicorn failed to bind with `[Errno 10048]`, exited, and the **already-running backend kept answering**. You were left reading a green banner that described code serving no requests, which is worse than no banner: it reads as confirmation. This cost an hour on 2026-08-14 (a planner fix looked unapplied because the process on :8000 was three hours old). The script now prints the holding pid, its start time, and what `/api/design/planner-status` actually returns, then exits 1. Same family as the provider line it sits beside: **the launcher must never describe something other than what it started.** If a backend seems to ignore your changes, check the process start time before you check the code.
 
 ---
 
@@ -114,10 +119,10 @@ Outside `src/`, the directories that are load-bearing rather than incidental:
 | path | what it is |
 |---|---|
 | `backend/` | the FastAPI service — see "Backend" below |
-| `ontology/` | **canonical** cultural vocabulary (`ontology.json`) + `furniture.json` dimensions + `knowledge/<culture>.json` (the RAG editorial layer). `src/data/ontology.json` is a second copy — keep them in step |
+| `ontology/` | **canonical** cultural vocabulary (`ontology.json`) + `furniture.json` dimensions + `category_substitutes.json` (which piece stands in when a culture lacks a category — read by both `design_planner.py` and `culture.ts`) + `culture_palette.json` (how a generic material tag is read per culture — read by `materials.ts`) + `knowledge/<culture>.json` (the RAG editorial layer). `src/data/ontology.json` is a second copy — keep them in step |
 | `configs/` | `pipeline.yaml` + `sweep_winners.json` — ControlNet weights are tuned here, not in code |
 | `scripts/` | training/eval/ops (`train_lora.py`, `controlnet_sweep.py`, `metrics.py`, `backfill_evaluation.py`, `dev-tunnel.mjs`, `run-local-backend.ps1`) |
-| `tests/` | pytest, backend only — there is **no frontend test runner**; `npm run build` is the frontend's gate |
+| `tests/` | pytest, backend only. The frontend's own tests live beside their source as `src/**/*.test.ts` and run under `npm test` |
 | `docs/` | thesis chapters, defense Q&A, demo runbook, Zainab handoff |
 | `kaggle/` | paste-into-cell runbooks for the T4 notebook |
 | `eval/` · `outputs/` · `datasets/` · `models/loras/` | eval CSVs, generated batches, per-culture training data, trained LoRAs (weights gitignored) |
@@ -513,7 +518,45 @@ That first render read as a wooden-screen storage room rather than a majlis, whi
 
 ## Design Planner (`/design` → "Describe your room")
 
-Empty room → the user writes what they want → an LLM plans the furniture → it appears in Build Mode → they edit it → **Render with DAR**. Added 2026-08-12.
+Room → the user writes what they want → an LLM plans the furniture → it appears in Build Mode → they edit it → **Render with DAR**. Added 2026-08-12; became an *editor* rather than only a generator on 2026-08-14.
+
+**The planner answers `operations`, not `items`: `add` · `move` · `remove`.** It was add-only until 2026-08-14, and that single fact produced the bug it looked least like: *every* brief came back as the same furnished room, because "change the locations of the furniture here" can only be answered by an add-only vocabulary as a second living room stacked on the first. Three things had to change together:
+
+- **The model is shown the room.** `objects` (the whole scene, with uids) is sent beside `existing` (the found massing). Before, only `origin === "found"` pieces were sent, so everything the user had placed was invisible to the planner — it was being asked to rearrange a room it had never seen.
+- **`targetUid` is the second closed vocabulary**, an enum of the uids the client actually sent, so "move the sofa that isn't there" is unrepresentable exactly as an invented `catalogId` is. With nothing movable the enum would be empty, so `move`/`remove` are dropped from the `op` enum instead of being offered against nothing.
+- **`understood.intent`** is `furnish` | `edit`. An edit touches only what was asked about.
+
+**Only what the user placed is movable.** `movable_objects()` filters to `origin === "catalog"` and unlocked. `found` massing is DAR's reading of the photograph — moving one silently turns a measurement into a fiction — so it is shown as context with *no uid*, which makes moving it unrepresentable rather than merely discouraged. `gatePlan` re-checks the same rule client-side.
+
+**Counts are literal, and the arithmetic is DAR's.** A design model asked for five chairs reliably returns four and a paragraph about proportion, so `enforce_counts()` reconciles `understood.requestedFurniture` against what was actually planned: short → DAR appends the missing pieces flagged `autoPlaced` (no coordinate is invented; the client sends them straight to `findSpot`), over → the surplus is trimmed and named in `rejected`. The system prompt was also fighting it — *"prefer fewer, 5-9 is usually right"* is now explicitly subordinate to a stated number. `MAX_ITEMS` went 12 → 24: 12 was a whole-room ceiling that silently became a count ceiling.
+
+**The catalogue is nine pieces per culture but not the same nine.** Khaleeji has no `chair` (its seat is the majlis armchair), Lebanese no `lantern`, Moroccan no `lamp`/`screen`/`cultural_object`. `CATEGORY_SUBSTITUTES` + `item_for_category()` resolve the nearest in-culture piece and **report it** in `substitutions`, so the panel says *"Khaleeji has no chair in DAR's catalogue — the majlis armchair stood in"*. A parametrised test asserts every `REQUESTABLE_CATEGORIES` × culture pair resolves.
+
+**A brief may change the room's culture, and it now reaches the renderer.** `store.ts` gained a `setCulture` action that goes through `withHistory` rather than `replace`. That distinction is the whole point: `replace` wipes undo/redo, which is why a plan was previously forbidden from touching `scene.culture` — and the cost was that "make this a Moroccan room" planned Moroccan furniture that then rendered through the **Lebanese** LoRA, because `HandoffPanel` reads `scene.culture`. It now rides inside the plan's own gesture and comes back out with one Ctrl+Z.
+
+**Changing the culture converts the furniture too** (`src/lib/design/culture.ts`, 2026-08-14). Changing `scene.culture` used to change the label, the accent, the catalogue rail and the shell materials and *nothing else* — the pieces already standing in the room kept their old culture, so a "Moroccan room" stayed full of Lebanese seating. A room's cultural identity is carried by its **pieces**, not its label, and Render with DAR made the mismatch worse rather than better: it prompted one culture while conditioning on the geometry of another, so the render came back a hybrid. `planCultureConversion()` maps every movable piece to its counterpart **at the same position and rotation** — you customised this room, so changing its culture changes the vocabulary, not your layout.
+
+- **One implementation, two callers**: the planner path (`PlanPanel`, when `understood.culture` differs) and the catalogue rail's own switcher (`page.tsx`). Doing it server-side would have needed a second copy, because the rail makes no backend call.
+- **Deterministic, not model-dependent.** The model sometimes replaces the old pieces itself and sometimes does not; a demo cannot ride on which. `PlanPanel` skips whatever the model already removed (so nothing is removed twice) and converts a piece the model *moved* at its new position, dropping the redundant move.
+- **Expressed as removal + addition, never a `catalogId` rewrite**, so the counterpart faces the placement engine with its own real footprint — a Moroccan sedari is not the same size as a Lebanese sofa.
+- **`found` and locked pieces are never converted.** Converting found massing would claim the photographed room held a piece it did not — the same rule `movable_objects()` applies server-side.
+- **A category the target culture lacks resolves through `ontology/category_substitutes.json`** and is **reported** ("nearest equivalent"), never silent. That file is shared with `backend/design_planner.py`'s count enforcement precisely so a second hand-written table cannot drift, the way `ontology.json`'s two copies already do. A pytest asserts the backend loads it verbatim; a vitest asserts every piece in every culture converts into every other culture, so a room can never be left half-converted.
+- The rail switcher also stopped using `replace`: undoable was optional when the action was a palette swap and is not when it replaces furniture the user chose.
+
+**Swapping the catalogue ids was not enough — the maquette had nothing to show it with.** Converting worked, and the room still looked the same, because `TAG_TO_MATERIAL` in `materials.ts` is **culture-blind**: `fabric → linen`, `wood → cedar`, `stone → limestone`, for all three. Measured: the Moroccan sedari (tagged `brocade, fabric, cedar, wood`) resolved to `linen #c9b99a`, **pixel-identical to the Lebanese sofa**, and five of Moroccan's nine pieces came out plain cedar brown. `ontology/culture_palette.json` now reads a **generic** tag in the culture's own terms (`fabric` is wool terracotta in Moroccan, velvet in Khaleeji, linen in Lebanese) while a **specific** tag — velvet, marble, limestone, leather, zellige — still means itself everywhere. `materialForCulture()` replaces `materialForTags()` inside `defaultMaterialFor`.
+
+- **Upholstered categories prefer an upholstery material over a wood one**, whichever tag came first. `mor-armchair-001` is tagged `cedar, brocade, fabric, wood`, so honouring tag order alone rendered the "Brocade armchair" as a plain wooden chair. `chair` is deliberately *not* in that list — a carved wooden chair is wood.
+- Result: Lebanese reads cream/walnut/limestone, Khaleeji deep velvet/marble/brass, Moroccan **terracotta/cobalt/brass/cedar**. A vitest asserts the three cultures resolve to three *different* sofa materials, which is the exact regression that was reported.
+- **Known side effect, accepted:** the Lebanese "Damascene armchair" (tagged `walnut, silk, wood`) moved from walnut to linen, because it is upholstered. Only existing scenes' *new* placements are affected — a stored `materialKey` is never rewritten.
+- **The geometry is still culture-blind** (`geometry.ts` contains the string "culture" zero times): a sofa is `buildSofa` in every culture, differing only in centimetres. Per-culture silhouettes — Moroccan horseshoe-arch backs, Khaleeji low-slung majlis seating — are the obvious next step and were deliberately **not** taken, since they rewrite every builder and the conditioning capture that feeds Render with DAR.
+
+**A busy model is not a design decision.** `call_with_retry` retries 429/500/502/503/504 (3 attempts, exponential backoff) then walks `GEMINI_MODEL_CHAIN`; a 400 or 404 is not retried because it fails identically. **Every model in that chain was probed against a live key with a real structured-output request** — `models.list()` cheerfully lists models that then 404, so it is not evidence. As of 2026-08-14 `gemini-3.5-flash` (the previous default) returns 503 "high demand" on every attempt while 3.7/3.6/3.5-lite answer in 1–3s, so the default moved to `gemini-3.7-flash`; `DEFAULT_GEMINI_MODEL` is now `GEMINI_MODEL_CHAIN[0]` by construction so the advertised model and the tried model cannot drift. An explicit `DARDESIGN_LLM_MODEL` is the *only* model tried — naming one means that one.
+
+**`plan.warning` must be rendered.** The backend always computed it; the panel used to drop it, and that is what made the original bug invisible — a 503 and a deliberate layout looked identical, with nothing on screen admitting the brief had never been read. `PlanPanel` now prints *"Your brief was not read: the design model could not be reached (ServerError 503)"* whenever `source === "rules"` while a model is configured. Rejections also survive a fallback now: a plan whose every operation was refused returns them on the rule result rather than arriving as an unexplained furnished room.
+
+**The rule path reads the room even though it cannot read the brief.** `fallback_plan` skips a category already placed. It still never moves or removes anything — rules cannot know which piece you meant.
+
+**Verified end-to-end over real HTTP** (2026-08-14, live Gemini, behind a real session): "change the locations of the furniture here" → 3 moves and **0 additions**; "add 5 chairs" → exactly 5; "add 1 table" → 1, beside the existing sofa; "remove one chair" → that chair only; "make this a Moroccan room" → culture `moroccan`, room `salon marocain`, Lebanese pieces removed, Moroccan added, **and the locked `found` cabinet survived**; Khaleeji "add 5 chairs" → 5 majlis armchairs plus the substitution notice. Latency was **11-35s**, which is why the panel counts elapsed seconds — `/api/design/plan` returns once and has no intermediate state, so a percentage would be an invented animation. Client-side gate: [src/lib/design/planner.test.ts](src/lib/design/planner.test.ts), 19 tests.
 
 The model also **reads the brief**: one call returns an `understood` block (culture, room type, capacity, cultural intensity, wall/floor material, requirements, requested pieces) beside the placements. There is deliberately no separate "interpret, then plan" round trip — it would double latency and cost for information the one response already carries.
 
@@ -537,8 +580,9 @@ The model also **reads the brief**: one call returns an `understood` block (cult
 Rules that are easy to violate:
 
 - **`format` and `effort` are sibling keys inside ONE `output_config`.** Two separate `output_config` kwargs silently overwrite each other. Pinned by `test_format_and_effort_are_siblings_in_one_output_config`.
-- **Apply a plan with `beginGesture` → N × `addAt` → `endGesture`, never `replace`.** `replace` wipes `undo`/`redo` (`store.ts:301-309`), so an AI plan would be unundoable. Gestures collapse N adds into one entry — **one Ctrl+Z removes the whole plan**, wall and floor materials included (verified: 4 objects + 2 materials → 0 in one undo).
-- **`scene.culture` is deliberately never changed by a plan**, even when the brief asks for a different culture. Switching it goes through `setCulture`, which dispatches `replace` and would wipe history mid-gesture. The plan expresses culture through the pieces it places and the shell materials it sets — which is what is actually visible.
+- **Apply a plan with `beginGesture` → ops → `endGesture`, never `replace`.** `replace` wipes `undo`/`redo` (`store.ts`), so an AI plan would be unundoable. Gestures collapse the whole plan into one entry — **one Ctrl+Z takes it all back out**, wall and floor materials and the culture included (verified: 4 objects + 2 materials → 0 in one undo).
+- **Apply in the order the gate judged them: remove → move → add.** An add applied before a removal lands in floor that is about to be freed, and the two verdicts then disagree with each other. `gatePlan` evaluates in exactly that order for the same reason.
+- **`scene.culture` IS changed by a plan now** — through the `setCulture` reducer action, which commits via `withHistory`. Do not reintroduce a culture change that dispatches `replace`; that was the original reason a plan could not touch it, and the cost was Moroccan furniture rendering through the Lebanese LoRA. (The page's own culture switcher still uses `replace`, which is correct there — it is a deliberate reset, not part of a gesture.)
 - **Cultural intensity and room type live in page state (`renderIntent`), not in `DesignScene`.** A new scene field bumps `SCENE_VERSION`, and `loadScene` silently drops any scene whose version does not match — i.e. it would throw away every room a user had saved. From there `roomType` reaches `/render-scene`'s existing `room` param (it was hardcoded `"living room"`) and `intensity` its new optional `scale`, which is a pass-through to the `lora_scale` `render_scene()` already accepted. **Omitted, the render path is byte-for-byte what it was** — the same discipline as `control_override`.
 - `addAt` takes an optional `materialKey` (added for this feature); omitted, the ontology's own default for the piece stands.
 - The planner endpoint is on **`DATA_API_URL`, not `API_URL`** — the model key belongs on a machine the user controls, never on a throwaway Kaggle GPU container. It is also **behind `_require_user`**, because every call spends real money.
@@ -548,7 +592,7 @@ Rules that are easy to violate:
 
 **Cost.** The catalogue is 9 items per culture, so a plan is ~1k tokens in / ~1.5k out — about $0.02 on `claude-sonnet-5` (the default; `DARDESIGN_LLM_MODEL` overrides). Do **not** send `furniture.json` wholesale (9.4k tokens); `catalogue_projection()` is the compact view. **Prompt caching is deliberately unused** — the minimum cacheable prefix is 1024 tokens on Sonnet 5 and 4096 on Haiku 4.5, so a prompt this small would silently fail to cache and pay the write premium for nothing. An in-process response cache keyed on `sha256(room + culture + normalised brief)` makes a repeated demo free, and `MAX_CALLS_PER_PROCESS = 200` bounds a runaway loop.
 
-Config: `.dardesign-llm` (gitignored; template in `.dardesign-llm.example`), loaded by `run-local-backend.ps1` exactly like `.dardesign-smtp`. Tests: [tests/test_design_planner.py](tests/test_design_planner.py) — 25 tests, **no live API calls**, fake client injected via `plan(..., client=…)`.
+Config: `.dardesign-llm` (gitignored; template in `.dardesign-llm.example`), loaded by `run-local-backend.ps1` exactly like `.dardesign-smtp`. Tests: [tests/test_design_planner.py](tests/test_design_planner.py) — 112 tests, **no live API calls**, fake client injected via `plan(..., client=…)`.
 
 ---
 

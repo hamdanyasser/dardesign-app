@@ -16,6 +16,43 @@ $secretFile = Join-Path $root ".dardesign-secret"
 $venvPython = Join-Path $root ".venv\Scripts\python.exe"
 $py = if (Test-Path $venvPython) { $venvPython } else { "python" }
 
+# ---------------------------------------------------------------------------
+# Is :8000 already taken? Check BEFORE printing anything.
+#
+# This banner is assembled by a short-lived python subprocess that imports the
+# CURRENT code, so it happily reports the model this checkout would use — and
+# then uvicorn fails to bind with [Errno 10048], exits, and the ALREADY RUNNING
+# backend keeps answering on :8000. You are then looking at a green banner
+# describing code that is not serving a single request, which is the most
+# expensive kind of wrong: it reads as confirmation.
+#
+# Cost a real debugging session on 2026-08-14 — a planner fix looked unapplied
+# for an hour because the stale process was three hours old. Same family as the
+# provider line below: the launcher must never describe something other than
+# what it actually started.
+# ---------------------------------------------------------------------------
+$busy = Get-NetTCPConnection -LocalPort 8000 -State Listen -ErrorAction SilentlyContinue
+if ($busy) {
+    $owner = try { (Get-Process -Id $busy.OwningProcess[0] -ErrorAction Stop) } catch { $null }
+    Write-Host ""
+    Write-Host "port 8000 is already serving - THIS SCRIPT DID NOT START ANYTHING." -ForegroundColor Red
+    if ($owner) {
+        Write-Host ("  held by  : pid {0} ({1}), up since {2}" -f `
+            $owner.Id, $owner.ProcessName, $owner.StartTime) -ForegroundColor Yellow
+    }
+    try {
+        $live = (Invoke-WebRequest "http://localhost:8000/api/design/planner-status" `
+                 -UseBasicParsing -TimeoutSec 3).Content
+        Write-Host "  serving  : $live" -ForegroundColor Yellow
+        Write-Host "  (that is the running process answering - it may predate your edits)" -ForegroundColor Yellow
+    } catch {}
+    Write-Host ""
+    Write-Host "Stop it first, then re-run:" -ForegroundColor Cyan
+    if ($owner) { Write-Host "  Stop-Process -Id $($owner.Id) -Force" -ForegroundColor Cyan }
+    Write-Host ""
+    exit 1
+}
+
 if (-not (Test-Path $secretFile)) {
     $bytes = New-Object byte[] 32
     [System.Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($bytes)
