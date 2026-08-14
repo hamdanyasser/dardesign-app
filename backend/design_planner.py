@@ -127,6 +127,21 @@ MAX_OUTPUT_TOKENS = 2000
 # plan: ~5k thinking tokens before ~1.1k of JSON, so the 2k that is ample for
 # Anthropic truncates the response mid-object and the plan silently degrades to
 # rules. Free tier, so the headroom costs nothing.
+#
+# Do NOT raise this to "fix" a JSONDecodeError. That was tried on 2026-08-14
+# (12000 -> 32000) on the theory that a brief touching many pieces at once
+# ("remove everything") legitimately needed more room. It does not: a healthy
+# plan measures out=1030, and the failing calls simply hit whatever ceiling was
+# in place — out=11984 against 12000, then out=31983 against 32000, ~92k
+# characters and ~3200 lines of JSON against a MAX_OPERATIONS of 36. That is
+# gemini-3.5-flash-lite degenerating into a repetition loop, not a plan that
+# needs headroom, and the larger budget only bought a slower failure (~80s
+# instead of ~30s) before the same fall through to rules.
+#
+# The real handling for a runaway sample is `is_retryable` — a body that will
+# not parse is retried, which draws again and usually succeeds. Keep this
+# ceiling near the largest LEGITIMATE response so a degenerating model fails
+# fast and the retry gets its turn sooner.
 MAX_OUTPUT_TOKENS_GEMINI = 12000
 # 12 was a whole-room ceiling and it silently became a *count* ceiling the
 # moment briefs could say "add five chairs": five chairs in a room that already
@@ -134,6 +149,12 @@ MAX_OUTPUT_TOKENS_GEMINI = 12000
 # decides how much furniture a room can hold.
 MAX_ITEMS = 24
 MAX_OPERATIONS = 36
+
+# Bounds for the free-text-ish arrays in `understood`. Nothing has ever run away
+# here, but an unbounded array is an unbounded array — see the note on maxItems
+# in plan_schema for why that matters more than it looks.
+MAX_REQUIREMENTS = 12
+MAX_REQUESTED_CATEGORIES = 12
 
 # A paid endpoint deserves a ceiling that does not depend on anyone remembering.
 # Per process, reset on restart; the point is to bound a runaway loop, not to bill.
@@ -420,9 +441,14 @@ def plan_schema(culture: str, movable_uids: list[str] | None = None) -> dict:
                     },
                     "conceptEn": {"type": "string"},
                     "conceptAr": {"type": "string"},
-                    "requirements": {"type": "array", "items": {"type": "string"}},
+                    "requirements": {
+                        "type": "array",
+                        "maxItems": MAX_REQUIREMENTS,
+                        "items": {"type": "string"},
+                    },
                     "requestedFurniture": {
                         "type": "array",
+                        "maxItems": MAX_REQUESTED_CATEGORIES,
                         "items": {
                             "type": "object",
                             "properties": {
@@ -444,8 +470,24 @@ def plan_schema(culture: str, movable_uids: list[str] | None = None) -> dict:
                 ],
                 "additionalProperties": False,
             },
+            # maxItems is load-bearing, not tidiness. Without it nothing tells
+            # the model when to stop: MAX_OPERATIONS was applied only as a
+            # Python slice AFTER the response arrived, which cannot prevent a
+            # runaway generation. A weak model handed a brief that touches
+            # everything at once ("remove everything") then degenerates into a
+            # repetition loop — measured on gemini-3.5-flash-lite: ~92k
+            # characters, ~3200 lines of JSON against this ceiling of 36,
+            # failing to parse and dropping the user onto the rules path.
+            #
+            # ONLY Anthropic enforces it. Gemini's response_schema rejects
+            # maxItems with a 400, so gemini_schema strips it and the ceiling
+            # there is carried by the prompt, _salvage_json and the retry
+            # instead. Declared here regardless: the schema is the honest
+            # statement of the contract, and the provider that can enforce it
+            # should.
             "operations": {
                 "type": "array",
+                "maxItems": MAX_OPERATIONS,
                 "items": operation_schema(culture, movable_uids),
             },
             "notesEn": {"type": "string"},
@@ -476,7 +518,14 @@ YOU ARE EDITING A ROOM, NOT ONLY FILLING ONE. Answer in `operations`:
 - {"op":"move"}   — reposition a piece that is ALREADY in the room. Needs
                     targetUid and the new xCm, zCm, rotationDeg.
 - {"op":"remove"} — take a piece out of the room. Needs targetUid only.
-Emit as many as the brief calls for, in any order, and give each one a reason.
+Emit them in any order, and give each one a reason.
+
+STOP WHEN THE BRIEF IS ANSWERED. One operation per piece, and never more than
+36 operations in total. Never emit two operations for the same targetUid, and
+never repeat an operation you have already written. "Remove everything" means
+exactly one remove per uid listed as in the room and nothing else — when every
+one of those uids has been covered, the operations array is finished. A long
+answer is not a better answer; repeating yourself makes the response unusable.
 
 `understood.intent` says which kind of brief this is, and it changes what a good
 answer looks like:
@@ -1216,7 +1265,115 @@ def _call_anthropic(api: Any, model: str, message: str, schema: dict) -> dict:
     )
     _log_cost(model, getattr(resp, "usage", None))
     text = next((b.text for b in resp.content if getattr(b, "type", "") == "text"), "")
-    return json.loads(text)
+    return _loads_or_salvage(text, model)
+
+
+def _salvage_json(text: str) -> dict:
+    """Recover the usable prefix of a response that will not parse.
+
+    A degenerating model does not produce garbage from the first byte. It writes
+    a perfectly good `understood` block and a run of complete `operations`, then
+    loops or is cut off mid-token. Throwing all of that away is what put the
+    user on the rules path with "your brief was not read", when the brief HAD
+    been read and most of the answer was sitting in the buffer.
+
+    The method is deliberately dumb, because a clever repairer is a repairer
+    that invents: walk the text once tracking string/escape state and bracket
+    depth, remember the offset after each COMPLETE top-level-object element, and
+    re-parse the prefix with the open brackets closed. Nothing is synthesised —
+    every field returned was written by the model.
+
+    Raises the original JSONDecodeError if nothing usable survives, so the
+    retry and rules paths behave exactly as before.
+    """
+    depth = 0
+    in_str = False
+    esc = False
+    # Offsets where the value ended at each depth, so we can cut cleanly.
+    safe_cut = {}
+    for i, ch in enumerate(text):
+        if esc:
+            esc = False
+            continue
+        if ch == "\\":
+            esc = True
+            continue
+        if ch == '"':
+            in_str = not in_str
+            continue
+        if in_str:
+            continue
+        if ch in "{[":
+            depth += 1
+        elif ch in "}]":
+            depth -= 1
+            if depth >= 0:
+                safe_cut[depth] = i + 1
+        elif ch == "," and depth in safe_cut:
+            # A comma at this depth means the element before it was complete.
+            safe_cut[depth] = i
+
+    # Try the longest prefixes first: deepest complete element, then shallower.
+    for depth_level in sorted(safe_cut, reverse=True):
+        cut = safe_cut[depth_level]
+        candidate = text[:cut].rstrip().rstrip(",")
+        # Close whatever is still open, innermost first.
+        opens = []
+        in_s = False
+        es = False
+        for ch in candidate:
+            if es:
+                es = False
+                continue
+            if ch == "\\":
+                es = True
+                continue
+            if ch == '"':
+                in_s = not in_s
+                continue
+            if in_s:
+                continue
+            if ch in "{[":
+                opens.append(ch)
+            elif ch in "}]" and opens:
+                opens.pop()
+        repaired = candidate + ('"' if in_s else "") + "".join(
+            "}" if o == "{" else "]" for o in reversed(opens)
+        )
+        try:
+            data = json.loads(repaired)
+        except (json.JSONDecodeError, ValueError):
+            continue
+        if not isinstance(data, dict):
+            continue
+        # `understood` is the half that makes a plan honest — it is what the
+        # panel prints as "DAR understood". Without it we have operations with
+        # no stated reading of the brief, which is worse than falling back.
+        understood = data.get("understood")
+        if not isinstance(understood, dict) or not understood.get("culture"):
+            continue
+        ops = data.get("operations")
+        data["operations"] = ops[:MAX_OPERATIONS] if isinstance(ops, list) else []
+        data.setdefault("notesEn", "")
+        data.setdefault("notesAr", "")
+        data["salvaged"] = True
+        return data
+
+    raise json.JSONDecodeError("no salvageable prefix", text, 0)
+
+
+def _loads_or_salvage(text: str, model: str) -> dict:
+    """json.loads, falling back to the recoverable prefix. Never invents."""
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        data = _salvage_json(text)  # re-raises if nothing survives
+        logger.warning(
+            "[planner] %s returned unparseable JSON (%d chars) — salvaged "
+            "understood + %d operations",
+            model, len(text), len(data.get("operations") or []),
+        )
+        return data
 
 
 def gemini_schema(schema: Any) -> Any:
@@ -1229,6 +1386,17 @@ def gemini_schema(schema: Any) -> Any:
       * `additionalProperties` -> 400 "Unknown name additional_properties".
         Dropped. Anthropic still gets it (strict mode needs it), and it costs
         nothing here because validate_items ignores unknown keys anyway.
+      * `maxItems` -> 400 INVALID_ARGUMENT, on every model in the chain.
+        Dropped, and this one DOES cost something: it is the structural stop
+        that keeps a degenerating model from writing 3200 lines of operations,
+        so on Gemini that job falls to the prompt ceiling ("STOP WHEN THE BRIEF
+        IS ANSWERED"), `_salvage_json`, and the retry in `is_retryable`.
+        Anthropic keeps the bound and enforces it properly.
+        Do not be fooled by the SDK: `google.genai.types.Schema` HAS a
+        `max_items` field and accepts the key without complaint, so a local
+        round-trip through the type looks like proof. It is not — only a live
+        request is. Verified 2026-08-14: identical request accepted with the
+        key removed, 400 with it present.
       * `type: ["string", "null"]` union -> not supported; Gemini spells an
         optional field `nullable: true` with a single type.
       * `null` inside an `enum` list -> not a valid enum member; the nullable
@@ -1244,7 +1412,7 @@ def gemini_schema(schema: Any) -> Any:
 
     out: dict = {}
     for key, value in schema.items():
-        if key == "additionalProperties":
+        if key in ("additionalProperties", "maxItems"):
             continue
         if key == "type" and isinstance(value, list):
             non_null = [t for t in value if t != "null"]
@@ -1287,7 +1455,7 @@ def _call_gemini(api: Any, model: str, message: str, schema: dict) -> dict:
             getattr(usage, "candidates_token_count", "?"),
             _calls_made, MAX_CALLS_PER_PROCESS,
         )
-    return json.loads(resp.text)
+    return _loads_or_salvage(resp.text or "", model)
 
 
 # --------------------------------------------------------------------------
@@ -1346,6 +1514,20 @@ def is_retryable(exc: Exception) -> bool:
     status = _status_of(exc)
     if status is not None:
         return status in RETRY_STATUSES
+    # A body that will not parse is a bad *sample*, not a bad request. Sampling
+    # is stochastic, so the next attempt draws different tokens and usually
+    # parses — which is the opposite of a 400, where a second identical request
+    # earns a second identical refusal.
+    #
+    # This matters because the weakest model in the chain can degenerate into a
+    # repetition loop on briefs that touch many pieces at once ("remove
+    # everything"): measured on gemini-3.5-flash-lite, out=31983 tokens and
+    # ~92k characters of JSON — roughly 3200 lines against a MAX_OPERATIONS of
+    # 36 — failing with "Expecting property name enclosed in double quotes".
+    # Without this branch that lands on the rules path immediately, and the
+    # panel has to admit the brief was never read.
+    if isinstance(exc, json.JSONDecodeError):
+        return True
     # No status at all is usually a socket or DNS blip on the way out.
     return isinstance(exc, (ConnectionError, TimeoutError))
 
@@ -1719,6 +1901,11 @@ def plan(
                     "model": model,
                     "provider": which,
                     "rejected": rejected,
+                    # True when the body did not parse and the usable prefix was
+                    # recovered. The plan IS the model's — every field below was
+                    # written by it — but the panel should say the response came
+                    # back incomplete rather than imply a clean answer.
+                    "salvaged": bool(data.get("salvaged")),
                     # injected=True only if there were chunks to inject; the
                     # payload itself decides, so an empty retrieval cannot
                     # advertise an influence it did not have.

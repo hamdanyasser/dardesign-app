@@ -467,6 +467,20 @@ export default function PlanPanel({
             </p>
           )}
 
+          {/* The model answered, but its response came back incomplete and the
+              usable prefix was recovered. Said out loud for the same reason the
+              rules warning above is: the plan IS the model's — every piece was
+              written by it and judged by the same gates — but a truncated
+              answer may be missing operations the brief asked for, and the user
+              is the one deciding whether to press the button again. */}
+          {byModel && plan.salvaged && (
+            <p className="plan-warn" role="status">
+              {isArabic
+                ? "جاء ردّ النموذج ناقصًا؛ استُخدم الجزء الصالح منه. قد تنقص بعض العناصر — أعد المحاولة للحصول على خطة كاملة."
+                : "The model's response came back incomplete, so the usable part was used. Some pieces may be missing — try again for a full plan."}
+            </p>
+          )}
+
           {/* DAR understood — the brief read back as design decisions, not as
               a transcript. Every value here was validated against a real DAR
               vocabulary server-side, so nothing in this block is a guess. */}

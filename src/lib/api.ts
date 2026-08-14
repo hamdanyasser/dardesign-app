@@ -1832,6 +1832,13 @@ export interface DesignPlan {
   evidenceMeta?: EvidenceMeta;
   warning?: string;
   cached?: boolean;
+  /**
+   * The model's body did not parse and the usable prefix was recovered, so the
+   * plan may be missing operations the brief asked for. `source` stays "llm"
+   * because every field WAS written by the model — but the panel says the
+   * response came back incomplete rather than implying a clean answer.
+   */
+  salvaged?: boolean;
 }
 
 export interface PlanRoomInput {

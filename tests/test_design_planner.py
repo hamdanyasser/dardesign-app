@@ -278,6 +278,153 @@ def test_effort_is_still_sent_to_a_model_that_supports_it(monkeypatch):
     assert fake.last_kwargs["output_config"]["effort"] == "low"
 
 
+def _degenerate_body(n_ops=6, tail=""):
+    ops = ",".join(
+        '{"op":"remove","targetUid":"u%d","reasonEn":"Clearing.","reasonAr":"إفراغ."}' % i
+        for i in range(n_ops)
+    )
+    return (
+        '{"understood":{"culture":"khaleeji","intent":"edit","roomType":"majlis",'
+        '"capacity":null,"intensity":null,"wallMaterialKey":null,"floorMaterialKey":null,'
+        '"conceptEn":"Clear it.","conceptAr":"أفرغها.","requirements":[],'
+        '"requestedFurniture":[]},"operations":[' + ops + tail
+    )
+
+
+@pytest.mark.parametrize("tail", [
+    ',{"op":"remove","targetUid":"u9","reasonEn":"Unterminat',  # cut mid-string
+    ',{"op":"remove","targetUid":',                              # cut mid-object
+    ',',                                                          # trailing comma
+    '',                                                           # cut at element boundary
+])
+def test_a_truncated_response_is_salvaged_not_discarded(tail):
+    """The prefix of a degenerate body is a real answer and must not be thrown away.
+
+    A looping model writes a valid `understood` and a run of complete
+    operations, then repeats or is cut off. Discarding all of it is what put
+    "your brief was not read" on screen when the brief HAD been read.
+    """
+    data = planner._loads_or_salvage(_degenerate_body(tail=tail), "m")
+    assert data["salvaged"] is True
+    assert data["understood"]["culture"] == "khaleeji"
+    assert len(data["operations"]) == 6
+    assert all(o["op"] == "remove" for o in data["operations"])
+
+
+def test_clean_json_is_not_marked_salvaged():
+    body = _degenerate_body(tail='],"notesEn":"ok","notesAr":"تم"}')
+    data = planner._loads_or_salvage(body, "m")
+    assert data.get("salvaged", False) is False
+    assert len(data["operations"]) == 6
+
+
+@pytest.mark.parametrize("body", [
+    '{"operations":[{"op":"remove"',   # no understood block
+    "!!! not json at all",
+    "",
+])
+def test_salvage_refuses_rather_than_invents(body):
+    """No `understood` means no honest plan — fail through to retry/rules.
+
+    Salvage may only ever drop trailing garbage. Synthesising a missing field
+    would manufacture a reading of the brief the model never made.
+    """
+    with pytest.raises(json.JSONDecodeError):
+        planner._loads_or_salvage(body, "m")
+
+
+def test_salvage_respects_the_operations_ceiling():
+    data = planner._loads_or_salvage(
+        _degenerate_body(n_ops=planner.MAX_OPERATIONS + 20, tail=',{"op":"rem'), "m",
+    )
+    assert len(data["operations"]) == planner.MAX_OPERATIONS
+
+
+@pytest.mark.parametrize("culture", ["lebanese", "khaleeji", "moroccan"])
+def test_the_operations_array_is_bounded_in_the_schema(culture):
+    """MAX_OPERATIONS as a post-hoc Python slice cannot stop a runaway generation.
+
+    Without maxItems nothing tells the model when to stop, which is how a weak
+    model produced ~3200 lines of JSON against a ceiling of 36.
+    """
+    schema = planner.plan_schema(culture)
+    assert schema["properties"]["operations"]["maxItems"] == planner.MAX_OPERATIONS
+    u = schema["properties"]["understood"]["properties"]
+    assert u["requirements"]["maxItems"] == planner.MAX_REQUIREMENTS
+    assert u["requestedFurniture"]["maxItems"] == planner.MAX_REQUESTED_CATEGORIES
+
+
+def test_maxitems_is_stripped_for_gemini():
+    """Gemini's response_schema 400s on maxItems, so it must not be sent.
+
+    Verified live 2026-08-14: the identical request is ACCEPTED with the key
+    removed and returns 400 INVALID_ARGUMENT with it present, on every model in
+    GEMINI_MODEL_CHAIN. Note that google.genai.types.Schema HAS a `max_items`
+    field and constructs happily, so a local round-trip through the SDK type is
+    NOT evidence the API accepts it — only a live request is.
+
+    The consequence is real: Gemini loses the structural stop, so the ceiling
+    there rests on the prompt, _salvage_json and the retry.
+    """
+    out = planner.gemini_schema(planner.plan_schema("khaleeji"))
+    assert "maxItems" not in out["properties"]["operations"]
+    u = out["properties"]["understood"]["properties"]
+    assert "maxItems" not in u["requirements"]
+    # The enum — gate 1 — must survive the same translation untouched.
+    ids = out["properties"]["operations"]["items"]["properties"]["catalogId"]["enum"]
+    assert set(ids) == set(planner.allowed_ids("khaleeji"))
+
+
+def test_the_prompt_states_a_stop_condition():
+    """The schema bound and the prompt must agree, or the model gets mixed signals."""
+    assert "STOP WHEN THE BRIEF IS ANSWERED" in planner._SYSTEM
+    assert str(planner.MAX_OPERATIONS) in planner._SYSTEM
+
+
+def test_an_unparseable_body_is_retried():
+    """A malformed sample is not a malformed request.
+
+    The weakest model in the chain can degenerate into a repetition loop on a
+    brief that touches many pieces at once, emitting tens of thousands of
+    tokens of invalid JSON. Sampling again usually parses, so this must retry
+    rather than fall straight through to the rule-based layout.
+    """
+    exc = json.JSONDecodeError("Expecting property name", '{"a": 1,,}', 8)
+    assert planner.is_retryable(exc)
+
+
+def test_a_bad_request_is_still_not_retried():
+    """Guards the boundary: retrying a 400 earns the same refusal twice."""
+    class _Err(Exception):
+        status_code = 400
+
+    assert not planner.is_retryable(_Err("bad schema"))
+
+
+def test_the_gemini_output_ceiling_stays_near_a_real_plan():
+    """Raising this to chase a JSONDecodeError buys a slower failure, not a fix.
+
+    A healthy plan measures ~1k output tokens; the failures measured 11984 and
+    31983 — i.e. whatever ceiling was set. Pinned so the ceiling is not quietly
+    inflated again in response to a runaway sample.
+    """
+    assert planner.MAX_OUTPUT_TOKENS_GEMINI <= 16000
+
+
+def test_a_runaway_sample_is_retried_then_falls_through(monkeypatch):
+    """End to end: retries on the same model, then degrades honestly."""
+    monkeypatch.setattr(planner, "_sleep", lambda _s: None)
+    attempts = []
+
+    def _always_garbage(api, model, message, schema):
+        attempts.append(model)
+        raise json.JSONDecodeError("Expecting property name", "{,}", 1)
+
+    with pytest.raises(json.JSONDecodeError):
+        planner.call_with_retry(_always_garbage, object(), ["m1"], "msg", {})
+    assert len(attempts) == planner.MAX_ATTEMPTS_PER_MODEL
+
+
 def test_the_effort_guard_covers_the_cheap_end_of_the_anthropic_chain():
     """The chain's fallback model is the one without `effort`.
 
