@@ -1107,3 +1107,139 @@ def test_a_spent_day_costs_one_request_per_model_not_three(monkeypatch):
     assert attempts == ["m1", "m2", "m3", "m4"], (
         "one request per model: 4 instead of 12"
     )
+
+
+# --------------------------------------------------------------------------
+# redesign — remaking a room in a named culture
+#
+# The distinction that makes this work: DAR swaps the furniture
+# deterministically from the ontology, and the model supplies only the
+# ARRANGEMENT, guided by that culture's documented spatial conventions.
+# --------------------------------------------------------------------------
+
+from backend import retrieval as _r  # noqa: E402
+
+
+def test_redesign_is_a_real_intent():
+    assert "redesign" in planner.PLAN_INTENTS
+    u = planner.validate_understood({"intent": "redesign"}, "lebanese")
+    assert u["intent"] == "redesign"
+
+
+def test_conventions_are_fetched_by_culture_not_by_query():
+    """Each culture has five spatial conventions and they come back whole."""
+    for culture in ("lebanese", "khaleeji", "moroccan"):
+        chunks = _r.conventions_for(culture)
+        assert len(chunks) == 5, f"{culture} has {len(chunks)}"
+        assert all(c.category == "spatial_convention" for c in chunks)
+        assert all(c.culture == culture for c in chunks)
+
+
+def test_persian_has_no_conventions_to_offer():
+    """Persian is deliberately absent from the knowledge base — offering it
+    cultural evidence would overstate what DAR has."""
+    assert _r.conventions_for("persian") == ()
+
+
+def test_lexical_retrieval_alone_would_lose_the_conventions():
+    """The measured reason conventions_for exists.
+
+    BM25 ranks the thirty vocabulary entries above the five layout rules for a
+    redesign brief, because the brief is three words of intent and the culture
+    name appears in everything. Retrieval is the wrong tool when the answer
+    does not depend on the query."""
+    res = _r.retrieve("redesign it into a Lebanese culture room", "lebanese")
+    surfaced = [r.chunk for r in res.chunks if r.chunk.category == "spatial_convention"]
+    assert len(surfaced) < 5, "if BM25 now returns all five, conventions_for is redundant"
+    # And the deterministic path gets all of them regardless.
+    assert len(_r.conventions_for("lebanese")) == 5
+
+
+def test_the_brief_decides_the_culture_before_the_model_is_called():
+    """The conventions must be chosen before the call, and the model is what
+    would otherwise choose the culture — so the deterministic detector does."""
+    block = planner.conventions_block("redesign it into a Lebanese culture room", "moroccan")
+    assert "LEBANESE" in block
+    assert "MOROCCAN" not in block
+
+
+def test_an_arabic_brief_reaches_the_same_conventions():
+    block = planner.conventions_block("اجعلها غرفة مغربية تقليدية", "lebanese")
+    assert "MOROCCAN" in block
+
+
+def test_a_brief_that_names_no_culture_keeps_the_rooms_own():
+    block = planner.conventions_block("make it cosier", "khaleeji")
+    assert "KHALEEJI" in block
+
+
+def test_conventions_say_they_are_unverified():
+    """None of the fifteen carries a sign-off or a citation, unlike the
+    vocabulary entries. A prompt presenting them as fact would be a lie the
+    model then repeats."""
+    block = planner.conventions_block("redesign it as Moroccan", "moroccan")
+    assert "not verified" in block.lower() or "unverified" in block.lower()
+    for c in planner.conventions_payload("redesign it as Moroccan", "moroccan"):
+        assert c["verified"] is False
+
+
+def test_the_avoid_clause_survives_into_the_prompt():
+    """The conventions were written with the failure case in them, and that
+    sentence does more work than the positive guidance."""
+    block = planner.conventions_block("turn this into a Khaleeji majlis", "khaleeji")
+    assert "avoid:" in block
+    assert "coffee table" in block.lower()
+
+
+def test_no_conventions_for_all_or_when_rag_is_off(monkeypatch):
+    assert planner.conventions_block("redesign it", "all") == ""
+    monkeypatch.setenv("DARDESIGN_RAG", "0")
+    assert planner.conventions_block("make it Lebanese", "lebanese") == ""
+    assert planner.conventions_payload("make it Lebanese", "lebanese") == []
+
+
+def test_the_conventions_reach_the_model_prompt():
+    """The whole point: the layout rules must be in the message the provider
+    was handed, not merely computed somewhere."""
+    payload = _ops_payload(
+        [_op("move", targetUid="u-chair", xCm=200, zCm=180, rotationDeg=0)],
+        culture="moroccan", intent="redesign",
+    )
+    fake = _FakeClient(payload)
+    planner.plan(ROOM, "lebanese", "redesign it into a Moroccan room",
+                 objects=SCENE, client=fake)
+    sent = fake.last_kwargs["messages"][0]["content"]
+    assert "HOW A MOROCCAN ROOM IS ARRANGED" in sent
+    assert "The centre of the room is kept empty" in sent
+
+
+def test_a_redesign_plan_carries_its_conventions_to_the_client():
+    payload = _ops_payload(
+        [_op("move", targetUid="u-chair", xCm=200, zCm=180, rotationDeg=0)],
+        culture="moroccan", intent="redesign",
+    )
+    r = planner.plan(ROOM, "lebanese", "redesign it into a Moroccan room",
+                     objects=SCENE, client=_FakeClient(payload))
+    assert r["understood"]["intent"] == "redesign"
+    assert len(r["conventions"]) == 5
+    assert all(c["culture"] == "moroccan" for c in r["conventions"])
+    assert all(c["verified"] is False for c in r["conventions"])
+
+
+def test_rules_report_no_conventions():
+    """A rule-based layout was not arranged to satisfy anything. Reporting the
+    conventions there would claim an influence that did not happen — the same
+    rule `evidenceMeta.injected` already follows."""
+    r = planner.plan(ROOM, "lebanese", "redesign it into a Moroccan room", objects=SCENE)
+    assert r["source"] == "rules"
+    assert r["conventions"] == []
+
+
+def test_the_prompt_tells_the_model_not_to_swap_furniture_itself():
+    """DAR converts deterministically from the ontology. A model also emitting
+    add/remove for the same swap would double-handle the room."""
+    # Whitespace-collapsed so re-wrapping the prompt does not break the test;
+    # what matters is the instruction, not where the line ends.
+    flat = " ".join(planner._SYSTEM.split())
+    assert "YOUR JOB HERE IS THE ARRANGEMENT, NOT THE FURNITURE" in flat
+    assert "DAR does that itself, deterministically" in flat

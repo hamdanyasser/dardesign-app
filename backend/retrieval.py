@@ -351,6 +351,91 @@ def retrieve(
         return EMPTY
 
 
+def conventions_for(
+    culture: str,
+    room: str | None = None,
+    *,
+    chunks: Iterable[Chunk] | None = None,
+) -> tuple[Chunk, ...]:
+    """A culture's spatial conventions, fetched BY CULTURE rather than by query.
+
+    This is deliberately not `retrieve()`, and the difference is the whole
+    reason it exists.
+
+    `retrieve()` ranks the corpus lexically against the brief. For an ordinary
+    brief that is right — the words a person used are the best signal for which
+    of thirty vocabulary terms matter. But a redesign brief is three words of
+    intent ("redesign it into a Lebanese room") against a corpus of thirty-five
+    chunks per culture, thirty of which are vocabulary. BM25 ranks those
+    vocabulary terms above the five layout rules, because "Lebanese" and "room"
+    appear in all of them, so the knowledge the redesign actually depends on is
+    the knowledge most likely to be crowded out.
+
+    A redesign always needs the same five chunks for a given culture. When the
+    answer does not depend on the query, retrieval is the wrong tool: ask for
+    them.
+
+    `room` filters to the conventions that name that room type, and falls back
+    to all of them rather than none — a convention that lists no room applies
+    everywhere, and an empty block would silently turn a redesign back into a
+    re-skin.
+    """
+    try:
+        pool = list(chunks) if chunks is not None else corpus()
+    except Exception:  # noqa: BLE001 — evidence is optional; the plan is not
+        logger.exception("[rag] corpus unavailable for conventions")
+        return ()
+
+    found = [
+        c for c in pool
+        if c.culture == culture and c.category == "spatial_convention"
+    ]
+    if room:
+        scoped = [c for c in found if room in c.rooms]
+        if scoped:
+            return tuple(scoped)
+    return tuple(found)
+
+
+def format_conventions_for_prompt(
+    conventions: Sequence[Chunk], culture: str, arabic: bool = False,
+) -> str:
+    """The layout rules, written as constraints the arrangement must satisfy.
+
+    Kept separate from `format_for_prompt` because it is a different kind of
+    instruction. That block is reference material the model may draw on; this
+    one states what the finished plan has to be true of, including what it must
+    NOT do — `avoid` is quoted verbatim, because the conventions were written
+    with the failure case in them ("a coffee table in the centre is the single
+    change that stops a majlis working") and that sentence does more work than
+    the positive guidance does.
+
+    Says out loud that these are unverified. They carry no citation and no
+    sign-off — unlike the vocabulary entries, some of which do — and a prompt
+    that presented them as established fact would be the model's problem to
+    unlearn later.
+    """
+    if not conventions:
+        return ""
+
+    lines = [
+        f"HOW A {culture.upper()} ROOM IS ARRANGED — these are constraints on the "
+        "finished layout, not decoration. Satisfy them with `move` operations.",
+        "Editorial guidance, not verified or cited: state nothing to the user as fact.",
+        "",
+    ]
+    for i, c in enumerate(conventions, 1):
+        title = c.element_ar if arabic and c.element_ar else c.element_en
+        guidance = c.guidance_ar if arabic and c.guidance_ar else c.guidance_en
+        avoid = c.avoid_ar if arabic and c.avoid_ar else c.avoid_en
+        lines.append(f"{i}. {title}")
+        if guidance:
+            lines.append(f"   do: {guidance}")
+        if avoid:
+            lines.append(f"   avoid: {avoid}")
+    return "\n".join(lines)
+
+
 def format_for_prompt(result: RetrievalResult, arabic: bool = False) -> str:
     """The evidence block that goes into the planner's user message.
 
