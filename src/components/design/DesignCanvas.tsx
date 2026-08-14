@@ -21,6 +21,7 @@ import { useCallback, useEffect, useRef } from "react";
 import { catalogItem, defaultMaterialFor } from "@/lib/design/catalog";
 import { evaluatePlacement, rectOf, snapPosition, SNAP_ROTATION_DEG } from "@/lib/design/placement";
 import type { WallOpening } from "@/lib/design/roomModel";
+import type { TimeOfDay } from "@/lib/design/lighting";
 import { DesignWorld, type ViewPreset } from "@/lib/design/scene3d";
 import type { DesignScene, PlacedObject } from "@/lib/design/types";
 
@@ -53,6 +54,10 @@ export interface DesignCanvasProps {
    *  in the way once you start composing — so it is a control, not a fact
    *  of the scene, and hiding it never deletes anything. */
   showFound: boolean;
+  /** Which of the four lighting moments the room is seen under. A view
+   *  setting: it never reaches the conditioning capture, which pins itself to
+   *  a fixed daylight. */
+  timeOfDay: TimeOfDay;
   /** Hands the page a way to capture ControlNet conditioning from the live
    *  scene. The world is owned here, but "Render with DAR" lives in the
    *  handoff panel, so the capture has to cross that boundary. */
@@ -77,6 +82,7 @@ export default function DesignCanvas({
   viewNonce,
   focusNonce,
   showFound,
+  timeOfDay,
   onReady,
 }: DesignCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -153,6 +159,11 @@ export default function DesignCanvas({
     worldRef.current?.syncObjects(scene.objects, selectedUid);
     worldRef.current?.setFoundVisible(showFound);
   }, [scene.objects, selectedUid, revision, showFound]);
+
+  /* ---------- time of day ---------- */
+  useEffect(() => {
+    worldRef.current?.setTimeOfDay(timeOfDay);
+  }, [timeOfDay]);
 
   /* ---------- imperative view commands ---------- */
   useEffect(() => {

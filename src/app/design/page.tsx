@@ -29,6 +29,7 @@ import PlanMinimap from "@/components/design/PlanMinimap";
 import PlanPanel from "@/components/design/PlanPanel";
 import SourceCard from "@/components/design/SourceCard";
 import "@/components/design/design.css";
+import { TIMES_OF_DAY, TIME_LABEL, type TimeOfDay } from "@/lib/design/lighting";
 import { cultureAccent } from "@/lib/design/materials";
 import { SNAP_ROTATION_DEG } from "@/lib/design/placement";
 import { HANDOFF_KEY } from "@/lib/design/handoff";
@@ -131,6 +132,11 @@ function BuildModeReady({
   const [roomSelected, setRoomSelected] = useState(false);
   const [showFound, setShowFound] = useState(true);
   const [handoff, setHandoff] = useState(false);
+  /* Time of day is a VIEW setting, not part of the design, so it lives here
+     next to renderIntent rather than in DesignScene — same reason: a new
+     scene field bumps SCENE_VERSION and loadScene drops every saved room that
+     does not match. */
+  const [timeOfDay, setTimeOfDay] = useState<TimeOfDay>("afternoon");
   const [viewNonce, setViewNonce] = useState<{ preset: ViewPreset; n: number } | null>(null);
   const [focusNonce, setFocusNonce] = useState<{ uid: string; n: number } | null>(null);
   const nonce = useRef(0);
@@ -376,6 +382,25 @@ function BuildModeReady({
           </button>
         </div>
 
+        {/* Time of day. Four named moments rather than sliders for sun
+            azimuth, elevation, temperature and exposure — those are the four
+            things each preset actually moves, and nobody designing a room
+            wants to set them by hand. Viewport only: the conditioning capture
+            pins itself to a fixed daylight, so Render with DAR is unaffected. */}
+        <div className="toolgroup" role="group" aria-label={isArabic ? "وقت اليوم" : "Time of day"}>
+          {TIMES_OF_DAY.map((t) => (
+            <button
+              key={t}
+              className={"tool" + (timeOfDay === t ? " active" : "")}
+              aria-pressed={timeOfDay === t}
+              onClick={() => setTimeOfDay(t)}
+              title={isArabic ? TIME_LABEL[t].ar : TIME_LABEL[t].en}
+            >
+              {isArabic ? TIME_LABEL[t].ar : TIME_LABEL[t].en}
+            </button>
+          ))}
+        </div>
+
         <button
           className={"tool" + (roomSelected ? " active" : "")}
           onClick={() => {
@@ -436,6 +461,7 @@ function BuildModeReady({
           viewNonce={viewNonce}
           focusNonce={focusNonce}
           showFound={showFound}
+          timeOfDay={timeOfDay}
           onReady={(api) => {
             captureRef.current = api.capture;
           }}

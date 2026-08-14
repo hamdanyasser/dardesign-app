@@ -29,6 +29,8 @@ import {
   surfaceMaterial,
 } from "./geometry";
 import { MATERIALS, cultureAccent } from "./materials";
+import { LightingRig } from "./lighting";
+import type { TimeOfDay } from "./lighting";
 import type { WallOpening } from "./roomModel";
 import type { DesignScene, PlacedObject } from "./types";
 
@@ -165,35 +167,27 @@ export class DesignWorld {
 
   /* ---------------- lighting ---------------- */
 
-  private key!: THREE.DirectionalLight;
+  private lighting!: LightingRig;
+
+  /** The sun, the sky, the environment and the time of day all live in
+   *  lighting.ts. `key` is kept as an alias because buildShell re-aims it at
+   *  the room each time the shell changes. */
+  private get key(): THREE.DirectionalLight {
+    return this.lighting.key;
+  }
 
   private setupLights() {
-    // Warm key from high and to one side, cool fill opposite: the standard
-    // architectural model lighting that makes massing legible. The hemisphere
-    // is kept low — raise it and the model flattens into an even wash, which
-    // is exactly what makes a 3D room look like a screenshot of nothing.
-    const hemi = new THREE.HemisphereLight(0xfff3e0, 0x2a2318, 0.45);
-    this.scene.add(hemi);
+    this.lighting = new LightingRig(this.scene, this.renderer);
+  }
 
-    const key = new THREE.DirectionalLight(0xfff0d8, 1.15);
-    key.position.set(420, 780, 380);
-    key.castShadow = true;
-    key.shadow.mapSize.set(2048, 2048);
-    key.shadow.camera.near = 50;
-    key.shadow.camera.far = 2600;
-    const s = 800;
-    key.shadow.camera.left = -s;
-    key.shadow.camera.right = s;
-    key.shadow.camera.top = s;
-    key.shadow.camera.bottom = -s;
-    key.shadow.bias = -0.0012;
-    key.shadow.normalBias = 1.4;
-    this.key = key;
-    this.scene.add(key, key.target);
+  setTimeOfDay(tod: TimeOfDay) {
+    this.lighting.apply(tod);
+    this.applySkyToOpenings();
+    this.markDirty();
+  }
 
-    const fill = new THREE.DirectionalLight(0xbcd2e8, 0.26);
-    fill.position.set(-520, 340, -260);
-    this.scene.add(fill);
+  get timeOfDay(): TimeOfDay {
+    return this.lighting.timeOfDay;
   }
 
   /** The plinth the model sits on.
@@ -348,13 +342,43 @@ export class DesignWorld {
       }
       (rev.material as THREE.Material).transparent = true;
       rev.userData.ade = o.kind === "door" ? ADE20K_DOOR : ADE20K_WINDOW;
+      rev.userData.opening = o.kind;
       this.shellGroup.add(rev);
       this.wallMeshes.find((x) => x.id === o.wall)?.attachments.push(rev);
     }
 
+    // Aim the sun through the widest window, so daylight arrives through the
+    // glass rather than through masonry. Azimuth is the direction the sun
+    // comes FROM, i.e. outward through that wall.
+    const OUTWARD: Record<WallOpening["wall"], number> = {
+      north: -Math.PI / 2, south: Math.PI / 2, west: Math.PI, east: 0,
+    };
+    const widest = openings
+      .filter((o) => o.kind === "window")
+      .sort((a, b) => b.widthCm - a.widthCm)[0];
+    this.lighting.setRoom(w, d, h);
+    this.lighting.setWindowAzimuth(widest ? OUTWARD[widest.wall] : null);
+
     this.key.target.position.set(0, 0, 0);
     this.targetTarget.set(0, Math.min(90, h * 0.3), 0);
+    this.applySkyToOpenings();
     this.markDirty();
+  }
+
+  /** Window reveals glow with the current sky, so a night room has dark blue
+   *  glass and a sunset room has orange in the frame. */
+  private applySkyToOpenings() {
+    const sky = this.lighting.skyColor();
+    const night = this.lighting.timeOfDay === "night";
+    for (const { attachments } of this.wallMeshes) {
+      for (const a of attachments) {
+        if (a.userData.opening !== "window") continue;
+        const m = a.material as THREE.MeshStandardMaterial;
+        m.color.setHex(sky);
+        m.emissive.setHex(sky);
+        m.emissiveIntensity = night ? 0.12 : 0.42;
+      }
+    }
   }
 
   /* ---------------- objects ---------------- */
@@ -397,6 +421,10 @@ export class DesignWorld {
       }
     }
     this.setSelection(objects.find((o) => o.uid === selectedUid) ?? null);
+    // Newly built pieces carry their authored lamp intensity and default
+    // envMapIntensity; re-apply the preset so a lamp added at night is lit
+    // like the rest of the room rather than like noon.
+    this.lighting.refresh();
     this.markDirty();
   }
 
@@ -929,6 +957,12 @@ export class DesignWorld {
       return { prev, atts };
     });
 
+    // Render with DAR must not depend on the time of day the user happened to
+    // be looking at. Depth and segmentation are material-overridden and could
+    // not be affected, but the beauty pass is shown as evidence of the design
+    // and would come back nearly black out of a Night viewport.
+    const restoreLighting = this.lighting.neutral();
+
     const prevTarget = this.renderer.getRenderTarget();
     const prevBg = this.scene.background;
     const prevTone = this.renderer.toneMapping;
@@ -1104,6 +1138,7 @@ export class DesignWorld {
     ceiling.geometry.dispose();
     (ceiling.material as THREE.Material).dispose();
     rt.dispose();
+    restoreLighting();
     this.markDirty();
 
     return {
@@ -1152,6 +1187,8 @@ export class DesignWorld {
   dispose() {
     this.disposed = true;
     cancelAnimationFrame(this.raf);
+    this.lighting.dispose();
+    setMaterialRepaint(null);
     this.disposeGroup(this.shellGroup);
     this.disposeGroup(this.objectGroup);
     this.disposeGroup(this.helperGroup);
