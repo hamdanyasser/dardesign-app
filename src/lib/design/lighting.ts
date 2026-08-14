@@ -68,27 +68,27 @@ const PRESETS: Record<TimeOfDay, Preset> = {
   // Low warm sun, cool sky fill. Long shadows from one side.
   morning: {
     azimuth: 1.05, elevationDeg: 20, sun: 1.15, sunColor: 0xffd7a8,
-    skyColor: 0xcfe0ff, groundColor: 0x3a3228, hemi: 0.30,
-    lamps: 0.2, env: 0.85, exposure: 0.96, sky: 0xbcd8f5,
+    skyColor: 0xcfe0ff, groundColor: 0x3a3228, hemi: 0.26,
+    lamps: 0.2, env: 0.48, exposure: 0.94, sky: 0xbcd8f5,
   },
   // High neutral sun: short shadows, the most even and legible for editing.
   // This is the default, and the state the conditioning capture pins to.
   afternoon: {
-    azimuth: 2.3, elevationDeg: 62, sun: 1.35, sunColor: 0xfff1dc,
-    skyColor: 0xe6f0ff, groundColor: 0x4a4030, hemi: 0.34,
-    lamps: 0.15, env: 1.0, exposure: 0.92, sky: 0xd6ebff,
+    azimuth: 2.3, elevationDeg: 62, sun: 1.30, sunColor: 0xfff1dc,
+    skyColor: 0xe6f0ff, groundColor: 0x4a4030, hemi: 0.28,
+    lamps: 0.15, env: 0.55, exposure: 0.90, sky: 0xd6ebff,
   },
   // Low, strongly warm, raking right across the floor.
   sunset: {
     azimuth: 4.2, elevationDeg: 7, sun: 1.30, sunColor: 0xff8f43,
-    skyColor: 0xffc79a, groundColor: 0x2a1d16, hemi: 0.20,
-    lamps: 0.7, env: 0.62, exposure: 1.00, sky: 0xff9e63,
+    skyColor: 0xffc79a, groundColor: 0x2a1d16, hemi: 0.17,
+    lamps: 0.7, env: 0.38, exposure: 0.98, sky: 0xff9e63,
   },
   // No sun worth the name; the room is lit by what is standing in it.
   night: {
     azimuth: 5.4, elevationDeg: 34, sun: 0.07, sunColor: 0x9fb6ff,
     skyColor: 0x1b2440, groundColor: 0x0a0a10, hemi: 0.09,
-    lamps: 2.4, env: 0.22, exposure: 1.16, sky: 0x0e1630,
+    lamps: 2.4, env: 0.16, exposure: 1.16, sky: 0x0e1630,
   },
 };
 
