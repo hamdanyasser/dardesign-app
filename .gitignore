@@ -53,6 +53,12 @@ venv/
 *.pt
 *.pth
 
+# ...but glTF keeps its vertex data in a sibling .bin, and the Build Mode
+# assets are committed on purpose so a fresh clone -- and the defense machine
+# with no network -- renders the room. Without this exception the model loads
+# to an empty scene, silently, only on someone else's checkout.
+!public/models/**/*.bin
+
 # generated outputs
 outputs/finals/*
 outputs/sweeps/*

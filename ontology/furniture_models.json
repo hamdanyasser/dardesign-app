@@ -1,0 +1,22 @@
+{
+  "version": "0.1.0",
+  "_note": "3D provenance for the Build Mode catalogue. A SIDECAR to furniture.json rather than new fields inside it: that file is the shared frontend/backend source of truth and ~20 pytest cases pin its schema, so extending it to carry a frontend rendering concern would couple two things that have no reason to move together. Keyed by the catalogue id in furniture.json.",
+  "_tiers": {
+    "real": "An actual detailed 3D asset. The object on screen IS the scanned model named in `assetName`, normalised to the catalogue dimensions. Never claimed to be the exact catalogue piece -- the inspector names the asset itself.",
+    "procedural": "Enhanced procedural geometry, authored in src/lib/design/geometry.ts to DAR's own catalogue art and the cultural vocabulary in ontology.json. Real silhouette, legs, arms, cushions and ornament, but generated -- not a scan of a real object.",
+    "massing": "Fallback massing. The abstract translucent volume reserved for objects read off the user's PHOTOGRAPH, where DAR knows a footprint and a class but not a form. Deliberately not detailed: inventing the shape of the user's own sofa would be a fabrication."
+  },
+  "_why_so_few_real": "There is no CC0 library of Lebanese, Khaleeji or Moroccan furniture. Around twenty candidate scans were inspected side by side against DAR's catalogue art; all but one were rejected as culturally wrong. DAR's own LoRA-generated catalogue art is more culturally specific than anything available under CC0, so culturally-specific pieces are authored geometry instead. Adding a real model later is one entry in `models` below -- no code change. See public/ASSET-LICENSES.md for the full rejected list and the reasoning.",
+  "models": {
+    "leb-ottoman-001": {
+      "tier": "real",
+      "path": "models/Ottoman_01/Ottoman_01_1k.gltf",
+      "assetName": "Ottoman 01",
+      "author": "Caspian Fortune",
+      "source": "https://polyhaven.com/a/Ottoman_01",
+      "license": "CC0-1.0",
+      "fit": "contain",
+      "note": "A real scanned upholstered leather footstool, uniformly scaled to fit inside the catalogue's 55x42x55cm box. DAR's catalogue art for this piece shows turned wooden legs where the scan has block feet, which is why the inspector names the asset rather than implying it is the catalogue piece."
+    }
+  }
+}

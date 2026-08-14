@@ -100,6 +100,32 @@ export interface DesignScene {
 
 /* ---------- catalogue ---------- */
 
+/** How a piece is represented in 3D, in descending order of how much DAR
+ *  actually knows about its form. Surfaced in the inspector, because the
+ *  difference between "this is a scanned object" and "this is our drawing of
+ *  the object" and "this is a box where the photo found something" is a claim
+ *  about evidence, and the product should not blur it.
+ *
+ *  Defined in ontology/furniture_models.json, which carries the prose. */
+export type ModelTier = "real" | "procedural" | "massing";
+
+/** A real 3D asset backing one catalogue item. Absent for most of them --
+ *  see furniture_models.json for why. */
+export interface CatalogModel {
+  tier: "real";
+  /** Relative to /public, so "models/x/x.gltf" serves at "/models/x/x.gltf". */
+  path: string;
+  /** The asset's own name. The inspector shows THIS, not the catalogue name,
+   *  so a stand-in is never presented as the catalogue piece. */
+  assetName: string;
+  author: string;
+  source: string;
+  license: string;
+  /** "contain": scale uniformly to sit inside the catalogue box. */
+  fit: "contain";
+  note?: string;
+}
+
 /** One item of the furniture ontology, narrowed to what the editor needs. */
 export interface CatalogItem {
   id: string;
@@ -117,9 +143,19 @@ export interface CatalogItem {
   materialTags: string[];
   colorTags: string[];
   culturalTags: string[];
+  /** Rooms this piece belongs in, from the ontology's own `room_types`. */
+  roomTypes: string[];
+  /** `floor_standing` for all 27 today; the ontology defers the rest. */
+  placementType: string;
+  /** [width, depth] in cm — the ontology's own footprint, kept alongside the
+   *  dimensions so nothing has to re-derive it. */
+  floorFootprintCm: [number, number];
+  mustStandOnFloor: boolean;
   /** Transparent PNG cut-out. Used in the catalogue card, never in the 3D
    *  scene — a billboarded photo among real volumes reads as a sticker. */
   assetUrl: string;
+  /** Present only for the handful of items with a real 3D asset. */
+  model?: CatalogModel;
 }
 
 /* ---------- placement validity ---------- */

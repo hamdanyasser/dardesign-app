@@ -733,3 +733,84 @@ def test_every_catalogue_category_has_a_shape_builder():
     used = {it["category"] for it in items if it.get("category")}
     missing = sorted(used - _built_categories())
     assert not missing, f"catalogue categories with no geometry builder: {missing}"
+
+
+# --------------------------------------------------------------------------
+# 3D model provenance sidecar (ontology/furniture_models.json)
+# --------------------------------------------------------------------------
+
+
+MODELS_FILE = ROOT / "ontology" / "furniture_models.json"
+
+
+def _model_sidecar() -> dict:
+    return json.loads(MODELS_FILE.read_text(encoding="utf-8"))
+
+
+def test_model_sidecar_only_names_real_catalogue_ids():
+    """A model bound to an id that does not exist would never load.
+
+    The sidecar is keyed by catalogue id and read by src/lib/design/catalog.ts,
+    which looks each item up by id. A typo there fails silently -- the piece just
+    renders procedurally forever -- so it is pinned rather than trusted.
+    """
+    known = {it["id"] for it in ITEMS}
+    named = set(_model_sidecar()["models"])
+    unknown = sorted(named - known)
+    assert not unknown, f"furniture_models.json names ids not in furniture.json: {unknown}"
+
+
+def test_every_declared_model_file_is_actually_committed():
+    """`tier: real` is a claim that a detailed asset exists. Check it.
+
+    Assets are committed rather than fetched on demand precisely so the defense
+    machine needs no network, which is only true if they are really in the repo.
+    glTF keeps its .bin and textures as separate relative files, so the loader
+    needs all of them, not just the .gltf.
+    """
+    for cid, m in _model_sidecar()["models"].items():
+        assert m["tier"] == "real", f"{cid}: only `real` entries belong in `models`"
+        gltf = ROOT / "public" / m["path"]
+        assert gltf.is_file(), f"{cid}: missing model file {m['path']}"
+        assert gltf.stat().st_size > 0, f"{cid}: {m['path']} is empty"
+
+        payload = json.loads(gltf.read_text(encoding="utf-8"))
+        for buf in payload.get("buffers", []):
+            uri = buf.get("uri")
+            if uri and not uri.startswith("data:"):
+                assert (gltf.parent / uri).is_file(), f"{cid}: missing buffer {uri}"
+        for img in payload.get("images", []):
+            uri = img.get("uri")
+            if uri and not uri.startswith("data:"):
+                assert (gltf.parent / uri).is_file(), f"{cid}: missing texture {uri}"
+
+
+def test_every_declared_model_carries_its_licence():
+    """The FYP must be able to say where every shipped asset came from.
+
+    Author, source URL and licence are required, and the licence must be one we
+    can actually redistribute inside this repository.
+    """
+    redistributable = {"CC0-1.0"}
+    for cid, m in _model_sidecar()["models"].items():
+        for field in ("assetName", "author", "source", "license"):
+            assert m.get(field), f"{cid}: missing `{field}`"
+        assert m["license"] in redistributable, f"{cid}: licence {m['license']} is not redistributable"
+        assert m["source"].startswith("http"), f"{cid}: `source` should be a URL"
+    assert (ROOT / "public" / "ASSET-LICENSES.md").is_file(), "asset licence manifest is missing"
+
+
+def test_declared_model_fits_inside_the_catalogue_footprint():
+    """The visual must not outgrow the box the validator collides with.
+
+    Build Mode scales a model uniformly to CONTAIN it in the catalogue's
+    width/depth/height, so the drawn object can never stick out of the footprint
+    the SAT collision test uses. `fit` is what selects that behaviour; an
+    unrecognised value would silently mean something else.
+    """
+    by_id = {it["id"]: it for it in ITEMS}
+    for cid, m in _model_sidecar()["models"].items():
+        assert m.get("fit") == "contain", f"{cid}: unsupported fit mode {m.get('fit')!r}"
+        item = by_id[cid]
+        for axis in ("real_width_cm", "real_height_cm", "real_depth_cm"):
+            assert item[axis] > 0, f"{cid}: catalogue dimension {axis} must be positive to scale into"
