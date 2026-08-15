@@ -1919,7 +1919,24 @@ export async function planLayout(
   input: PlanRoomInput,
   opts: { signal?: AbortSignal; timeoutMs?: number } = {},
 ): Promise<DesignPlan> {
-  const timeoutMs = opts.timeoutMs ?? 90_000;
+  /* 90s was set when a plan was one call to one model, and it silently became
+     too tight as the backend grew the machinery that keeps a brief answered:
+     three attempts per model, a walk down a four-model chain, and salvage of a
+     response that would not parse. Each of those costs seconds, and together
+     they can outlive a ceiling chosen before any of them existed.
+
+     Measured 2026-08-15: gemini-3.7-flash exhausted its retries, the chain
+     walked to 3.6-flash, that answer needed salvaging, and 14 operations were
+     recovered — a SUCCESS — but the browser had already given up and shown
+     "the planner took too long". The server was quietly right while the user
+     was told it had failed, which is the same class of dishonesty as the rules
+     fallback that used to hide a 503.
+
+     240s covers a full chain walk with salvage and still sits below /redesign's
+     300s and /render-scene's 360s, so the planner is no longer the odd one out.
+     A timed-out request is not wasted either: the backend keeps going and caches
+     the result under the same brief, so pressing the button again is instant. */
+  const timeoutMs = opts.timeoutMs ?? 240_000;
   const ctrl = new AbortController();
   let timedOut = false;
   const timer = setTimeout(() => {
@@ -1965,9 +1982,19 @@ export async function planLayout(
       throw new ApiError(
         timedOut
           ? {
+              /* "Try a shorter brief" was a guess at the cause, and usually the
+                 wrong one: the brief is rarely the reason. A timeout here means
+                 the model chain was still working — a busy model being retried,
+                 or the walk to the next one. The backend caches its result under
+                 the same brief, so pressing the button again is normally
+                 instant, which is the actual useful advice. */
               code: "timeout",
-              message_en: "The planner took too long. Try a shorter brief.",
-              message_ar: "استغرق المخطِّط وقتاً طويلاً. جرّب وصفاً أقصر.",
+              message_en:
+                "The planner is still working — a design model was slow to answer. " +
+                "Press the button again: the result is usually ready by then.",
+              message_ar:
+                "لا يزال المخطِّط يعمل — تأخّر أحد نماذج التصميم في الرد. " +
+                "اضغط الزر مرة أخرى: تكون النتيجة جاهزة عادةً.",
             }
           : {
               code: "aborted",
