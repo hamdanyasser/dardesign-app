@@ -3,39 +3,121 @@
 @tailwind utilities;
 
 @layer base {
+  /* ------------------------------------------------------------------
+     DARK — "limestone at night". The companion to the light theme
+     below, and built from the same measurement discipline: same
+     materials, different hour.
+
+     Read the numbers before changing anything here. A projector cannot
+     render black — the screen reflects the room, so ambient light is
+     ADDED to every pixel and the darkest tones collapse into one grey.
+     Modelling that (6% ambient for a dimmed room, 12% for a lit hall)
+     against the palette this replaces gave three findings:
+
+     1. The old ground was unusable projected. #0a0a0f page against a
+        #12121a card is a luminance gap of 3.01 (x1000) — cards were
+        invisible, the whole elevation system collapsed to one flat
+        sheet. The ground is now RAISED off black and the steps widened:
+        the same gap is 8.47, and card->elevated is 11.16.
+     2. Gold had to go, and not only because it is the stock generative
+        palette. It was also carrying the contrast on its own: a
+        saturated accent cannot be both cultural and bright, because
+        luminance is 21% red / 72% green / 7% BLUE. Cobalt — the light
+        theme's accent, and the honest colour of zellige — scores 1.5:1
+        on a dark ground. It is unusable as a dark accent at any
+        saturation that still reads as cobalt.
+     3. So the hue moved to the GROUND and the light element became
+        stone. That inverts the cliche (bright hue on neutral dark) and
+        is what the material actually does: warm limestone lit against a
+        blue night sky. It is also the only direction tested that clears
+        4.5:1 with the hall lights ON.
+
+     `--dd-gold` keeps its NAME while holding limestone, exactly as it
+     keeps its name while holding cobalt in light. Read the token, not
+     the name. Measured: body text 14.5:1, accent 12.4:1, and every
+     pair still passes at 6% ambient.
+
+     4. CHROMA IS FREE, so spend it. WCAG contrast is a function of
+        relative luminance ALONE — two colours of equal luminance and
+        wildly different saturation score identically. The first pass at
+        this palette used a grey-slate ground carrying OKLCH chroma
+        0.029 when 0.066+ was available at the same luminance, so it
+        paid full price in drabness for safety it already had. The ramp
+        is generated at ONE hue at C=0.055 with each step's luminance
+        pinned to what was already validated: every contrast row above
+        is unchanged to the decimal, and the ground is a true indigo
+        instead of a grey that leans blue. If you restyle these, hold
+        luminance and move chroma — that is the axis with no safety cost.
+     5. THE HUE IS NOT A TASTE CHOICE — it is ontology/ontology.json.
+        The ground sits at OKLCH hue 261.3, which is the hue of Khaleeji
+        `indigo #1f3a6b` (verified: true). Moroccan `cobalt Majorelle
+        #0040c0` (verified, weight 1.1) is 262.4 and the light theme's
+        own accent is 259.4 — the same blue, so one hue is the ground at
+        night and the accent by day. Blue is the only family present in
+        all four cultures. The accent `#e8dcc4` is not "a limestone" but
+        literally Lebanese `limestone cream #e8dcc4`, weight 1.1, copied
+        from the ontology unchanged. When someone asks why these colours,
+        the answer is a file in this repo, not a mood board.
+
+     The accent is deliberately NOT given the same treatment. Push
+     chroma at limestone's hue and it resolves to #ffd887 — which is
+     gold. Limestone's character IS its near-neutrality, so it stays at
+     C=0.035 on purpose. That is a floor, not an oversight.
+
+     What this theme is NOT: projector-proof. In a lit hall even pure
+     white on this ground tops out at 5.7:1, so no dark theme survives
+     one. LIGHT remains the presentation theme and the default — this
+     one is tuned to be genuinely good in a dimmed room instead of
+     merely dark in a bright one.
+     ------------------------------------------------------------------ */
   :root,
   :root[data-theme="dark"] {
-    --dd-bg: #0a0a0f;
-    --dd-surface: #12121a;
-    --dd-surface-strong: #181821;
-    --dd-surface-hover: #23232d;
-    --dd-gold: #d4af37;
-    --dd-gold-hover: #f0d78c;
-    --dd-gold-dim: #8b7432;
-    --dd-text: #f5f0e8;
-    --dd-text-soft: #e8e0d0;
-    --dd-text-secondary: #8a8598;
-    --dd-border: rgba(212, 175, 55, 0.15);
-    --dd-glass-bg: rgba(10, 10, 15, 0.8);
-    --dd-glass-border: rgba(212, 175, 55, 0.1);
-    --dd-grid: rgba(245, 240, 232, 0.03);
-    --dd-mesh-1: rgba(212, 175, 55, 0.18);
-    --dd-mesh-2: rgba(56, 78, 116, 0.32);
-    --dd-mesh-3: rgba(18, 18, 26, 0.96);
-    --dd-spotlight: rgba(212, 175, 55, 0.18);
+    --dd-bg: #0e1d37;
+    --dd-surface: #192843;
+    --dd-surface-strong: #233350;
+    --dd-surface-hover: #30405d;
+    --dd-gold: #e8dcc4;
+    --dd-gold-hover: #f6efe0;
+    --dd-gold-dim: #8d8674;
+    --dd-text: #f2eee6;
+    --dd-text-soft: #e9e3d6;
+    --dd-text-secondary: #c4d0e2;
+    --dd-border: rgba(232, 220, 196, 0.22);
+    --dd-glass-bg: rgba(14, 29, 55, 0.82);
+    --dd-glass-border: rgba(232, 220, 196, 0.16);
+    --dd-grid: rgba(232, 220, 196, 0.055);
+    --dd-mesh-1: rgba(232, 220, 196, 0.13);
+    --dd-mesh-2: rgba(30, 58, 110, 0.42);
+    --dd-mesh-3: rgba(14, 29, 55, 0.96);
+    --dd-spotlight: rgba(232, 220, 196, 0.15);
+    /* THE METAL. Gold is not gone — it is demoted, which is what it needed.
+       Khaleeji `antique gold #b08a3e` (ontology, verified: true), lifted to
+       clear 4:1 on this ground. It measures 7.6:1 ideal / 4.2 dimmed, which
+       is plenty for ORNAMENT and large display glyphs and deliberately not
+       enough licence to put it under body text.
+
+       The rule, and it is the whole reason this reads as expensive rather
+       than flashy: metal is a THIRD colour, never the chrome. Structure is
+       limestone on indigo; the metal appears only where a real building
+       would have it — a lit edge, an arch, an inlay. Gold-on-black failed
+       here not because gold is wrong but because it was doing every job at
+       once. Colour theory says the same: indigo pairs with creams AND
+       metallics; it is the ratio that makes it luxury or costume. */
+    --dd-metal: #d3b065;
+    --dd-metal-dim: #967a45;
     --dd-before-gradient: linear-gradient(
       135deg,
-      #2f3138 0%,
-      #474a54 50%,
-      #696d78 100%
+      #17304c 0%,
+      #2b4a6e 50%,
+      #48628a 100%
     );
     --dd-after-gradient: linear-gradient(
       135deg,
-      #8b6914 0%,
-      #d4a574 50%,
-      #f5e6d3 100%
+      #6b6350 0%,
+      #b5a78c 50%,
+      #efe6d4 100%
     );
-    --dd-ink: #16110a;
+    --dd-ink: #0e1d37;
   }
 
   /* ------------------------------------------------------------------
@@ -51,9 +133,18 @@
         olive and thin text on it disappears. Cobalt is also the honest
         colour here: it is the blue of Moroccan zellige and Damascene tile,
         which is material DAR actually works in, not decoration.
-     2. The ground is limestone, cooled and desaturated away from cream.
-        Warm cream plus a metallic accent is the other stock look; a faint
-        green-grey cast reads as Levantine stone instead.
+     2. The ground is limestone — and it is WARM again. It was cooled to a
+        faint green-grey (#f2f1ea, OKLCH hue 100) on the argument that
+        "warm cream plus a metallic accent is the other stock look". That
+        argument retired with the metal: the accent is cobalt, so cream +
+        cobalt is not the cliche cream + gold is. The ground now sits at
+        hue 84.6 — the hue of the ontology's own Lebanese `limestone cream
+        #e8dcc4`, which is also the DARK theme's accent. One material in
+        two states: lit stone by day, the same stone against night.
+        Luminance was held while the hue moved, so every contrast figure
+        below is unchanged — warmth cost nothing.
+     3. The ink warmed with it (#241f18 rather than a cool navy) and
+        measures 14.4:1, against the cool ink's 14.5:1. Also free.
 
      Contrast is held well above AA because projected contrast collapses:
      body ink is ~14:1 on the ground, the accent ~7:1, and borders are
@@ -62,24 +153,28 @@
      renaming it days before a defense buys nothing — but it is cobalt now.
      ------------------------------------------------------------------ */
   :root[data-theme="light"] {
-    --dd-bg: #f2f1ea;
+    --dd-bg: #f7f0e4;
     --dd-surface: #ffffff;
-    --dd-surface-strong: #e6e5db;
-    --dd-surface-hover: #dbd9cc;
+    --dd-surface-strong: #eae4d8;
+    --dd-surface-hover: #ded7c8;
     --dd-gold: #1b4fa0;
     --dd-gold-hover: #123c7c;
     --dd-gold-dim: #5b7cb8;
-    --dd-text: #14202f;
-    --dd-text-soft: #2c3a4d;
-    --dd-text-secondary: #53617a;
-    --dd-border: rgba(20, 32, 47, 0.18);
-    --dd-glass-bg: rgba(242, 241, 234, 0.86);
-    --dd-glass-border: rgba(20, 32, 47, 0.1);
-    --dd-grid: rgba(20, 32, 47, 0.05);
+    --dd-text: #241f18;
+    --dd-text-soft: #28231b;
+    --dd-text-secondary: #5c5546;
+    --dd-border: rgba(36, 31, 24, 0.18);
+    --dd-glass-bg: rgba(247, 240, 228, 0.86);
+    --dd-glass-border: rgba(36, 31, 24, 0.1);
+    --dd-grid: rgba(36, 31, 24, 0.05);
     --dd-mesh-1: rgba(27, 79, 160, 0.14);
     --dd-mesh-2: rgba(226, 228, 220, 0.9);
     --dd-mesh-3: rgba(255, 255, 255, 0.98);
     --dd-spotlight: rgba(27, 79, 160, 0.12);
+    /* Same antique gold, darkened for a light ground (4.4:1). Same restraint
+       rule as dark: ornament only — the structure is cobalt on limestone. */
+    --dd-metal: #8a6a2a;
+    --dd-metal-dim: #b09250;
     --dd-before-gradient: linear-gradient(
       135deg,
       #d8d4cf 0%,
@@ -358,7 +453,7 @@
 .shimmer-btn:hover {
   animation: shimmer 1.5s ease-in-out infinite;
   transform: translateY(-1px) scale(1.01);
-  box-shadow: 0 18px 45px rgba(212, 175, 55, 0.2);
+  box-shadow: 0 18px 45px color-mix(in srgb, var(--dd-gold) 20%, transparent);
 }
 
 .shimmer-btn:disabled {
@@ -412,9 +507,9 @@
   background-image: linear-gradient(
     100deg,
     transparent 20%,
-    rgba(212, 175, 55, 0.08) 40%,
-    rgba(212, 175, 55, 0.16) 50%,
-    rgba(212, 175, 55, 0.08) 60%,
+    color-mix(in srgb, var(--dd-gold) 8%, transparent) 40%,
+    color-mix(in srgb, var(--dd-gold) 16%, transparent) 50%,
+    color-mix(in srgb, var(--dd-gold) 8%, transparent) 60%,
     transparent 80%
   );
   background-size: 200% 100%;
@@ -445,7 +540,7 @@
   border-style: solid;
   border-color: var(--dd-gold);
   background: color-mix(in srgb, var(--dd-gold) 10%, var(--dd-surface) 90%);
-  box-shadow: 0 24px 60px rgba(212, 175, 55, 0.08);
+  box-shadow: 0 24px 60px color-mix(in srgb, var(--dd-gold) 8%, transparent);
 }
 
 .gold-line {
@@ -510,7 +605,7 @@
   position: absolute;
   border: 1px solid color-mix(in srgb, var(--dd-gold) 55%, transparent);
   background: color-mix(in srgb, var(--dd-gold) 12%, transparent);
-  box-shadow: 0 0 30px rgba(212, 175, 55, 0.16);
+  box-shadow: 0 0 30px color-mix(in srgb, var(--dd-gold) 16%, transparent);
   animation: float-shape 11s ease-in-out infinite;
 }
 
@@ -547,7 +642,7 @@
 .how-card:hover {
   transform: translateY(-8px);
   border-color: color-mix(in srgb, var(--dd-gold) 72%, transparent);
-  box-shadow: 0 32px 80px rgba(212, 175, 55, 0.14);
+  box-shadow: 0 32px 80px color-mix(in srgb, var(--dd-gold) 14%, transparent);
 }
 
 .how-card::after {
@@ -721,6 +816,10 @@
   text-decoration: none;
 }
 
+/* The brand lozenge. It holds <DarMark/>, which paints currentColor, so the
+   arch is --dd-ink knocked out of the accent tile and follows both themes with
+   no second definition. The radius stays in the 2/6/14 family the design system
+   allows; a pill here would fight every other corner in the app. */
 .app-brand-mark {
   display: grid;
   width: 34px;
@@ -729,9 +828,6 @@
   border-radius: 8px;
   background: var(--dd-gold);
   color: var(--dd-ink);
-  font-size: 11px;
-  font-weight: 800;
-  letter-spacing: 0.08em;
 }
 
 .app-brand strong,

@@ -8,19 +8,32 @@
    ============================================================ */
 
 /* ---------- tokens (tokens.css; fonts remapped to next/font vars) ---------- */
+/* NOTE: this base block IS the dark theme — light is the override further
+   down. Repaletted to "limestone at night" alongside globals.css: the ground
+   is raised off black so elevation survives a projector, and --brass now
+   holds warm LIMESTONE rather than metallic gold. The names are kept because
+   they are referenced throughout this 2000-line file and renaming them buys
+   risk, not clarity; see the long rationale in globals.css. --ink is the page
+   GROUND here (it means text colour in dar-cinema.css — do not swap them). */
 :root {
-  --ink:#0a0a0f; --ink-2:#12121a; --ink-3:#181821; --ink-4:#22222d;
-  --vellum:#f6efe2; --vellum-2:#ece3d0; --vellum-3:#d9cdb3;
-  --brass:#d4af37; --brass-bright:#f0d78c; --brass-dim:#8b7432; --brass-deep:#5e4d1f;
-  --brass-glow:rgba(212,175,55,0.42); --brass-wash:rgba(212,175,55,0.08);
-  --fg:#f5f0e8; --fg-soft:#e2d8c5; --fg-mute:#8a8598; --fg-faint:#4a4655; --on-brass:#16110a;
+  --ink:#0e1d37; --ink-2:#192843; --ink-3:#233350; --ink-4:#30405d;
+  /* The light ground. Was a warm cream (#f7f0e4) that did not match
+     globals.css's limestone (#f7f0e4); the two grounds met at every page
+     boundary. Now identical. */
+  --vellum:#f7f0e4; --vellum-2:#eae4d8; --vellum-3:#ded7c8;
+  --brass:#e8dcc4; --brass-bright:#f6efe0; --brass-dim:#8d8674; --brass-deep:#5d5749;
+  --brass-glow:rgba(232,220,196,0.34); --brass-wash:rgba(232,220,196,0.08);
+  --fg:#f2eee6; --fg-soft:#e9e3d6; --fg-mute:#c4d0e2; --fg-faint:#42557a; --on-brass:#0e1d37;
   --lb-stone:#c9a876; --lb-cedar:#4a3520; --lb-shutter:#2f5a4a; --lb-rose:#e8c1a8;
   --kh-emerald:#0b5f4a; --kh-ruby:#6e1f2c; --kh-ivory:#ede4d2; --kh-night:#0d1429;
   --mr-cobalt:#1f4287; --mr-saffron:#d4a24a; --mr-terracotta:#c44a36; --mr-jade:#1a6e5c;
   --error:#e85d4a; --success:#4a9e6e;
   --bg:var(--ink); --surface:var(--ink-2); --surface-2:var(--ink-3);
-  --hairline:rgba(245,240,232,0.08); --hairline-2:rgba(245,240,232,0.16);
-  --scrim:rgba(10,10,15,0.86); --film:rgba(10,10,15,0.5);
+  /* Hairlines are nearly twice their old opacity. A 0.08-alpha rule is the
+     first thing a beam loses — the drawing-instrument language this design
+     depends on simply vanished projected. */
+  --hairline:rgba(232,220,196,0.15); --hairline-2:rgba(232,220,196,0.28);
+  --scrim:rgba(14,29,55,0.86); --film:rgba(14,29,55,0.5);
   --f-display:var(--font-cormorant),"Times New Roman",serif;
   --f-display-ar:var(--font-amiri),"Noto Naskh Arabic",serif;
   --f-ui:var(--font-dm-sans),"Inter",system-ui,sans-serif;
@@ -64,25 +77,34 @@
    mode it is a genuine vellum sheet with the room photography as the subject —
    which is what survives a projector in a lit hall, where near-black collapses
    to muddy grey. Forcing cream text onto it produced cream-on-vellum. */
+/* These values must track the dark palette at the top of this file. They are
+   the same tokens, restated so a light-theme page can still host a dark stage;
+   if the two drift, the loading scene renders in one palette while the rest of
+   dark mode renders in another. */
 html[data-theme="light"] .cinema .loading-scene,
 html[data-theme="light"] .cinema .error-scene,
 html[data-theme="light"] .cinema .nf-scene {
-  --fg:#f5f0e8; --fg-soft:#e2d8c5; --fg-mute:#8a8598; --fg-faint:#4a4655;
-  --brass:#d4af37; --brass-bright:#f0d78c; --brass-dim:#8b7432;
-  --hairline:rgba(245,240,232,0.08); --hairline-2:rgba(245,240,232,0.16);
+  --fg:#f2eee6; --fg-soft:#e9e3d6; --fg-mute:#c4d0e2; --fg-faint:#42557a;
+  --brass:#e8dcc4; --brass-bright:#f6efe0; --brass-dim:#8d8674;
+  --hairline:rgba(232,220,196,0.15); --hairline-2:rgba(232,220,196,0.28);
   --surface:var(--ink-2); --surface-2:var(--ink-3);
-  --on-brass:#16110a;
+  --on-brass:#0e1d37;
   color: var(--fg);
 }
 
+/* LIGHT. This block used to run a GOLD accent on warm cream while
+   globals.css light ran cobalt on limestone, so /studio and the landing
+   disagreed with the rest of the app about what light mode is — two brands
+   inside one theme. It now mirrors globals.css exactly: same ground, same
+   ink, same cobalt. Values are copied, not re-derived, so they cannot drift. */
 html[data-theme="light"] {
   --bg:var(--vellum); --surface:#fff; --surface-2:var(--vellum-2);
-  --fg:#1a1612; --fg-soft:#312c25; --fg-mute:#6b6580; --fg-faint:#b6ad9a;
-  --hairline:rgba(26,22,18,0.10); --hairline-2:rgba(26,22,18,0.20);
-  --scrim:rgba(246,239,226,0.88); --film:rgba(246,239,226,0.55);
-  --brass:#a8851a; --brass-bright:#d4af37; --brass-dim:#6f570c;
-  --brass-glow:rgba(168,133,26,0.34); --brass-wash:rgba(168,133,26,0.10); --on-brass:#fffaf0;
-  --sh-flat:0 12px 0 -4px #1a1612; --sh-pop:0 24px 60px -20px rgba(120,90,30,0.30);
+  --fg:#241f18; --fg-soft:#28231b; --fg-mute:#5c5546; --fg-faint:#b5ad9c;
+  --hairline:rgba(36,31,24,0.12); --hairline-2:rgba(36,31,24,0.22);
+  --scrim:rgba(247,240,228,0.88); --film:rgba(247,240,228,0.55);
+  --brass:#1b4fa0; --brass-bright:#123c7c; --brass-dim:#5b7cb8;
+  --brass-glow:rgba(27,79,160,0.34); --brass-wash:rgba(27,79,160,0.10); --on-brass:#ffffff;
+  --sh-flat:0 12px 0 -4px #241f18; --sh-pop:0 24px 60px -20px rgba(36,31,24,0.28);
 }
 
 /* ============================================================
@@ -443,13 +465,13 @@ html[lang="ar"] .cinema .act-label { font-family: var(--f-ui-ar); letter-spacing
 }
 .cinema .boot .door {
   background:
-    linear-gradient(180deg, #181018, #0a0a0f),
+    linear-gradient(180deg, var(--ink-3), var(--ink)),
     var(--ink);
-  border-right: 1px solid rgba(212, 175, 55, 0.18);
+  border-right: 1px solid color-mix(in srgb, var(--brass) 22%, transparent);
   position: relative;
   transition: transform 1800ms var(--ease-cinema), opacity 800ms ease;
 }
-.cinema .boot .door:last-child { border-right: 0; border-left: 1px solid rgba(212, 175, 55, 0.18); }
+.cinema .boot .door:last-child { border-right: 0; border-left: 1px solid color-mix(in srgb, var(--brass) 22%, transparent); }
 .cinema .boot .door::before {
   content: "";
   position: absolute;
@@ -503,7 +525,7 @@ html[lang="ar"] .cinema .act-label { font-family: var(--f-ui-ar); letter-spacing
   transform: translateX(-50%);
   width: 120px;
   height: 1px;
-  background: rgba(212, 175, 55, 0.18);
+  background: color-mix(in srgb, var(--brass) 26%, transparent);
   overflow: hidden;
 }
 .cinema .boot .progress::after {
@@ -534,8 +556,8 @@ html[lang="ar"] .cinema .act-label { font-family: var(--f-ui-ar); letter-spacing
   height: 100vh;
   overflow: hidden;
   background:
-    radial-gradient(ellipse 60% 90% at 70% 50%, rgba(60, 28, 8, 0.85) 0%, transparent 60%),
-    radial-gradient(ellipse at 50% 30%, #1a1410 0%, #0a0a0f 70%);
+    radial-gradient(ellipse 60% 90% at 70% 50%, rgba(30, 58, 110, 0.85) 0%, transparent 60%),
+    radial-gradient(ellipse at 50% 30%, #14304f 0%, #0e1d37 70%);
 }
 html[data-theme="light"] .cinema .hero {
   background:
@@ -553,13 +575,13 @@ html[data-theme="light"] .cinema .hero {
   z-index: 2;
   pointer-events: none;
   background:
-    linear-gradient(90deg, rgba(10,10,15,0.85) 0%, rgba(10,10,15,0.55) 35%, transparent 60%),
-    linear-gradient(180deg, transparent 60%, rgba(10,10,15,0.9) 100%);
+    linear-gradient(90deg, rgba(14,29,55,0.85) 0%, rgba(14,29,55,0.55) 35%, transparent 60%),
+    linear-gradient(180deg, transparent 60%, rgba(14,29,55,0.9) 100%);
 }
 html[dir="rtl"] .cinema .hero .scrim {
   background:
-    linear-gradient(270deg, rgba(10,10,15,0.85) 0%, rgba(10,10,15,0.55) 35%, transparent 60%),
-    linear-gradient(180deg, transparent 60%, rgba(10,10,15,0.9) 100%);
+    linear-gradient(270deg, rgba(14,29,55,0.85) 0%, rgba(14,29,55,0.55) 35%, transparent 60%),
+    linear-gradient(180deg, transparent 60%, rgba(14,29,55,0.9) 100%);
 }
 html[data-theme="light"] .cinema .hero .scrim {
   background:
@@ -770,7 +792,7 @@ html[dir="rtl"] .cinema .btn:hover .arrow { transform: scaleX(-1) translateX(4px
   width: 38%;
   z-index: 4;
   pointer-events: none;
-  filter: drop-shadow(0 12px 60px rgba(212, 175, 55, 0.35));
+  filter: drop-shadow(0 12px 60px color-mix(in srgb, var(--brass) 35%, transparent));
 }
 html[dir="rtl"] .cinema .houses .ornament-anchor { right: auto; left: 4%; }
 @media (max-width: 900px) {
@@ -940,7 +962,7 @@ html[lang="ar"] .cinema .atlas .cell .label .ar { display: none; }
 .cinema .transform-scene {
   min-height: 100vh;
   padding: 12vh var(--safe) var(--s-11);
-  background: radial-gradient(ellipse at 50% 0%, #1a1410, var(--ink) 60%);
+  background: radial-gradient(ellipse at 50% 0%, #1c3252, var(--ink) 60%);
   position: relative;
   overflow: hidden;
 }
@@ -990,7 +1012,7 @@ html[lang="ar"] .cinema .transform-scene .lead p { font-family: var(--f-display-
   min-height: 540px;
   border: 1px dashed var(--hairline-2);
   background:
-    linear-gradient(180deg, transparent, rgba(212,175,55,0.04)),
+    linear-gradient(180deg, transparent, color-mix(in srgb, var(--brass) 5%, transparent)),
     var(--surface);
   display: grid;
   place-items: center;
@@ -1002,7 +1024,7 @@ html[lang="ar"] .cinema .transform-scene .lead p { font-family: var(--f-display-
 }
 .cinema .dropzone:hover, .cinema .dropzone.over {
   border-color: var(--brass);
-  background: linear-gradient(180deg, transparent, rgba(212,175,55,0.10)), var(--surface);
+  background: linear-gradient(180deg, transparent, color-mix(in srgb, var(--brass) 12%, transparent)), var(--surface);
 }
 .cinema .dropzone .corner {
   position: absolute;
@@ -1174,7 +1196,7 @@ html[lang="ar"] .cinema .style-card .name { font-family: var(--f-display-ar); fo
   position: fixed;
   inset: 0;
   z-index: 90;
-  background: radial-gradient(ellipse at 50% 30%, #1a1410, var(--ink) 70%);
+  background: radial-gradient(ellipse at 50% 30%, #1c3252, var(--ink) 70%);
   display: grid;
   place-items: center;
   overflow: hidden;
@@ -1470,7 +1492,7 @@ html[lang="ar"] .cinema .result-scene .actions { flex-direction: row-reverse; }
   place-items: center;
   padding: var(--safe);
   text-align: center;
-  background: radial-gradient(ellipse at center, #1a0d0b, var(--ink) 80%);
+  background: radial-gradient(ellipse at center, #2a1c22, var(--ink) 80%);
   position: relative;
   overflow: hidden;
 }
@@ -1930,7 +1952,7 @@ html[lang="ar"] .cinema .atlas-constellation .head p { font-family: var(--f-disp
   width: calc(46px * var(--size));
   height: calc(46px * var(--size));
   border-radius: 50%;
-  background: radial-gradient(circle at 30% 30%, #2a200f, #0a0a0f);
+  background: radial-gradient(circle at 30% 30%, var(--ink-3), var(--ink));
   border: 1px solid var(--brass-dim);
   display: grid;
   place-items: center;

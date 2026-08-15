@@ -18,9 +18,11 @@ export default function NotFound() {
             {/* closed door glyph */}
             <svg viewBox="0 0 240 240" fill="none" stroke="currentColor" strokeWidth="1">
               <defs>
+                {/* The 404 door sits on an always-dark stage, so these track the
+                    dark accent (limestone) rather than the old brass. */}
                 <linearGradient id="nf-grad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0" stopColor="#f0d78c" />
-                  <stop offset="1" stopColor="#8b7432" />
+                  <stop offset="0" stopColor="var(--brass-bright, #f6efe0)" />
+                  <stop offset="1" stopColor="var(--brass-dim, #8d8674)" />
                 </linearGradient>
               </defs>
               <g stroke="url(#nf-grad)" strokeWidth="1.2" fill="none">
