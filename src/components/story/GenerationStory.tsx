@@ -570,7 +570,26 @@ export default function GenerationStory({
             </ol>
           </div>
         );
-      case 5:
+      case 5: {
+        // The metaphor is the FALLBACK, not the design. When this run's actual
+        // outputs are supplied there is nothing to be metaphorical about — the
+        // chapter shows the renders themselves, captioned with their culture.
+        const outputs = assets?.generatedOutputs ?? [];
+        if (outputs.length > 0) {
+          return (
+            <div className={styles.generationOutputs}>
+              {outputs.map((image, index) => (
+                <figure key={image.src.slice(-32) + index}>
+                  <ChapterImage image={image} isArabic={isArabic} />
+                  <figcaption>
+                    <span>{String(index + 1).padStart(2, "0")}</span>
+                    <bdi>{localized(image.caption ?? image.alt, isArabic)}</bdi>
+                  </figcaption>
+                </figure>
+              ))}
+            </div>
+          );
+        }
         return (
           <div className={styles.generationMetaphor}>
             <svg viewBox="0 0 900 500" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
@@ -593,6 +612,7 @@ export default function GenerationStory({
             <p>{copy.metaphorLabel}</p>
           </div>
         );
+      }
       default: {
         const teaser = assets?.detailTeaser ?? sourceImage;
         return (
@@ -688,7 +708,18 @@ export default function GenerationStory({
             </p>
             <h3>{copy.chapters[activeChapter].title}</h3>
           </div>
-          <p>{copy.chapters[activeChapter].body}</p>
+          {/* Chapter 06's stock body explains that a visual metaphor stands in
+              "not as an inference screenshot". Once this run's real outputs are
+              on screen that sentence describes something the reader is not
+              looking at — so the description has to move with the evidence, or
+              the honesty note becomes the dishonest part. */}
+          <p>
+            {activeChapter === 5 && (assets?.generatedOutputs?.length ?? 0) > 0
+              ? isArabic
+                ? "التصاميم التي أنتجها هذا الطلب فعلياً — وليست استعارة بصرية."
+                : "The designs this request actually produced — not a visual metaphor."
+              : copy.chapters[activeChapter].body}
+          </p>
         </div>
 
         <div

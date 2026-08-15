@@ -379,6 +379,28 @@ export interface RedesignResult {
   ssim?: Record<string, number> | null;
   /** True in DARDESIGN_LIGHT: images are tinted stand-ins, not real renders. */
   placeholder?: boolean | null;
+  /** What the render host actually did — base model, the per-culture LoRA (null
+   *  where the file is genuinely absent, i.e. the prompt-only path), the fused
+   *  scale, and the ControlNet weights `sweep_winners.json` resolved to. Read
+   *  server-side from the same config the generator obeys.
+   *
+   *  Absent on older backends, and in LIGHT it carries `{light_mode: true}` and
+   *  nothing else, because in that branch none of it happens. Treat a missing
+   *  key as "unknown" and an explicit null as "absent" — they are not the same,
+   *  and the UI is allowed to state the second but not the first. */
+  provenance?: RedesignProvenance | null;
+}
+
+/** @see RedesignResult.provenance */
+export interface RedesignProvenance {
+  light_mode?: boolean;
+  model?: string | null;
+  lora_scale?: number | null;
+  /** style -> LoRA filename, or null when that culture has no LoRA on disk. */
+  lora?: Record<string, string | null>;
+  /** style -> the (depth, seg) ControlNet weights actually used. */
+  controlnet?: Record<string, { depth: number; seg: number }>;
+  dual_controlnet?: boolean;
 }
 
 const REDESIGN_STYLE_KEYS = ["lebanese", "khaleeji", "moroccan"] as const;

@@ -404,9 +404,58 @@
 .analysisImage,
 .preservationChapter,
 .pipelineChapter,
-.generationMetaphor {
+.generationMetaphor,
+.generationOutputs {
   position: absolute;
   inset: 0;
+}
+
+/* The real renders, when this run produced them — see case 5 in
+   GenerationStory.tsx. One column per culture, so a one-culture request fills
+   the frame rather than leaving two empty slots. */
+.generationOutputs {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  gap: 10px;
+  padding: 10px;
+}
+
+.generationOutputs figure {
+  position: relative;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  gap: 8px;
+  min-width: 0;
+  margin: 0;
+}
+
+.generationOutputs figure img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 2px;
+}
+
+.generationOutputs figcaption {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 0.72rem;
+  color: var(--dd-text-secondary);
+}
+
+.generationOutputs figcaption span {
+  font-family: var(--font-jetbrains-mono), ui-monospace, monospace;
+  color: var(--dd-gold);
+}
+
+@media (max-width: 700px) {
+  .generationOutputs {
+    grid-auto-flow: row;
+    grid-auto-rows: 1fr;
+    grid-auto-columns: auto;
+  }
 }
 
 .understandingChapter {

@@ -34,6 +34,8 @@ import {
   DesignStory,
   GenerationStory,
   createDesignStoryData,
+  createGenerationStoryAssets,
+  generationCapabilitiesFromProvenance,
   type GenerationStoryAssets,
 } from "@/components/story";
 import RoomReport from "@/components/RoomReport";
@@ -956,6 +958,21 @@ export default function StudioPage() {
           // outright when the original or the selected output is missing. Null
           // simply means the explanation layer is not offered.
           const storyData = createDesignStoryData(result, featured);
+          // Inside DAR's chapters were rendering as diagrams-of-a-pipeline
+          // because `assets` was never passed — the prop existed, the type was
+          // even imported here, and nothing filled it. This hands the chapters
+          // the run's OWN depth map and segmentation regions, behind the same
+          // placeholder gate storyData uses.
+          const generationAssets: GenerationStoryAssets | null =
+            createGenerationStoryAssets(result);
+          // What the render host actually did, for the culture on screen. Empty
+          // on a LIGHT run or an older backend, which keeps the pipeline chapter
+          // captioned as architecture rather than letting it claim a LoRA and a
+          // dual ControlNet it cannot prove.
+          const generationCapabilities = generationCapabilitiesFromProvenance(
+            result.provenance,
+            featured,
+          );
           return (
             <>
               <div className="cinema studio-workspace">
@@ -1342,6 +1359,14 @@ export default function StudioPage() {
                           <GenerationStory
                             inputImage={result.original}
                             culture={featured}
+                            // The real depth map and segmentation regions this
+                            // run produced. Gated by the same placeholder rule
+                            // createDesignStoryData uses, so a LIGHT run passes
+                            // null here and the chapters keep their honest
+                            // fallback rather than presenting a synthetic room
+                            // as evidence.
+                            assets={generationAssets ?? undefined}
+                            capabilities={generationCapabilities}
                             status={{
                               state: "done",
                               jobId: result.job_id ?? null,
