@@ -325,6 +325,59 @@ def _has_lora(style: StyleId) -> bool:
     return _lora_path(style).is_file()
 
 
+def provenance(styles: list[str] | tuple[str, ...] | None = None) -> dict:
+    """What this host will actually do, stated from the same values it obeys.
+
+    /redesign returned no provenance at all, which is why the frontend's
+    "Inside DAR" pipeline chapter had to label itself CONCEPTUAL ARCHITECTURE
+    and why RoomReport's footer hardcodes a claim it cannot prove. Everything
+    here is read from the config and the filesystem this process is running
+    against, so it describes THIS host rather than the architecture diagram:
+
+      model            the base checkpoint the config names
+      lora             the per-culture LoRA, per style, or null when the file
+                       is genuinely absent (the prompt-only fallback path)
+      lora_scale       the fused scale the generator will use
+      controlnet       the (depth, seg) weights sweep_winners.json actually
+                       resolves to for that style, defaults included
+      dual_controlnet  whether both control images are used
+      light_mode       true when nothing here will be rendered for real
+
+    In LIGHT mode this reports light_mode true and nothing else is claimed,
+    because in that branch none of it happens. Never assert from this dict
+    what the host has not loaded — a missing LoRA is reported as null, not
+    omitted, so the client can tell "absent" from "unknown".
+    """
+    light = os.getenv("DARDESIGN_LIGHT") == "1"
+    out: dict[str, Any] = {"light_mode": light}
+    if light:
+        return out
+
+    out["model"] = CONFIG.get("base_model") or _DEFAULT_CONFIG.get("base_model")
+    out["lora_scale"] = float(CONFIG.get("lora_scale", _DEFAULT_CONFIG["lora_scale"]))
+
+    wanted = list(styles) if styles else []
+    loras: dict[str, str | None] = {}
+    controlnets: dict[str, dict[str, float]] = {}
+    for style in wanted:
+        loras[style] = str(_lora_path(style).name) if _has_lora(style) else None
+        pair = _winner_weights(style)
+        if pair is None:
+            default = CONFIG.get(
+                "default_controlnet_weights",
+                _DEFAULT_CONFIG["default_controlnet_weights"],
+            )
+            pair = (float(default.get("depth", 0.7)), float(default.get("seg", 0.5)))
+        controlnets[style] = {"depth": float(pair[0]), "seg": float(pair[1])}
+    if loras:
+        out["lora"] = loras
+        out["controlnet"] = controlnets
+        out["dual_controlnet"] = all(
+            c["depth"] > 0 and c["seg"] > 0 for c in controlnets.values()
+        )
+    return out
+
+
 # ----------------------------------------------------------------------------
 # Pipeline cache (per-style)
 # ----------------------------------------------------------------------------

@@ -174,6 +174,7 @@ from .transform import (
     StylePack,
     compute_depth_seg,
     fit_size,
+    provenance as pipeline_provenance,
     render_scene,
     transform_room,
 )
@@ -389,6 +390,13 @@ class RedesignResponse(BaseModel):
     ssim: dict[str, float] | None = None
     # True in DARDESIGN_LIGHT: images are tinted stand-ins, not real renders.
     placeholder: bool | None = None
+    # What this host actually did: base model, the per-style LoRA (or null when
+    # the file is genuinely absent), the fused scale, and the ControlNet weights
+    # sweep_winners.json resolved to. Read from the same config the generator
+    # obeys — see transform.provenance(). Before this existed the client could
+    # not prove any of it, which is why "Inside DAR" had to label its pipeline
+    # chapter CONCEPTUAL ARCHITECTURE and RoomReport's footer hardcoded a claim.
+    provenance: dict | None = None
     privacy_notice: str = PRIVACY_NOTICE
 
 
@@ -667,6 +675,7 @@ async def redesign(file: UploadFile, styles: str | None = Form(default=None)) ->
             duration_s=duration_s,
             ssim=ssim_scores or None,
             placeholder=True if _light_mode() else None,
+            provenance=pipeline_provenance(list(requested)),
             **images,
         )
 
