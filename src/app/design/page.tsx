@@ -33,11 +33,12 @@ import { CATALOG, CULTURE_LABEL, catalogItem } from "@/lib/design/catalog";
 import { TIMES_OF_DAY, TIME_LABEL, type TimeOfDay } from "@/lib/design/lighting";
 import { cultureAccent } from "@/lib/design/materials";
 import { SNAP_ROTATION_DEG } from "@/lib/design/placement";
-import { HANDOFF_KEY } from "@/lib/design/handoff";
+import { HANDOFF_KEY, SCENE_HANDOFF_KEY } from "@/lib/design/handoff";
 import { createScene, type WallOpening } from "@/lib/design/roomModel";
 import type { ViewPreset } from "@/lib/design/scene3d";
 import { designReducer, initialState, loadScene, saveScene } from "@/lib/design/store";
-import type { CatalogItem, SceneCulture } from "@/lib/design/types";
+import { SCENE_VERSION } from "@/lib/design/types";
+import type { CatalogItem, DesignScene, SceneCulture } from "@/lib/design/types";
 
 interface Handoff {
   result: RedesignResult;
@@ -50,6 +51,27 @@ function readHandoff(): Handoff | null {
     if (!raw) return null;
     const parsed = JSON.parse(raw) as Handoff;
     if (!parsed?.result?.original) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+/** A saved design being reopened for editing. Consumed once.
+ *
+ *  The version is re-checked here even though My Designs already checked before
+ *  navigating: loadScene refuses a scene whose SCENE_VERSION it does not know,
+ *  and a room restored from an unrecognised format would be a plausible-looking
+ *  fiction rather than what the user saved. Cleared whether or not it is
+ *  accepted, so a rejected scene cannot be retried forever on every visit. */
+function readSceneHandoff(): DesignScene | null {
+  try {
+    const raw = sessionStorage.getItem(SCENE_HANDOFF_KEY);
+    if (!raw) return null;
+    sessionStorage.removeItem(SCENE_HANDOFF_KEY);
+    const parsed = JSON.parse(raw) as DesignScene;
+    if (!parsed || parsed.version !== SCENE_VERSION) return null;
+    if (!parsed.room || !Array.isArray(parsed.objects)) return null;
     return parsed;
   } catch {
     return null;
@@ -79,10 +101,13 @@ function BuildMode() {
     const culture: SceneCulture = h?.culture ?? "all";
     const fresh = createScene(h?.result ?? null, culture);
     const saved = loadScene(h?.result?.job_id ?? null);
-    // A saved scene wins, but the shell openings are always re-derived: they
-    // belong to the photograph, not to the user's edits.
+    // A design reopened from My Designs outranks both. It is a scene someone
+    // already composed and saved, so re-deriving a room from the photograph
+    // would throw that work away. Read once and cleared, so a later plain visit
+    // to /design does not silently resurrect it.
+    const reopened = readSceneHandoff();
     setBoot({
-      scene: saved ?? fresh.scene,
+      scene: reopened ?? saved ?? fresh.scene,
       openings: fresh.openings,
       result: h?.result ?? null,
     });

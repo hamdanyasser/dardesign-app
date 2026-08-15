@@ -10,7 +10,8 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { Eye, EyeOff, Loader2, Trash2 } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { Eye, EyeOff, Loader2, Pencil, Trash2 } from "lucide-react";
 import FeedbackForm from "@/components/FeedbackForm";
 import RatingBadge from "@/components/RatingBadge";
 import GalleryShell, { DesignCard } from "@/components/GalleryShell";
@@ -20,14 +21,18 @@ import {
   ApiError,
   deleteHistoryEntry,
   fetchHistory,
+  fetchHistoryScene,
   setSuggested,
   storedImageUrl,
   type HistoryEntry,
   type StyleId,
 } from "@/lib/api";
+import { SCENE_HANDOFF_KEY } from "@/lib/design/handoff";
+import { SCENE_VERSION } from "@/lib/design/types";
 
 export default function HistoryPage() {
   const { isArabic, copy } = useThemeLanguage();
+  const router = useRouter();
   const { user, loading: authLoading } = useAuth();
 
   const cultureName = (culture: HistoryEntry["culture"]) =>
@@ -65,6 +70,55 @@ export default function HistoryPage() {
       cancelled = true;
     };
   }, [user, authLoading, isArabic]);
+
+  /* Reopen a saved design in Build Mode, so it can be kept working on rather
+     than only looked at.
+
+     The scene is fetched here rather than carried in the listing: a scene is a
+     few KB and this page lists up to 100 designs, so folding it into every load
+     would cost megabytes to serve a button most rows never press.
+
+     The version check is the honest half. loadScene refuses a scene whose
+     SCENE_VERSION it does not recognise, so a design saved in an older format
+     cannot be restored faithfully — and a room that opens looking plausible but
+     missing pieces is worse than one that refuses with a reason. */
+  const openInBuildMode = async (entry: HistoryEntry) => {
+    setBusy(entry.id);
+    setError(null);
+    try {
+      const found = await fetchHistoryScene(entry.id);
+      if (!found) {
+        setError(
+          t(
+            "That design has no editable scene.",
+            "لا يوجد مشهد قابل للتحرير لهذا التصميم.",
+          ),
+        );
+        return;
+      }
+      if (found.scene.version !== SCENE_VERSION) {
+        setError(
+          t(
+            "That design was saved in an older scene format and cannot be reopened.",
+            "حُفظ هذا التصميم بصيغة مشهد أقدم ولا يمكن إعادة فتحه.",
+          ),
+        );
+        return;
+      }
+      sessionStorage.setItem(SCENE_HANDOFF_KEY, JSON.stringify(found.scene));
+      router.push("/design");
+    } catch (e) {
+      setError(
+        e instanceof ApiError
+          ? isArabic
+            ? e.message_ar
+            : e.message_en
+          : t("Could not open that design.", "تعذّر فتح التصميم."),
+      );
+    } finally {
+      setBusy(null);
+    }
+  };
 
   const toggleSuggested = async (entry: HistoryEntry) => {
     const next = !entry.isSuggested;
@@ -148,6 +202,24 @@ export default function HistoryPage() {
               rating={<RatingBadge rating={e.rating} />}
               actions={
                 <>
+                  {/* Offered only when a scene was stored with this design.
+                      A Studio design is a render of a photograph — there is no
+                      layout behind it to reopen — so the button is absent
+                      rather than present and failing. */}
+                  {e.hasScene && (
+                    <button
+                      onClick={() => openInBuildMode(e)}
+                      disabled={busy === e.id}
+                      className={`${btn} hover:border-[var(--dd-gold)] hover:text-[var(--dd-gold)]`}
+                    >
+                      {busy === e.id ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <Pencil className="h-3.5 w-3.5" />
+                      )}
+                      {t("Edit", "تحرير")}
+                    </button>
+                  )}
                   <button
                     onClick={() => toggleSuggested(e)}
                     disabled={busy === e.id}

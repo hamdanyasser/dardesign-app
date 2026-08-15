@@ -31,6 +31,7 @@ import {
   renderScene,
   type SceneRenderResult,
 } from "@/lib/api";
+import SaveDesignButton from "@/components/SaveDesignButton";
 import { catalogItem, CULTURE_LABEL } from "@/lib/design/catalog";
 import { getMaterial } from "@/lib/design/materials";
 import type { DesignScene } from "@/lib/design/types";
@@ -335,6 +336,39 @@ export default function HandoffPanel({
                   </figure>
                 )}
               </div>
+
+              {/* Save is offered only for a REAL render. A LIGHT stand-in is a
+                  tint, not a design, and storing it would put a placeholder in
+                  My Designs and in front of other users on /others.
+
+                  edited=true is load-bearing rather than cosmetic: a Build Mode
+                  render is a scene the USER composed, so scoring it would
+                  measure their layout instead of the model's generation. The
+                  backend only queues evaluation for `not edited and not light`,
+                  so this keeps SSIM/LPIPS/CLIP and the culture confusion matrix
+                  reading the pipeline's own output — the property the
+                  evaluation dashboard's honesty rests on.
+
+                  ssim is deliberately omitted: there is no photograph to
+                  preserve structure against, and a fabricated number is worse
+                  than the em dash the dashboard already renders for an
+                  unmeasured figure. */}
+              {result && !result.placeholder && (
+                <div style={{ marginTop: 14 }}>
+                  <SaveDesignButton
+                    oldImage={cond.beauty}
+                    newImage={result.image}
+                    // Stored with the design so My Designs can reopen it in
+                    // Build Mode. This is the scene the conditioning above was
+                    // captured from, so what reopens is exactly what rendered.
+                    scene={scene}
+                    culture={scene.culture === "all" ? null : scene.culture}
+                    intensity={renderIntent?.intensity ?? null}
+                    duration={result.durationS}
+                    edited
+                  />
+                </div>
+              )}
             </>
           )}
 

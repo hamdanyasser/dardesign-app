@@ -7,6 +7,12 @@
  * `http://localhost:8000` for pure-local dev.
  */
 
+// Type-only, so nothing from src/lib/design/ reaches the runtime bundle. That
+// separation is deliberate — handoff.ts exists for the same reason — and a
+// `import type` is erased at compile time, so Studio does not gain Build Mode's
+// weight by this file knowing the shape of a scene.
+import type { DesignScene } from "@/lib/design/types";
+
 const API_URL =
   process.env.NEXT_PUBLIC_API_URL?.replace(/\/+$/, "") ?? "http://localhost:8000";
 
@@ -902,6 +908,20 @@ export interface HistoryEntry {
   authorName?: string | null;
   /** The design's existing rating, or null when nobody has rated it. */
   rating?: DesignRating | null;
+  /**
+   * True when a Build Mode scene was stored with this design, so it can be
+   * reopened and edited. False for a Studio design — that is a render of a
+   * photograph, with no scene behind it — and for anything saved before scenes
+   * were stored. The scene itself is fetched on demand by `fetchHistoryScene`;
+   * a listing of 100 rows must not carry 100 scenes.
+   */
+  hasScene?: boolean;
+  /**
+   * Which scene format it was saved in. `loadScene` refuses a version it does
+   * not recognise, so this lets the UI disable Edit with an honest reason
+   * instead of opening a room that will be silently dropped.
+   */
+  sceneVersion?: number | null;
 }
 
 /** How the user judged the furniture in a design. */
@@ -1041,6 +1061,10 @@ export async function saveToHistory(
      *  generation timing and model metrics: it took milliseconds and no model
      *  was involved. */
     light?: boolean;
+    /** The Build Mode scene this render was composed from, so the saved design
+     *  can be reopened and edited. Omitted by Studio, which renders a
+     *  photograph and has no scene. */
+    scene?: DesignScene | null;
   } = {},
 ): Promise<HistoryEntry> {
   const res = await safeFetch(`${DATA_API_URL}/api/history`, {
@@ -1055,6 +1079,13 @@ export async function saveToHistory(
       ssim: meta.ssim ?? null,
       edited: !!meta.edited,
       light: !!meta.light,
+      // Serialized here, stored verbatim, and never parsed by the backend:
+      // types.ts is the single definition of a scene, and a second one in
+      // Python would be a copy to keep in step. The version travels beside it
+      // so a future SCENE_VERSION bump can be reported rather than silently
+      // orphaning saved rooms.
+      scene: meta.scene ? JSON.stringify(meta.scene) : null,
+      sceneVersion: meta.scene ? meta.scene.version : null,
     }),
     ...WITH_CREDENTIALS,
   });
@@ -1285,6 +1316,35 @@ export async function fetchHistory(): Promise<HistoryEntry[]> {
     ...WITH_CREDENTIALS,
   });
   return (await unwrap(res)) as HistoryEntry[];
+}
+
+/**
+ * The Build Mode scene behind one saved design, for reopening it.
+ *
+ * Fetched on demand rather than included in `fetchHistory`: a scene is a few KB
+ * and a listing is up to 100 rows, so folding it in would make every visit to
+ * My Designs carry megabytes to serve a button most rows never press.
+ *
+ * Returns null when this design has no scene — a Studio design is a render of a
+ * photograph, and there is nothing to reopen. The listing already says so via
+ * `hasScene`; this is the second check rather than the first.
+ */
+export async function fetchHistoryScene(
+  id: number,
+): Promise<{ scene: DesignScene; sceneVersion: number | null } | null> {
+  const res = await safeFetch(`${DATA_API_URL}/api/history/${id}/scene`, {
+    headers: COMMON_HEADERS,
+    ...WITH_CREDENTIALS,
+  });
+  if (res.status === 404) return null;
+  const body = (await unwrap(res)) as { scene: string; sceneVersion: number | null };
+  // Stored verbatim as a string, so a corrupt row must not take the page down
+  // with it — a design that cannot be parsed is reported as unopenable.
+  try {
+    return { scene: JSON.parse(body.scene) as DesignScene, sceneVersion: body.sceneVersion };
+  } catch {
+    return null;
+  }
 }
 
 /** Share one of your designs to the public gallery, or take it back. */

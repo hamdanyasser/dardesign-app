@@ -15,6 +15,7 @@ import { Check, Loader2, Save } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { useThemeLanguage } from "@/context/ThemeLanguageContext";
 import { ApiError, saveToHistory } from "@/lib/api";
+import type { DesignScene } from "@/lib/design/types";
 import { cn } from "@/lib/utils";
 import FeedbackForm from "@/components/FeedbackForm";
 
@@ -41,11 +42,16 @@ interface Props {
    *  other design, but a tint produced in milliseconds must never land in the
    *  dashboard's generation time or SSIM. */
   light?: boolean;
+  /** The Build Mode scene this render was composed from. Stored with the design
+   *  so it can be reopened and kept working on, rather than only looked at.
+   *  Omitted by Studio — a render of a photograph has no scene behind it. */
+  scene?: DesignScene | null;
 }
 
 export default function SaveDesignButton({
   oldImage,
   newImage,
+  scene = null,
   culture = null,
   intensity = null,
   duration = null,
@@ -86,7 +92,7 @@ export default function SaveDesignButton({
     setError(null);
     try {
       const entry = await saveToHistory(oldImage, newImage, {
-        culture, intensity, duration, ssim, edited, light,
+        culture, intensity, duration, ssim, edited, light, scene,
       });
       setSaved(true);
       setSavedId(entry.id);

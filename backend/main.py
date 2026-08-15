@@ -912,6 +912,12 @@ class LoginRequest(BaseModel):
     password: str
 
 
+# A Build Mode scene is a few KB — 27 catalogue items and a few dozen
+# placements, all plain numbers. 256 KB is two orders of magnitude of headroom
+# and still bounds what one row can put into every subsequent listing.
+MAX_SCENE_CHARS = 256_000
+
+
 class SaveHistoryRequest(BaseModel):
     """Both images as data URLs.
 
@@ -939,6 +945,15 @@ class SaveHistoryRequest(BaseModel):
     # saving. Still a real design; just no longer the pipeline's own output, so
     # it is left out of the evaluation metrics.
     edited: bool = False
+    # The Build Mode scene this render was composed from, as a JSON string, so
+    # the design can be REOPENED and edited rather than only viewed. Sent as a
+    # string rather than a parsed object on purpose: the backend stores it
+    # verbatim and never interprets it, so parsing here would only create a
+    # second definition of the scene format to keep in step with types.ts.
+    # Absent for a Studio design — that is a render of a photograph, not a
+    # scene, and there is nothing to reopen.
+    scene: str | None = None
+    sceneVersion: int | None = None
     # True when /redesign answered `placeholder: true` — a DARDESIGN_LIGHT tint,
     # not a render. Reported by the client rather than read from this process's
     # own env because the renderer and the accounts backend can be different
@@ -1121,10 +1136,27 @@ async def history_save(
         max(0.0, min(float(req.duration), 86_400.0)) if req.duration is not None else None
     )
     ssim = max(0.0, min(float(req.ssim), 1.0)) if req.ssim is not None else None
+    # Bounded before it reaches the database. A scene is a few KB in practice
+    # (27 catalogue items, a few dozen placements), so a payload orders of
+    # magnitude past that is a bug or an attack, not a room — and history rows
+    # are read back on every listing. Refused rather than truncated: half a
+    # scene would parse into a room missing furniture, which is worse than no
+    # scene at all.
+    scene_json = req.scene
+    if scene_json is not None and len(scene_json) > MAX_SCENE_CHARS:
+        raise HTTPException(
+            status_code=413,
+            detail={
+                "code": "scene_too_large",
+                "message_en": "That design is too large to save.",
+                "message_ar": "هذا التصميم أكبر من أن يُحفظ.",
+            },
+        )
     entry_id = db.add_history(
         user["Id"], old_url, new_url, culture=culture, intensity=intensity,
         duration=duration, ssim=ssim, is_edited=bool(req.edited),
         is_light=bool(req.light),
+        scene_json=scene_json, scene_version=req.sceneVersion,
     )
     # Only the pipeline's own output is evaluated: a recoloured or furnished
     # render would score the edit, not the generation, and a LIGHT placeholder
@@ -1154,6 +1186,39 @@ async def history_list(
     account can never see another's."""
     user = _require_user(session)
     return JSONResponse(db.list_history(user["Id"]))
+
+
+@app.get("/api/history/{entry_id}/scene")
+async def history_scene(
+    entry_id: int,
+    session: str | None = Cookie(default=None, alias=SESSION_COOKIE),
+) -> JSONResponse:
+    """The Build Mode scene behind one saved design, for reopening it.
+
+    Separate from the listing on purpose: a scene is a few KB and a listing is
+    up to 100 rows, so folding it in would make every page load carry megabytes
+    to serve a button most rows never press.
+
+    Scoped by UserId inside the query (see db.get_history_scene), so this cannot
+    return another account's room. A design saved from Studio has no scene and
+    answers 404 — the listing already says `hasScene: false`, so the button is
+    not offered and this is the belt to that braces.
+    """
+    user = _require_user(session)
+    found = db.get_history_scene(entry_id, user["Id"])
+    if not found:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "code": "no_scene",
+                "message_en": "This design has no editable scene.",
+                "message_ar": "لا يوجد مشهد قابل للتحرير لهذا التصميم.",
+            },
+        )
+    # The JSON is returned as the string it was stored as. The backend never
+    # parses a scene — types.ts is the single definition of that shape, and a
+    # second one here would be a copy to keep in step.
+    return JSONResponse({"scene": found["scene"], "sceneVersion": found["version"]})
 
 
 class SuggestRequest(BaseModel):

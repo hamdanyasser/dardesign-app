@@ -248,6 +248,22 @@ def _migrate(conn: sqlite3.Connection) -> None:
         ("PredictedCulture", "ALTER TABLE history ADD COLUMN PredictedCulture TEXT"),
         ("IsEdited", "ALTER TABLE history ADD COLUMN IsEdited INTEGER NOT NULL DEFAULT 0"),
         ("IsLight", "ALTER TABLE history ADD COLUMN IsLight INTEGER NOT NULL DEFAULT 0"),
+        # The Build Mode scene this render was composed from, verbatim, so a
+        # saved design can be REOPENED and kept working on rather than only
+        # looked at. A DesignScene is a plain serializable object by design
+        # (no class instances, no THREE.* types), which is what makes storing
+        # it a column rather than a schema.
+        #
+        # SceneVersion is stored beside it and is not decoration: loadScene
+        # drops any scene whose SCENE_VERSION does not match, so without the
+        # version recorded, a future bump would silently orphan every saved
+        # scene. Kept separate from the JSON so the check costs no parse.
+        #
+        # Null for every row saved from Studio, and for every row saved before
+        # this column existed — those are renders of a photograph, not scenes,
+        # and there is nothing to reopen.
+        ("SceneJson", "ALTER TABLE history ADD COLUMN SceneJson TEXT"),
+        ("SceneVersion", "ALTER TABLE history ADD COLUMN SceneVersion INTEGER"),
     ):
         if column not in existing:
             conn.execute(ddl)
@@ -635,18 +651,28 @@ def add_history(
     ssim: float | None = None,
     is_edited: bool = False,
     is_light: bool = False,
+    scene_json: str | None = None,
+    scene_version: int | None = None,
 ) -> int:
     """Save one design. `culture`/`intensity` describe how it was generated and
     become the trusted source for anything that rates this image later.
     `duration` is the generation time in seconds, measured by the renderer.
     `is_light` marks a DARDESIGN_LIGHT placeholder — kept as a design, kept out
-    of every model and timing statistic."""
+    of every model and timing statistic.
+
+    `scene_json` is the Build Mode scene this render was composed from, stored
+    verbatim so the design can be reopened and edited. `scene_version` is kept
+    alongside it because loadScene refuses a scene whose version it does not
+    recognise — storing it lets the client say so instead of failing silently.
+    Both are null for a Studio design, which is a render of a photograph and
+    has no scene behind it."""
     return _write(
         "INSERT INTO history (UserId, OldImageUrl, NewImageUrl, IsSuggested, Culture,"
-        " Intensity, Duration, Ssim, IsEdited, IsLight, CreatedAt)"
-        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        " Intensity, Duration, Ssim, IsEdited, IsLight, SceneJson, SceneVersion, CreatedAt)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (user_id, old_url, new_url, 1 if is_suggested else 0, culture, intensity,
-         duration, ssim, 1 if is_edited else 0, 1 if is_light else 0, time.time()),
+         duration, ssim, 1 if is_edited else 0, 1 if is_light else 0,
+         scene_json, scene_version, time.time()),
     )
 
 
@@ -990,6 +1016,26 @@ def list_history(user_id: int, limit: int = 100) -> list[dict]:
     return [_history_row(r) for r in rows]
 
 
+def get_history_scene(entry_id: int, user_id: int) -> dict | None:
+    """The stored Build Mode scene for one design, or None.
+
+    Scoped by UserId in the WHERE clause, not filtered after the fetch: a scene
+    is the full layout of someone's room and must never come back for another
+    account's row. Same discipline as list_history.
+
+    Returns the version alongside the JSON so the caller can refuse a format it
+    does not understand instead of handing the client a scene loadScene will
+    silently drop.
+    """
+    rows = _query(
+        "SELECT SceneJson, SceneVersion FROM history WHERE Id = ? AND UserId = ?",
+        (entry_id, user_id),
+    )
+    if not rows or not rows[0]["SceneJson"]:
+        return None
+    return {"scene": rows[0]["SceneJson"], "version": rows[0]["SceneVersion"]}
+
+
 def get_history_entry(entry_id: int) -> sqlite3.Row | None:
     rows = _query("SELECT * FROM history WHERE Id = ?", (entry_id,))
     return rows[0] if rows else None
@@ -1119,6 +1165,17 @@ def _history_row(r: sqlite3.Row) -> dict:
         "predictedCulture": r["PredictedCulture"] if "PredictedCulture" in keys else None,
         "isEdited": bool(r["IsEdited"]) if "IsEdited" in keys else False,
         "isLight": bool(r["IsLight"]) if "IsLight" in keys else False,
+        # Whether this design can be reopened in Build Mode, and in which scene
+        # format. The JSON ITSELF is deliberately not in the listing: a scene is
+        # a few KB and a listing is up to 100 rows, so including it would make
+        # every page load carry megabytes nobody has asked for. The Edit action
+        # fetches one scene by id instead.
+        #
+        # sceneVersion travels with the flag so the button can be disabled with
+        # an honest reason ("made with an older scene format") rather than
+        # opening a room the client will silently refuse to load.
+        "hasScene": bool(r["SceneJson"]) if "SceneJson" in keys else False,
+        "sceneVersion": r["SceneVersion"] if "SceneVersion" in keys else None,
         # The rating this design already has, when the caller joined it in.
         # Null means nobody has rated it — displayed as "not rated", never as 0.
         "rating": _rating_from_row(r),
