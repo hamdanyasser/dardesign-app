@@ -888,15 +888,19 @@ function buildFound(w: number, h: number, d: number, mat: THREE.Material): THREE
   const body = softBox(w, h, d, mat);
   g.add(place(body, 0, h / 2, 0));
 
+  // Edges and footprint plate carry most of what makes massing readable, and
+  // both were warm greys tuned against the old warm-charcoal ground. On indigo
+  // they vanished. Cool stone, and the edge is opaque enough to survive the
+  // 0.3 body opacity applied by buildObjectMesh.
   const edges = new THREE.LineSegments(
     new THREE.EdgesGeometry(new THREE.BoxGeometry(w, h, d)),
-    new THREE.LineBasicMaterial({ color: 0x8d857a, transparent: true, opacity: 0.5 }),
+    new THREE.LineBasicMaterial({ color: 0xc4d0e2, transparent: true, opacity: 0.85 }),
   );
   g.add(place(edges, 0, h / 2, 0));
 
   const plate = new THREE.Mesh(
     new THREE.PlaneGeometry(w, d),
-    new THREE.MeshBasicMaterial({ color: 0x6d675e, transparent: true, opacity: 0.34, side: THREE.DoubleSide }),
+    new THREE.MeshBasicMaterial({ color: 0x8fa0b8, transparent: true, opacity: 0.42, side: THREE.DoubleSide }),
   );
   plate.rotation.x = -Math.PI / 2;
   g.add(place(plate, 0, 1.2, 0));

@@ -94,8 +94,15 @@ export const MATERIALS: Record<string, MaterialSpec> = {
   /* light */
   lamplight: m("lamplight", "Lamplight", "ضوء المصباح", "#ffd9a0", 0.4, 0, "emissive · lamp shade", 0.85),
 
-  /* the neutral used for objects read off the photograph */
-  found: m("found", "Existing", "موجود", "#6d675e", 0.95, 0, "read from your photograph"),
+  /* The neutral for objects read off the photograph. Deliberately subordinate
+     to catalogue pieces — but subordinate is not invisible, and it was.
+     #6d675e is a WARM grey, picked when the Build Mode ground was warm
+     charcoal. Against the indigo ground it composites at 0.3 opacity to
+     rgb(43,51,67) over an rgb(14,29,55) floor, which is close to nothing: the
+     "8 found" chip claimed objects the user could not see. This is the same
+     cool stone family as the rest of the palette, and light enough to read as
+     massing while still losing to anything the user actually placed. */
+  found: m("found", "Existing", "موجود", "#a8b0bd", 0.9, 0, "read from your photograph"),
 };
 
 /** Floor / wall defaults per culture, from that culture's own palette.
