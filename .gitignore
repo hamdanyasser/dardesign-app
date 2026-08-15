@@ -125,3 +125,12 @@ backend/dardesign.db-shm
 
 # throwaway databases and corpora from scripts/seed_eval_demo.py
 .tmp/
+
+# The Gemini pack ships as a folder; the zip is just that folder compressed, so
+# committing both stores every future revision of the same bytes twice — once as
+# diffable text and once as an opaque binary blob. Rebuild it from the folder.
+DAR_GEMINI_ARCHITECTURE_PACK.zip
+
+# …and the pack unzipped into itself at some point, leaving an exact copy of the
+# pack inside the pack. It is an accident of extraction, not content.
+DAR_GEMINI_ARCHITECTURE_PACK/DAR_GEMINI_ARCHITECTURE_PACK/
