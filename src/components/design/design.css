@@ -70,12 +70,35 @@ html[data-theme="light"] .dar-build .stage::after {
   background: color-mix(in srgb, var(--bg) 78%, transparent);
   backdrop-filter: blur(14px);
   z-index: 20;
+  /* Below ~1150px the controls are wider than the bar even after the brand has
+     yielded. Scrolling keeps every one of them REACHABLE; the default
+     (overflow: visible) just runs them past the edge where Finish and Studio
+     cannot be clicked at all. */
+  overflow-x: auto;
+  scrollbar-width: none;
 }
+.dar-build .topbar::-webkit-scrollbar { display: none; }
+/* Controls must not be squeezed into unreadability by the scroll container. */
+.dar-build .topbar > * { flex-shrink: 0; }
+.dar-build .topbar > .brandline { flex-shrink: 1; }
+/* The top bar is one non-wrapping row and every control inside it declares
+   white-space: nowrap, so it cannot compress — adding a button pushes the
+   provenance chip over the title instead. The brand is the only decorative
+   item up here, so it is the one that yields: the eyebrow first, then the
+   wordmark. Every control the user needs keeps its place. */
 .dar-build .brandline {
   display: flex;
   align-items: baseline;
   gap: 10px;
   min-width: 0;
+  flex: 0 1 auto;
+  overflow: hidden;
+}
+@media (max-width: 1500px) {
+  .dar-build .brandline .eyebrow { display: none; }
+}
+@media (max-width: 1280px) {
+  .dar-build .brandline .mark { display: none; }
 }
 .dar-build .brandline .mark {
   font-family: var(--f-display);
