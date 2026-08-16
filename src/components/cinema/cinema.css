@@ -23,11 +23,11 @@
   --vellum:#f7f0e4; --vellum-2:#eae4d8; --vellum-3:#ded7c8;
   --brass:#e8dcc4; --brass-bright:#f6efe0; --brass-dim:#8d8674; --brass-deep:#5d5749;
   --brass-glow:rgba(232,220,196,0.34); --brass-wash:rgba(232,220,196,0.08);
-  --fg:#f2eee6; --fg-soft:#e9e3d6; --fg-mute:#c4d0e2; --fg-faint:#42557a; --on-brass:#0e1d37;
+  --fg:#f2eee6; --fg-soft:#e9e3d6; --fg-mute:#ccd7e7; --fg-faint:#42557a; --on-brass:#0e1d37;
   --lb-stone:#c9a876; --lb-cedar:#4a3520; --lb-shutter:#2f5a4a; --lb-rose:#e8c1a8;
   --kh-emerald:#0b5f4a; --kh-ruby:#6e1f2c; --kh-ivory:#ede4d2; --kh-night:#0d1429;
   --mr-cobalt:#1f4287; --mr-saffron:#d4a24a; --mr-terracotta:#c44a36; --mr-jade:#1a6e5c;
-  --error:#e85d4a; --success:#4a9e6e;
+  --error:#fbc8bb; --success:#98e0b6;
   --bg:var(--ink); --surface:var(--ink-2); --surface-2:var(--ink-3);
   /* Hairlines are nearly twice their old opacity. A 0.08-alpha rule is the
      first thing a beam loses — the drawing-instrument language this design
@@ -84,7 +84,7 @@
 html[data-theme="light"] .cinema .loading-scene,
 html[data-theme="light"] .cinema .error-scene,
 html[data-theme="light"] .cinema .nf-scene {
-  --fg:#f2eee6; --fg-soft:#e9e3d6; --fg-mute:#c4d0e2; --fg-faint:#42557a;
+  --fg:#f2eee6; --fg-soft:#e9e3d6; --fg-mute:#ccd7e7; --fg-faint:#42557a;
   --brass:#e8dcc4; --brass-bright:#f6efe0; --brass-dim:#8d8674;
   --hairline:rgba(232,220,196,0.15); --hairline-2:rgba(232,220,196,0.28);
   --surface:var(--ink-2); --surface-2:var(--ink-3);
@@ -102,8 +102,9 @@ html[data-theme="light"] {
   --fg:#241f18; --fg-soft:#28231b; --fg-mute:#474235; --fg-faint:#b5ad9c;
   --hairline:rgba(36,31,24,0.12); --hairline-2:rgba(36,31,24,0.22);
   --scrim:rgba(247,240,228,0.88); --film:rgba(247,240,228,0.55);
-  --brass:#1b4fa0; --brass-bright:#123c7c; --brass-dim:#5b7cb8;
-  --brass-glow:rgba(27,79,160,0.34); --brass-wash:rgba(27,79,160,0.10); --on-brass:#ffffff;
+  --error:#962c1b; --success:#256641;
+  --brass:#174590; --brass-bright:#123c7c; --brass-dim:#5b7cb8;
+  --brass-glow:rgba(23,69,144,0.34); --brass-wash:rgba(23,69,144,0.10); --on-brass:#ffffff;
   --sh-flat:0 12px 0 -4px #241f18; --sh-pop:0 24px 60px -20px rgba(36,31,24,0.28);
 }
 
