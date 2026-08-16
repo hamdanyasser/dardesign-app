@@ -655,6 +655,25 @@ export default function PlanPanel({
             );
           })()}
 
+          {/* The notes are the MODEL's prose, and the model narrates what it
+              intended rather than what survived. Asked to "remove the cabinet"
+              when the cabinet is locked `found` massing — a measurement from
+              the photograph, which is deliberately unremovable — it returned
+              zero operations and wrote "Successfully removed the specified
+              furniture piece from the room." Printed alone, that is the app
+              claiming an edit it did not make, which is the one thing this
+              project must never do.
+
+              So the arithmetic states the fact first, and the prose follows as
+              what was intended. Counted off `gated`, not off the plan, because
+              only the gate knows what actually cleared the collision engine. */}
+          {gated.placements.length + gated.moves.length + gated.removals.length === 0 && (
+            <p className="plan-nochange">
+              {isArabic
+                ? "لم يتغيّر شيء في الغرفة."
+                : "Nothing in the room changed."}
+            </p>
+          )}
           <p className="plan-notes">{isArabic ? plan.notesAr : plan.notesEn}</p>
 
           {/* A redesign: what DAR swapped, and the layout rules the model was

@@ -772,6 +772,16 @@ html[lang="ar"] .dar-build .handoff-title { font-family: var(--f-display-ar); }
   color: var(--brass);
   margin-bottom: 7px;
 }
+/* Stated when the gate cleared nothing, above the model's own prose — which
+   narrates intent and will happily claim an edit that never landed. This is
+   DAR's arithmetic, so it is set solid while the prose beside it is dimmed. */
+.dar-build .plan-nochange {
+  font-size: 0.8rem;
+  line-height: 1.5;
+  margin-bottom: 4px;
+  font-weight: 600;
+  color: var(--amber, #b8860b);
+}
 .dar-build .plan-notes { font-size: 0.8rem; line-height: 1.5; opacity: 0.85; margin-bottom: 11px; }
 
 .dar-build .plan-list { list-style: none; padding: 0; margin: 0 0 11px; }
