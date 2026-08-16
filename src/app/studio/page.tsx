@@ -975,6 +975,14 @@ export default function StudioPage() {
           // runRedesign), but fall back to the original so a null can never reach
           // an <img src> or the report/orbit/furniture panel.
           const featuredSrc = result[featured] ?? result.original;
+          // Every other culture this run actually produced, in catalogue order.
+          // Read from `styles` — the backend's own answer about what it made —
+          // with a presence check for payloads that predate that field. Empty
+          // for a single-culture run, which is what makes the saved design fall
+          // back to a plain before/after rather than a comparison of one.
+          const siblingOutputs = (result.styles ?? STYLE_ORDER)
+            .filter((id) => id !== featured && typeof result[id] === "string")
+            .map((id) => ({ culture: id, image: result[id] as string }));
           // adapters.ts is the truth gate: it excludes placeholder artifacts,
           // never falls back to DEMO_REGIONS/DEMO_MAP, emits unmeasured values
           // as `measured: false` rather than inventing them, and returns null
@@ -1206,6 +1214,13 @@ export default function StudioPage() {
                       // its millisecond "generation time" must not reach the
                       // evaluation dashboard's averages.
                       light={isPlaceholder}
+                      // The other cultures this run produced. An "all three"
+                      // generation makes three readings of one room, and saving
+                      // only the featured one threw the comparison away — the
+                      // whole point of asking for three. Sent as companions to
+                      // this design: still ONE saved design, still measured as
+                      // the featured culture alone.
+                      siblings={siblingOutputs}
                     />
                     <RoomReport
                       beforeSrc={result.original}

@@ -326,6 +326,49 @@ def test_evaluation_endpoint_filters_by_culture() -> None:
     asyncio.run(_go())
 
 
+def test_designs_by_culture_does_not_need_a_clip_prediction() -> None:
+    """The analytics culture pie must count saved designs, not classified ones.
+
+    It read `confusion.rowTotals`, whose SQL requires PredictedCulture IS NOT
+    NULL. CLIP scoring needs the optional lpips / open_clip_torch packages, so
+    on an install without them every design has PredictedCulture = NULL, the
+    matrix is empty, and the pie said "No generation data" while the card beside
+    it correctly reported four saved designs.
+    """
+    async def _go():
+        async with _client() as c:
+            await _signup(c, "pie@example.com")
+            for _ in range(3):
+                await _save(c)                       # lebanese
+            await c.post("/api/history", json={
+                "oldImage": PNG_DATA_URL, "newImage": PNG_DATA_URL, "culture": "moroccan",
+            })
+
+            body = (await c.get("/api/admin/evaluation")).json()
+            # Nothing has been classified, exactly as on a machine without CLIP.
+            assert body["confusion"]["rowTotals"] == {}
+            counts = {r["culture"]: r["total"] for r in body["designsByCulture"]}
+            assert counts == {"lebanese": 3, "moroccan": 1}
+            # The pie and the "saved designs" card sit on one screen, so they
+            # must be the same number.
+            assert sum(counts.values()) == body["generation"]["roomsGenerated"]
+    asyncio.run(_go())
+
+
+def test_designs_by_culture_follows_the_culture_filter() -> None:
+    async def _go():
+        async with _client() as c:
+            await _signup(c, "pie2@example.com")
+            await _save(c)                            # lebanese
+            await c.post("/api/history", json={
+                "oldImage": PNG_DATA_URL, "newImage": PNG_DATA_URL, "culture": "moroccan",
+            })
+            body = (await c.get("/api/admin/evaluation",
+                                params={"culture": "moroccan"})).json()
+            assert body["designsByCulture"] == [{"culture": "moroccan", "total": 1}]
+    asyncio.run(_go())
+
+
 def test_evaluation_endpoint_with_no_data_returns_nulls() -> None:
     """A fresh install must not display zeros that look like measurements."""
     async def _go():

@@ -9,15 +9,15 @@ const nextConfig = {
   // public/atelier.html has been removed. The old standalone export is still
   // reachable directly at /atelier.html if needed for reference.
 
-  // Hide the dev-only on-screen indicator (the floating "N · 1 Issue" pill).
-  // It is a DEV overlay and never ships in a production build, but this app is
-  // demonstrated from `next dev` in front of a room, and a red error badge over
-  // the landing reads as "the software is broken" whatever it actually says.
+  // Hide the dev-only on-screen indicator (the floating circle at bottom-left).
+  // It never shipped to users — it renders only under `next dev` — so this
+  // changes nothing about a production build; it just keeps it out of demo
+  // screenshots. Compile and runtime errors are still reported, in the terminal
+  // and the browser console.
   //
-  // This hides the BADGE, not the errors: the Next 16 docs are explicit that
-  // "Next.js will still surface any compile or runtime errors that were
-  // encountered", and they still appear in the browser console and the dev
-  // server output. Nothing is being silenced, only un-drawn.
+  // `false` is the Next 16 spelling. The 14/15 sub-options (`buildActivity`,
+  // `buildActivityPosition`, `appIsrStatus`) were REMOVED in v16 — setting one
+  // here would be silently ignored rather than erroring.
   devIndicators: false,
 };
 

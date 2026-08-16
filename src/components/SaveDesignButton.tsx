@@ -46,6 +46,13 @@ interface Props {
    *  so it can be reopened and kept working on, rather than only looked at.
    *  Omitted by Studio — a render of a photograph has no scene behind it. */
   scene?: DesignScene | null;
+  /** The other cultures rendered in the same run, as data URLs. Saved alongside
+   *  this design so an "all three" generation is kept whole rather than losing
+   *  two of its three images the moment the tab closes.
+   *
+   *  Companions, not designs: `culture`, `ssim` and `duration` still describe
+   *  `newImage` alone, and nothing here is measured or counted. */
+  siblings?: Array<{ culture: string; image: string }>;
 }
 
 export default function SaveDesignButton({
@@ -58,6 +65,7 @@ export default function SaveDesignButton({
   ssim = null,
   edited = false,
   light = false,
+  siblings,
 }: Props) {
   const { isArabic } = useThemeLanguage();
   const { user, loading } = useAuth();
@@ -92,7 +100,7 @@ export default function SaveDesignButton({
     setError(null);
     try {
       const entry = await saveToHistory(oldImage, newImage, {
-        culture, intensity, duration, ssim, edited, light, scene,
+        culture, intensity, duration, ssim, edited, light, scene, siblings,
       });
       setSaved(true);
       setSavedId(entry.id);

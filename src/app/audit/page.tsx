@@ -6,12 +6,16 @@
  * Every /redesign and /restyle logs one metadata-only record (never image
  * bytes); this admin page tails them, newest first. Unlinked from the main
  * nav on purpose — it exists so the defense can show "every generation is
- * logged and inspectable" live. If the backend sets DARDESIGN_AUDIT_TOKEN,
- * paste it in the token field.
+ * logged and inspectable" live.
+ *
+ * The trail is fetched once on mount. `fetchAuditLog` still accepts the
+ * DARDESIGN_AUDIT_TOKEN the backend can require — the page just no longer
+ * offers a field for it, so a deploy that sets the variable would need one
+ * passed here again.
  */
 
 import { useCallback, useEffect, useState } from "react";
-import { RefreshCw, ShieldCheck } from "lucide-react";
+import { ShieldCheck } from "lucide-react";
 import AdminFeedbackPanel from "@/components/AdminFeedbackPanel";
 import GalleryShell from "@/components/GalleryShell";
 import { ApiError, fetchAuditLog, type AuditEvent } from "@/lib/api";
@@ -21,15 +25,12 @@ import { cn } from "@/lib/utils";
 export default function AuditPage() {
   const { isArabic } = useThemeLanguage();
   const [events, setEvents] = useState<AuditEvent[] | null>(null);
-  const [token, setToken] = useState("");
   const [err, setErr] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
 
   const refresh = useCallback(async () => {
-    setBusy(true);
     setErr(null);
     try {
-      setEvents(await fetchAuditLog(100, token || undefined));
+      setEvents(await fetchAuditLog(100));
     } catch (e) {
       setEvents(null);
       setErr(
@@ -41,10 +42,8 @@ export default function AuditPage() {
             ? "حدث خطأ"
             : "Something went wrong",
       );
-    } finally {
-      setBusy(false);
     }
-  }, [token, isArabic]);
+  }, [isArabic]);
 
   useEffect(() => {
     void refresh();
@@ -75,38 +74,6 @@ export default function AuditPage() {
       {/* User feedback sits above the render log: the log says what was
             produced, this says how it landed. Same admin page, same styling. */}
       <AdminFeedbackPanel />
-
-      <div
-        className={cn(
-          "mb-6 flex flex-wrap items-center gap-3",
-          isArabic && "flex-row-reverse",
-        )}
-      >
-        <input
-          type="password"
-          value={token}
-          onChange={(e) => setToken(e.target.value)}
-          placeholder={
-            isArabic ? "رمز الوصول (إن وُجد)" : "Access token (if set)"
-          }
-          className={cn(
-            "rounded-lg border border-gold/30 bg-[var(--dd-surface)] px-3 py-1.5 text-sm text-cream outline-none placeholder:text-cream-muted focus:border-gold",
-            isArabic ? "font-arabic text-right" : "font-ui",
-          )}
-        />
-        <button
-          type="button"
-          onClick={() => void refresh()}
-          disabled={busy}
-          className={cn(
-            "flex items-center gap-2 rounded-lg border border-gold px-3 py-1.5 text-sm text-gold transition hover:bg-gold hover:text-[var(--dd-ink)]",
-            isArabic ? "font-arabic flex-row-reverse" : "font-ui",
-          )}
-        >
-          <RefreshCw size={14} className={busy ? "animate-spin" : ""} />
-          {isArabic ? "تحديث" : "Refresh"}
-        </button>
-      </div>
 
       {err && (
         <p

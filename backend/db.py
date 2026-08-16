@@ -20,6 +20,7 @@ serialised rather than to make reads fast.
 """
 from __future__ import annotations
 
+import json
 import logging
 import os
 import sqlite3
@@ -264,6 +265,19 @@ def _migrate(conn: sqlite3.Connection) -> None:
         # and there is nothing to reopen.
         ("SceneJson", "ALTER TABLE history ADD COLUMN SceneJson TEXT"),
         ("SceneVersion", "ALTER TABLE history ADD COLUMN SceneVersion INTEGER"),
+        # The OTHER cultures rendered in the same /redesign run, as JSON:
+        # [{"culture": "khaleeji", "url": "/images/…png"}, …]. A three-culture
+        # generation produces three images of one room, and saving only the
+        # featured one threw the other two away the moment the tab was closed.
+        #
+        # Deliberately a column on the design rather than extra history rows.
+        # A history row IS the evaluation record — one Culture, one Ssim, one
+        # PredictedCulture, one Duration — so three rows per run would triple
+        # the same generation's duration inside "average generation time" and
+        # count one room as three in roomsGenerated. These are companions to
+        # the design, kept so the user can see what else the room could be;
+        # they are not separately measured and must never be treated as such.
+        ("SiblingImages", "ALTER TABLE history ADD COLUMN SiblingImages TEXT"),
     ):
         if column not in existing:
             conn.execute(ddl)
@@ -653,6 +667,7 @@ def add_history(
     is_light: bool = False,
     scene_json: str | None = None,
     scene_version: int | None = None,
+    sibling_images: str | None = None,
 ) -> int:
     """Save one design. `culture`/`intensity` describe how it was generated and
     become the trusted source for anything that rates this image later.
@@ -665,14 +680,20 @@ def add_history(
     alongside it because loadScene refuses a scene whose version it does not
     recognise — storing it lets the client say so instead of failing silently.
     Both are null for a Studio design, which is a render of a photograph and
-    has no scene behind it."""
+    has no scene behind it.
+
+    `sibling_images` is the JSON list of the other cultures rendered in the same
+    run. They belong to this design as companions, not as designs of their own:
+    `culture`, `ssim` and `duration` continue to describe THIS image alone, so
+    nothing measured here changes when a run produced three."""
     return _write(
         "INSERT INTO history (UserId, OldImageUrl, NewImageUrl, IsSuggested, Culture,"
-        " Intensity, Duration, Ssim, IsEdited, IsLight, SceneJson, SceneVersion, CreatedAt)"
-        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        " Intensity, Duration, Ssim, IsEdited, IsLight, SceneJson, SceneVersion,"
+        " SiblingImages, CreatedAt)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (user_id, old_url, new_url, 1 if is_suggested else 0, culture, intensity,
          duration, ssim, 1 if is_edited else 0, 1 if is_light else 0,
-         scene_json, scene_version, time.time()),
+         scene_json, scene_version, sibling_images, time.time()),
     )
 
 
@@ -823,6 +844,37 @@ def history_needing_evaluation(limit: int = 500) -> list[dict]:
          "newImageUrl": r["NewImageUrl"], "culture": r["Culture"], "ssim": r["Ssim"]}
         for r in rows
     ]
+
+
+def designs_by_culture(
+    culture: str | None = None, since: float | None = None, until: float | None = None
+) -> list[dict]:
+    """How many designs were saved for each intended culture.
+
+    Deliberately NOT `culture_confusion().rowTotals`, which the analytics pie
+    used to read. That matrix requires `PredictedCulture IS NOT NULL`, so it
+    counts only designs CLIP has already classified — and CLIP scoring needs
+    `lpips` + `open_clip_torch`, which a machine running the demo need not have.
+    A room the user generated and saved is a fact about the room; whether a
+    classifier has since looked at it is a fact about the install.
+
+    Counted over every saved design in the filters, not `pipeline_only`, so this
+    sums to `history_generation_stats()['roomsGenerated']` — the pie and the
+    "saved designs" card sit on the same page and must agree.
+    """
+    where, args = _history_filters(culture, since, until)
+    # `_history_filters` returns "" when nothing is filtered, so the keyword has
+    # to be chosen rather than assumed. (culture_confusion can append a bare
+    # " AND ..." only because it always passes pipeline_only=True, which
+    # guarantees a clause; this query has no such guarantee.)
+    joiner = " AND " if where else " WHERE "
+    rows = _query(
+        "SELECT Culture AS culture, COUNT(*) AS total"
+        f" FROM history{where}{joiner}Culture IS NOT NULL"
+        " GROUP BY Culture ORDER BY total DESC",
+        args,
+    )
+    return [{"culture": r["culture"], "total": int(r["total"])} for r in rows]
 
 
 def culture_confusion(
@@ -1146,6 +1198,31 @@ def _rating_from_row(r: sqlite3.Row) -> dict | None:
     return out
 
 
+def _siblings_from_row(r: sqlite3.Row, keys: Iterable[str]) -> list[dict]:
+    """The other cultures of this run, or [] — never a partial or raw value.
+
+    Stored as JSON, so it is parsed defensively: a row written before the column
+    existed, a null, or anything that does not read back as a list of
+    {culture, url} objects yields [] rather than reaching the client as
+    something the card would try to render. A saved design must never fail to
+    list because a companion image could not be parsed.
+    """
+    if "SiblingImages" not in keys or not r["SiblingImages"]:
+        return []
+    try:
+        parsed = json.loads(r["SiblingImages"])
+    except (ValueError, TypeError):
+        logger.warning("history row %s has unparseable SiblingImages", r["Id"])
+        return []
+    if not isinstance(parsed, list):
+        return []
+    return [
+        {"culture": str(s["culture"]), "url": str(s["url"])}
+        for s in parsed
+        if isinstance(s, dict) and s.get("culture") and s.get("url")
+    ]
+
+
 def _history_row(r: sqlite3.Row) -> dict:
     keys = r.keys()
     return {
@@ -1176,6 +1253,10 @@ def _history_row(r: sqlite3.Row) -> dict:
         # opening a room the client will silently refuse to load.
         "hasScene": bool(r["SceneJson"]) if "SceneJson" in keys else False,
         "sceneVersion": r["SceneVersion"] if "SceneVersion" in keys else None,
+        # The other cultures from the same generation. Unlike SceneJson these
+        # ARE included in the listing: they are a handful of URL strings, not
+        # kilobytes of scene, and the card needs them to draw itself.
+        "siblings": _siblings_from_row(r, keys),
         # The rating this design already has, when the caller joined it in.
         # Null means nobody has rated it — displayed as "not rated", never as 0.
         "rating": _rating_from_row(r),
