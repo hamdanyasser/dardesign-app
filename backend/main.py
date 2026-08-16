@@ -454,6 +454,24 @@ class RestyleResponse(BaseModel):
 # ---------- endpoints ----------
 
 
+@app.get("/api/provenance")
+async def provenance_endpoint(styles: str | None = None) -> dict:
+    """What this host WILL do, answerable before any generation runs.
+
+    The same dict /redesign returns after a render, served on its own so the
+    client can know it up front. That matters for one screen in particular:
+    "Inside DAR" plays during the ~2 minute wait, and its pipeline chapter had
+    to caption itself CONCEPTUAL ARCHITECTURE because nothing about the run was
+    knowable yet. But the model, the per-culture LoRA and the ControlNet
+    weights are CONFIGURATION, not results — they are decided before the first
+    step and can be stated honestly while the user waits.
+
+    Cheap: reads config and the filesystem, touches no GPU and takes no lock.
+    """
+    requested = [s.strip() for s in (styles or "").split(",") if s.strip()]
+    return pipeline_provenance(requested or list(CORE_STYLES))
+
+
 @app.get("/healthz")
 async def healthz() -> dict:
     return {

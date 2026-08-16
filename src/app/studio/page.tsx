@@ -49,8 +49,10 @@ import { DarAudio } from "@/lib/audio";
 import {
   ApiError,
   consumeGeneration,
+  fetchProvenance,
   fetchSubscription,
   redesignRoom,
+  type RedesignProvenance,
   type RedesignResult,
   type SubscriptionState,
 } from "@/lib/api";
@@ -169,6 +171,19 @@ export default function StudioPage() {
   // True when the last attempt was refused for having no designs left, which
   // turns the error scene into an upgrade prompt rather than a "try again".
   const [quotaBlocked, setQuotaBlocked] = useState(false);
+  /* What the render host will do, fetched once on mount. The model, the LoRA
+     and the ControlNet weights are CONFIGURATION, not results, so they are
+     knowable before a generation starts — which is what lets "Inside DAR"'s
+     pipeline chapter state real facts during the wait instead of captioning
+     itself as a diagram. Null on any failure, including an older backend with
+     no such endpoint; null means unknown and the chapter falls back. */
+  const [hostProvenance, setHostProvenance] = useState<RedesignProvenance | null>(null);
+
+  useEffect(() => {
+    const ac = new AbortController();
+    fetchProvenance(undefined, ac.signal).then(setHostProvenance).catch(() => {});
+    return () => ac.abort();
+  }, []);
 
   // Defense Mode: read ?demo=1 via window.location (client-only page; avoids
   // the useSearchParams Suspense requirement) and load the static manifest.
@@ -886,6 +901,13 @@ export default function StudioPage() {
           <GenerationStory
             inputImage={imagePreviewUrl}
             culture={generateScope}
+            // Real host configuration, known before the render returns. The
+            // assets (depth, segmentation, renders) genuinely do not exist yet
+            // and are deliberately NOT passed here.
+            capabilities={generationCapabilitiesFromProvenance(
+              hostProvenance,
+              generateScope === "all" ? "lebanese" : generateScope,
+            )}
             status={{ state: "requesting", elapsedSeconds: elapsed }}
           />
         </section>

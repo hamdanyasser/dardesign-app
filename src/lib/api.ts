@@ -415,6 +415,36 @@ const REDESIGN_STYLE_KEYS = ["lebanese", "khaleeji", "moroccan"] as const;
  * and abort cleanly if it's exceeded. A caller-supplied `signal` (e.g. for a
  * "cancel"/unmount) is honoured in addition to the internal timeout.
  */
+/**
+ * What the render host will do, asked BEFORE any generation runs.
+ *
+ * The model, the per-culture LoRA and the ControlNet weights are configuration
+ * rather than results, so they can be stated honestly while the user waits —
+ * which is the whole point: "Inside DAR" plays during the ~2 minute wait and
+ * had nothing true to say about the pipeline until now.
+ *
+ * Resolves to null on ANY failure, including an older backend that has no such
+ * endpoint. A null here means "unknown", and the UI must fall back to its
+ * generic diagram rather than assert anything.
+ */
+export async function fetchProvenance(
+  styles?: string[],
+  signal?: AbortSignal,
+): Promise<RedesignProvenance | null> {
+  try {
+    const q = styles?.length ? `?styles=${encodeURIComponent(styles.join(","))}` : "";
+    const res = await fetch(`${API_URL}/api/provenance${q}`, {
+      headers: { "ngrok-skip-browser-warning": "true" },
+      signal: signal ?? AbortSignal.timeout(8000),
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data && typeof data === "object" ? (data as RedesignProvenance) : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function redesignRoom(
   file: File,
   {
