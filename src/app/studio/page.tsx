@@ -28,6 +28,7 @@ import CulturalNarration from "@/components/CulturalNarration";
 import DepthOrbit from "@/components/DepthOrbit";
 import FurniturePlacement from "@/components/FurniturePlacement";
 import BeforeAfterSlider from "@/components/before-after-slider";
+import ProvenanceXray from "@/components/ProvenanceXray";
 import EnterBuildMode from "@/components/design/EnterBuildMode";
 import {
   CultureDNA,
@@ -1098,6 +1099,33 @@ export default function StudioPage() {
                       className="compare max-w-none rounded-none"
                     />
                   </div>
+
+                  {/* Provenance X-ray. Mounted right under the reveal, because
+                      this is the moment the claim needs its evidence: the wipe
+                      above says "we redesigned your room", and this says what
+                      the room was measured as. It renders itself away when the
+                      run returned no real depth or regions, so a LIGHT run or an
+                      older backend simply does not show it — never a sample. */}
+                  {(() => {
+                    const realDepth =
+                      !result.placeholder && typeof result.depth_map === "string"
+                        ? result.depth_map
+                        : null;
+                    const realRegions =
+                      !result.placeholder && result.seg_regions?.placeholder !== true
+                        ? result.seg_regions?.regions ?? null
+                        : null;
+                    if (!realDepth && !realRegions?.length) return null;
+                    return (
+                      <div style={{ padding: "0 0 var(--s-7)" }}>
+                        <ProvenanceXray
+                          renderSrc={featuredSrc}
+                          depthSrc={realDepth}
+                          regions={realRegions}
+                        />
+                      </div>
+                    );
+                  })()}
 
                   <div className="actions">
                     <button

@@ -162,7 +162,7 @@
     --dd-gold-dim: #5b7cb8;
     --dd-text: #241f18;
     --dd-text-soft: #28231b;
-    --dd-text-secondary: #5c5546;
+    --dd-text-secondary: #474235;
     --dd-border: rgba(36, 31, 24, 0.18);
     --dd-glass-bg: rgba(247, 240, 228, 0.86);
     --dd-glass-border: rgba(36, 31, 24, 0.1);
@@ -1156,4 +1156,148 @@ html[dir="rtl"] .app-drawer-close {
   html {
     scroll-behavior: auto;
   }
+}
+
+/* ============================================================
+   Provenance X-ray (src/components/ProvenanceXray.tsx)
+   A scan line over a finished render; behind it the depth the room
+   was measured at and the elements the pipeline named. Unlayered
+   and last, so it wins over .cinema without !important.
+   ============================================================ */
+.dd-xray {
+  margin: 0;
+  display: grid;
+  gap: 10px;
+}
+
+.dd-xray-frame {
+  position: relative;
+  overflow: hidden;
+  border-radius: 6px;
+  border: 1px solid var(--dd-border);
+  background: var(--dd-surface);
+  cursor: ew-resize;
+  touch-action: pan-y; /* vertical page scroll must still work over it */
+  user-select: none;
+  isolation: isolate;
+}
+
+.dd-xray-frame:focus-visible {
+  outline: 2px solid var(--dd-gold);
+  outline-offset: 2px;
+}
+
+.dd-xray-img {
+  display: block;
+  width: 100%;
+  height: auto;
+  pointer-events: none;
+}
+
+.dd-xray-under {
+  position: absolute;
+  inset: 0;
+  /* clip-path is set inline from the scan position */
+}
+
+.dd-xray-under .dd-xray-img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* The depth PNG is greyscale. Tinting it toward the accent stops the panel
+   reading as "the image broke" and ties it to the palette. */
+.dd-xray-depth {
+  filter: contrast(1.08) brightness(1.02);
+  opacity: 0.96;
+}
+
+.dd-xray-nodepth {
+  position: absolute;
+  inset: 0;
+  background: color-mix(in srgb, var(--dd-bg) 88%, transparent);
+}
+
+.dd-xray-boxes {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.dd-xray-boxes rect {
+  fill: color-mix(in srgb, var(--dd-gold) 8%, transparent);
+  stroke: var(--dd-gold);
+  stroke-width: 1.5;
+}
+
+.dd-xray-label {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  padding: 3px 8px;
+  border-radius: 3px;
+  background: rgba(9, 18, 32, 0.86);
+  color: #f2eee6;
+  border: 1px solid rgba(232, 220, 196, 0.5);
+  font-family: var(--font-jetbrains-mono), ui-monospace, monospace;
+  font-size: 10.5px;
+  line-height: 1.3;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.dd-xray-line {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 0;
+  pointer-events: none;
+}
+
+.dd-xray-line i {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -1px;
+  width: 2px;
+  background: var(--dd-gold);
+  box-shadow: 0 0 18px color-mix(in srgb, var(--dd-gold) 55%, transparent);
+}
+
+.dd-xray-grip {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  width: 30px;
+  height: 30px;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  background: var(--dd-gold);
+  border: 2px solid var(--dd-ink);
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.4);
+}
+
+.dd-xray-tag {
+  position: absolute;
+  bottom: 10px;
+  padding: 4px 9px;
+  border-radius: 3px;
+  background: rgba(9, 18, 32, 0.82);
+  color: #f2eee6;
+  font-family: var(--font-jetbrains-mono), ui-monospace, monospace;
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  pointer-events: none;
+}
+
+.dd-xray-tag-left { left: 10px; }
+.dd-xray-tag-right { right: 10px; }
+
+.dd-xray-cap {
+  color: var(--dd-text-secondary);
+  font-size: 12.5px;
+  line-height: 1.6;
 }

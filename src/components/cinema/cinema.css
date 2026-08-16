@@ -99,7 +99,7 @@ html[data-theme="light"] .cinema .nf-scene {
    ink, same cobalt. Values are copied, not re-derived, so they cannot drift. */
 html[data-theme="light"] {
   --bg:var(--vellum); --surface:#fff; --surface-2:var(--vellum-2);
-  --fg:#241f18; --fg-soft:#28231b; --fg-mute:#5c5546; --fg-faint:#b5ad9c;
+  --fg:#241f18; --fg-soft:#28231b; --fg-mute:#474235; --fg-faint:#b5ad9c;
   --hairline:rgba(36,31,24,0.12); --hairline-2:rgba(36,31,24,0.22);
   --scrim:rgba(247,240,228,0.88); --film:rgba(247,240,228,0.55);
   --brass:#1b4fa0; --brass-bright:#123c7c; --brass-dim:#5b7cb8;
