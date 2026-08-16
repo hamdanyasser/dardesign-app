@@ -36,7 +36,13 @@ import { SNAP_ROTATION_DEG } from "@/lib/design/placement";
 import { HANDOFF_KEY, SCENE_HANDOFF_KEY } from "@/lib/design/handoff";
 import { createScene, type WallOpening } from "@/lib/design/roomModel";
 import type { ViewPreset } from "@/lib/design/scene3d";
-import { designReducer, initialState, loadScene, saveScene } from "@/lib/design/store";
+import {
+  clearSavedScene,
+  designReducer,
+  initialState,
+  loadScene,
+  saveScene,
+} from "@/lib/design/store";
 import { SCENE_VERSION } from "@/lib/design/types";
 import type { CatalogItem, DesignScene, SceneCulture } from "@/lib/design/types";
 
@@ -143,7 +149,7 @@ function BuildModeReady({
 }) {
   const { isArabic, theme, toggleLanguage, toggleTheme } = useThemeLanguage();
   const [state, dispatch] = useReducer(designReducer, boot.scene, initialState);
-  const [openings] = useState(boot.openings);
+  const [openings, setOpenings] = useState(boot.openings);
   /* What the planner understood that the RENDERER can act on. Deliberately not
      part of DesignScene: adding a field there bumps SCENE_VERSION, and
      loadScene drops any scene whose version does not match. */
@@ -158,6 +164,12 @@ function BuildModeReady({
   const [roomSelected, setRoomSelected] = useState(false);
   const [showFound, setShowFound] = useState(true);
   const [handoff, setHandoff] = useState(false);
+  const [resetOpen, setResetOpen] = useState(false);
+  /* Set by "Start a new room". `boot.result` lives in the outer component and
+     cannot be cleared from here, so without this the source card would keep
+     offering "the room you are building on" for a room that was just
+     discarded — right until a reload corrected it. */
+  const [roomDiscarded, setRoomDiscarded] = useState(false);
   /* Time of day is a VIEW setting, not part of the design, so it lives here
      next to renderIntent rather than in DesignScene — same reason: a new
      scene field bumps SCENE_VERSION and loadScene drops every saved room that
@@ -260,6 +272,38 @@ function BuildModeReady({
     dispatch({ type: "restyleTo", culture: scene.culture });
     return { converted: foreign.length - kept, kept };
   }, [scene.objects, scene.culture]);
+
+  /* Two different resets, kept separate because conflating them destroys work.
+   *
+   *   "Clear my design" removes only what the USER placed. The room read off
+   *   the photograph stays, because that is a measurement, not a choice — this
+   *   is store.clearPlaced, which already existed and had no way to be reached.
+   *
+   *   "Start a new room" discards the derived room entirely. That one has to
+   *   clear the sessionStorage handoff AND the saved scene as well, or the next
+   *   reload silently re-derives the room it just threw away. It still goes
+   *   through withHistory, so Ctrl+Z brings the room back within the session. */
+  const clearMyDesign = useCallback(() => {
+    dispatch({ type: "clearPlaced" });
+    setResetOpen(false);
+  }, []);
+
+  const startNewRoom = useCallback(() => {
+    const fresh = createScene(null, scene.culture);
+    clearSavedScene(scene.provenance.jobId);
+    try {
+      sessionStorage.removeItem(HANDOFF_KEY);
+      sessionStorage.removeItem(SCENE_HANDOFF_KEY);
+    } catch {
+      /* private mode — the in-memory reset still happens */
+    }
+    // The photograph's doors and windows belong to the room being discarded.
+    setOpenings(fresh.openings);
+    dispatch({ type: "resetRoom", scene: fresh.scene });
+    setRoomSelected(false);
+    setRoomDiscarded(true);
+    setResetOpen(false);
+  }, [scene.culture, scene.provenance.jobId]);
 
   /* ---- catalogue drag ---- */
   const beginDrag = useCallback((item: CatalogItem, clientX: number, clientY: number) => {
@@ -528,6 +572,14 @@ function BuildModeReady({
           </button>
         </div>
 
+        <button
+          className="tool"
+          onClick={() => setResetOpen(true)}
+          title={isArabic ? "إعادة الضبط" : "Reset"}
+        >
+          {isArabic ? "إعادة ضبط" : "Reset"}
+        </button>
+
         <button className="tool active" onClick={() => setHandoff(true)}>
           {isArabic ? "التصميم جاهز" : "Finish"}
         </button>
@@ -718,7 +770,7 @@ function BuildModeReady({
           />
         )}
 
-        {boot.result && (
+        {boot.result && !roomDiscarded && (
           <SourceCard
             originalSrc={boot.result.original}
             styledSrc={
@@ -756,6 +808,45 @@ function BuildModeReady({
               <kbd>{isArabic ? "تحكم" : "Ctrl"}+Z</kbd> {isArabic ? "تراجع" : "undo"}
             </p>
           </div>
+        )}
+
+        {/* Reset is destructive, so it names what each option KEEPS rather than
+            asking "are you sure" about an unnamed action. Both are undoable —
+            said on the panel, because a user who knows that explores freely. */}
+        {resetOpen && (
+          <aside className="planner" aria-label={isArabic ? "إعادة الضبط" : "Reset"}>
+            <div className="insp-head">
+              <div>
+                <div className="insp-title">{isArabic ? "إعادة الضبط" : "Reset"}</div>
+                <div className="insp-label">{isArabic ? "ما الذي تريد إزالته؟" : "What do you want to remove?"}</div>
+              </div>
+              <button className="insp-x" onClick={() => setResetOpen(false)} aria-label={isArabic ? "إغلاق" : "Close"}>
+                ✕
+              </button>
+            </div>
+
+            <button className="tool" style={{ width: "100%", marginTop: 10 }} onClick={clearMyDesign}>
+              {isArabic ? `امسح تصميمي (${placedCount})` : `Clear my design (${placedCount})`}
+            </button>
+            <p className="sc-note" style={{ marginTop: 6 }}>
+              {isArabic
+                ? "يُزيل ما أضفته أنت فقط. تبقى الغرفة المقروءة من صورتك كما هي — فهي قياس، لا اختيار."
+                : "Removes only the pieces you added. The room read from your photograph stays, because that is a measurement rather than a choice."}
+            </p>
+
+            <button className="tool" style={{ width: "100%", marginTop: 14 }} onClick={startNewRoom}>
+              {isArabic ? "ابدأ غرفة جديدة" : "Start a new room"}
+            </button>
+            <p className="sc-note" style={{ marginTop: 6 }}>
+              {isArabic
+                ? "يتخلّى عن الغرفة المشتقّة من صورتك ويبدأ من غرفة افتراضية فارغة. لن تعود صورتك عند إعادة التحميل."
+                : "Discards the room derived from your photograph and starts on an empty default room. Your photo will not come back on reload."}
+            </p>
+
+            <p className="sc-note" style={{ marginTop: 12, opacity: 0.75 }}>
+              {isArabic ? "كلاهما يتراجع بـ Ctrl+Z." : "Both are undoable with Ctrl+Z."}
+            </p>
+          </aside>
         )}
 
         {handoff && (

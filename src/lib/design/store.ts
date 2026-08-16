@@ -66,6 +66,12 @@ export type DesignAction =
   | { type: "restyleTo"; culture: SceneCulture }
   | { type: "resizeRoom"; widthCm?: number; depthCm?: number }
   | { type: "clearPlaced" }
+  /** Swap in a completely different room — used by "Start a new room", which
+   *  discards the one derived from the photograph. Goes through withHistory
+   *  rather than `replace` ON PURPOSE: `replace` wipes undo/redo, and throwing
+   *  away someone's room with no way back is exactly the kind of destruction
+   *  that needs an undo, not a confirm dialog alone. */
+  | { type: "resetRoom"; scene: DesignScene }
   | { type: "undo" }
   | { type: "redo" }
   | { type: "replace"; scene: DesignScene };
@@ -342,6 +348,18 @@ export function designReducer(state: DesignState, action: DesignAction): DesignS
       if (kept.length === state.scene.objects.length) return state;
       const next = { ...state.scene, objects: kept };
       return { ...withHistory(state, next, "clear design", "مسح التصميم"), selectedUid: null };
+    }
+
+    /* Discards the derived room and starts on an empty one. The caller is
+     * responsible for clearing the handoff and the saved scene, otherwise a
+     * reload re-derives the room this just discarded. */
+    case "resetRoom": {
+      return withHistory(
+        { ...state, selectedUid: null },
+        action.scene,
+        "start a new room",
+        "بدء غرفة جديدة",
+      );
     }
 
     case "undo": {
