@@ -48,13 +48,31 @@ Write-Head "1 of 4  Accounts, saved designs, AI planner"
 
 if (Test-Listening 8000) {
   $h = Get-Health "http://localhost:8000" 8
-  if ($null -ne $h) {
+  if ($null -ne $h -and $h.stable_sessions -eq $false) {
+    # Started as bare uvicorn rather than through run-local-backend.ps1, so it
+    # never loaded .dardesign-secret and signs sessions with a throwaway key.
+    # It answers /healthz perfectly and will log the presenter out at the worst
+    # possible moment. "Answering" is not the same as "correct".
+    Write-Warn "running, but it will log you out when it restarts"
+    Write-Host "         It was not started by run-local-backend.ps1, so it has no" -ForegroundColor Yellow
+    Write-Host "         stable session key. Restarting it properly now." -ForegroundColor Yellow
+    try {
+      $holder = (Get-NetTCPConnection -LocalPort 8000 -State Listen -ErrorAction Stop | Select-Object -First 1).OwningProcess
+      Stop-Process -Id $holder -Force -ErrorAction Stop
+      Start-Sleep -Seconds 3
+      Write-Step "stopped the old one, starting it correctly..."
+    } catch {
+      Write-Bad "could not stop it -- close its window and run this again"
+    }
+  } elseif ($null -ne $h) {
     Write-Good "already running on port 8000"
   } else {
     Write-Bad "something holds port 8000 but it is not answering"
     Write-Host "         Close that window and run this again." -ForegroundColor Yellow
   }
-} else {
+}
+
+if (-not (Test-Listening 8000)) {
   Write-Step "starting it in a new window..."
   Start-Process powershell -ArgumentList @(
     "-NoExit", "-ExecutionPolicy", "Bypass", "-File", "$root\scripts\run-local-backend.ps1"

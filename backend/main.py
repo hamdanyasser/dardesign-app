@@ -489,6 +489,13 @@ async def healthz() -> dict:
         "ok": True,
         "version": app.version,
         "light_mode": _light_mode(),
+        # False means this process signs sessions with an ephemeral key, so every
+        # restart silently logs everyone out (see auth._secret). It is reported
+        # here because the symptom appears hours later and nowhere near the
+        # cause: the backend answers perfectly, the app looks healthy, and the
+        # user is simply signed out again with no error to read. A launcher that
+        # only checks `ok` would call such a backend fine and be wrong.
+        "stable_sessions": bool(os.environ.get("DARDESIGN_SECRET")),
         "queue_depth": sum(
             1 for j in jobs.list() if j.status in (JobStatus.queued, JobStatus.running)
         ),
