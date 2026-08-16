@@ -196,6 +196,19 @@ export default function HistoryPage() {
               key={e.id}
               beforeUrl={storedImageUrl(e.oldImageUrl)}
               afterUrl={storedImageUrl(e.newImageUrl)}
+              // Named rather than "After" once there is more than one output:
+              // with three readings of one room on the plate, "after" no longer
+              // says which. Resolved here because the culture vocabulary lives
+              // on this side, not inside the shared card.
+              afterLabel={
+                e.siblings?.length
+                  ? (cultureName(e.culture) ?? t("Design", "تصميم"))
+                  : undefined
+              }
+              extras={e.siblings?.map((s) => ({
+                url: storedImageUrl(s.url),
+                label: cultureName(s.culture) ?? s.culture,
+              }))}
               createdAt={e.createdAt}
               title={cultureName(e.culture) ?? t("Untitled", "بلا عنوان")}
               tag={e.isSuggested ? t("SHARED", "مُشارَك") : undefined}

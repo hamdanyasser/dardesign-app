@@ -153,17 +153,21 @@ export default function AdminAnalyticsPage() {
       khaleeji: 0,
       moroccan: 0,
     };
-    if (report?.confusion?.rowTotals) {
-      Object.entries(report.confusion.rowTotals).forEach(
-        ([cultureId, value]) => {
-          if (cultureId in counts) counts[cultureId] = value;
-        },
-      );
-    } else if (report?.byCulture?.length) {
-      report.byCulture.forEach((row) => {
-        if (row.culture && row.culture in counts) {
-          counts[row.culture] = row.total;
-        }
+    // Saved designs per culture. This used to read confusion.rowTotals, which
+    // counts only designs CLIP has classified — so with lpips/open_clip_torch
+    // absent (PredictedCulture stays null) the pie read "No generation data"
+    // while the card beside it correctly showed saved designs. The old fallback
+    // could not rescue it either: `{}` is truthy, so the `else if` was dead
+    // code, and byCulture counts *ratings* rather than designs anyway.
+    if (report?.designsByCulture?.length) {
+      report.designsByCulture.forEach((row) => {
+        if (row.culture && row.culture in counts) counts[row.culture] = row.total;
+      });
+    } else if (Object.keys(report?.confusion?.rowTotals ?? {}).length) {
+      // Older backend without the field: the classified subset is still a
+      // truthful distribution, just a narrower one.
+      Object.entries(report!.confusion.rowTotals).forEach(([cultureId, value]) => {
+        if (cultureId in counts) counts[cultureId] = value;
       });
     }
     return Object.entries(counts).map(([cultureId, value]) => ({

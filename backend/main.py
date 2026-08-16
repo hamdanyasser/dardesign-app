@@ -69,7 +69,7 @@ from fastapi import (
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from . import db
 from .audit import log_event, read_events
@@ -918,6 +918,13 @@ class LoginRequest(BaseModel):
 MAX_SCENE_CHARS = 256_000
 
 
+class SiblingImage(BaseModel):
+    """One of the other cultures produced by the same generation."""
+
+    culture: str
+    image: str
+
+
 class SaveHistoryRequest(BaseModel):
     """Both images as data URLs.
 
@@ -961,6 +968,15 @@ class SaveHistoryRequest(BaseModel):
     # Same trust model as `duration` and `edited`, and the cost of a wrong value
     # is a dashboard row, never a permission.
     light: bool = False
+    # The OTHER cultures rendered in the same run, as {culture, image} data URLs.
+    # A three-culture generation makes three images of one room and only the
+    # featured one used to be kept; these are the rest, stored so the design can
+    # be shown as the comparison it was generated to be.
+    #
+    # They are companions to this design, not designs: nothing here is measured,
+    # rated, or counted as a generation. `culture`/`ssim`/`duration` above still
+    # describe `newImage` alone.
+    siblings: list[SiblingImage] = Field(default_factory=list)
 
 
 def _current_user(session: str | None):
@@ -1152,11 +1168,25 @@ async def history_save(
                 "message_ar": "هذا التصميم أكبر من أن يُحفظ.",
             },
         )
+    # The other cultures from the same run. Bounded by the catalogue itself
+    # (StylePack), and each culture kept once: the storage cost is real image
+    # files, so a client cannot make one save write an unbounded number of them.
+    # An unknown or repeated culture is dropped rather than stored under a label
+    # the rest of the app would then have to guess at.
+    siblings: list[dict] = []
+    seen: set[str] = set()
+    for s in req.siblings[: len(StylePack)]:
+        if s.culture not in StylePack or s.culture == culture or s.culture in seen:
+            continue
+        seen.add(s.culture)
+        siblings.append({"culture": s.culture, "url": _save_data_url(s.image, "new")})
+
     entry_id = db.add_history(
         user["Id"], old_url, new_url, culture=culture, intensity=intensity,
         duration=duration, ssim=ssim, is_edited=bool(req.edited),
         is_light=bool(req.light),
         scene_json=scene_json, scene_version=req.sceneVersion,
+        sibling_images=json.dumps(siblings) if siblings else None,
     )
     # Only the pipeline's own output is evaluated: a recoloured or furnished
     # render would score the edit, not the generation, and a LIGHT placeholder
@@ -1175,6 +1205,7 @@ async def history_save(
         "ssim": ssim,
         "isEdited": bool(req.edited),
         "isLight": bool(req.light),
+        "siblings": siblings,
     })
 
 
@@ -1634,6 +1665,12 @@ async def admin_evaluation(
         # How many of those designs actually carry each measurement — the
         # denominators behind the averages above.
         "coverage": eval_coverage_report(culture, since, until),
+        # Saved designs per intended culture. Separate from `confusion` on
+        # purpose: that matrix only counts designs CLIP has classified, so on an
+        # install without lpips/open_clip_torch it is empty while real designs
+        # exist. This one answers "what did people generate", which is a fact
+        # about the rooms rather than about which optional packages are present.
+        "designsByCulture": db.designs_by_culture(culture, since, until),
         # Intended culture vs CLIP's prediction, read live from history so a
         # deleted design disappears from it immediately.
         "confusion": db.culture_confusion(culture, since, until),

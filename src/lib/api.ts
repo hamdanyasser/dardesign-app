@@ -922,6 +922,16 @@ export interface HistoryEntry {
    * instead of opening a room that will be silently dropped.
    */
   sceneVersion?: number | null;
+  /**
+   * The other cultures produced by the same generation, so a three-culture run
+   * can be shown as the comparison it was: the room, then each reading of it.
+   * Empty for a single-culture design and for anything saved before this
+   * existed — the card falls back to before/after.
+   *
+   * These are companions to the design, not designs of their own: none is
+   * measured, rated, or counted in `roomsGenerated`.
+   */
+  siblings?: Array<{ culture: string; url: string }>;
 }
 
 /** How the user judged the furniture in a design. */
@@ -1065,6 +1075,14 @@ export async function saveToHistory(
      *  can be reopened and edited. Omitted by Studio, which renders a
      *  photograph and has no scene. */
     scene?: DesignScene | null;
+    /** The other cultures rendered in the same run, as data URLs. Stored with
+     *  this design so a three-culture generation is kept as the comparison it
+     *  was made to be, instead of only the featured image surviving.
+     *
+     *  Companions, not designs: none of them is measured, rated or counted as a
+     *  generation, and `culture`/`ssim`/`duration` above still describe
+     *  `newImage` alone. */
+    siblings?: Array<{ culture: string; image: string }>;
   } = {},
 ): Promise<HistoryEntry> {
   const res = await safeFetch(`${DATA_API_URL}/api/history`, {
@@ -1086,6 +1104,7 @@ export async function saveToHistory(
       // orphaning saved rooms.
       scene: meta.scene ? JSON.stringify(meta.scene) : null,
       sceneVersion: meta.scene ? meta.scene.version : null,
+      siblings: meta.siblings ?? [],
     }),
     ...WITH_CREDENTIALS,
   });
@@ -1275,6 +1294,11 @@ export interface EvaluationReport {
   recent: Feedback[];
   generation: GenerationStats;
   coverage: EvaluationCoverage;
+  /** Saved designs per intended culture, summing to `generation.roomsGenerated`.
+   *  Read this for "what was generated" — `confusion.rowTotals` counts only the
+   *  designs CLIP has classified, which is empty without the optional lpips /
+   *  open_clip_torch packages. Absent on a backend older than this field. */
+  designsByCulture?: Array<{ culture: string; total: number }>;
   confusion: CultureConfusion;
   automatic: AutomaticMetrics;
 }
