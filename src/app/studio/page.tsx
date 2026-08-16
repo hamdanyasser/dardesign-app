@@ -753,6 +753,30 @@ export default function StudioPage() {
                           setFeatured(id);
                         }}
                       >
+                        {/* Atmosphere for the chosen house — architecture and
+                            material only, never a room being designed. It is
+                            decoration and must never be mistaken for a DAR
+                            output, which is why it lives here and NOT on any
+                            surface that carries evidence (Culture DNA, the
+                            element highlighter, material swatches).
+
+                            Mounted only while selected, so exactly one video
+                            decodes at a time rather than three. `poster` is a
+                            still from the same clip, so a slow or blocked
+                            file degrades to a photograph instead of a hole. */}
+                        {generateScope === id ? (
+                          <video
+                            className="card-film"
+                            src={`/video/${id}.mp4`}
+                            poster={`/video/${id}.jpg`}
+                            autoPlay
+                            muted
+                            loop
+                            playsInline
+                            preload="auto"
+                            aria-hidden
+                          />
+                        ) : null}
                         <div className="motif">{Motif ? <Motif /> : null}</div>
                         <div>
                           <h3 className="name">{tc.styles[id].name}</h3>
