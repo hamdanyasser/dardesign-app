@@ -130,7 +130,18 @@ export default function RootLayout({
       className={`${inter.variable} ${notoKufiArabic.variable} ${tajawal.variable} ${dmSans.variable} ${cormorantGaramond.variable} ${amiri.variable} ${reemKufi.variable} ${jetBrainsMono.variable}`}
       suppressHydrationWarning
     >
-      <body className="antialiased">
+      {/* Browser extensions write to <body> before React hydrates, and React
+          then reports a mismatch it cannot patch. Grammarly is the one seen
+          here — it adds data-new-gr-c-s-check-loaded and data-gr-ext-installed
+          — but a password manager or a translator does the same thing.
+          Next's own hydration-error page lists this as a cause.
+
+          The <html> tag above already carries this for the same class of
+          reason (the blocking script writes data-theme/lang/dir before paint).
+          Scoped to these two elements only: a suppressHydrationWarning deeper
+          in the tree would hide REAL mismatches in our own components, which
+          is the bug this attribute is usually blamed for concealing. */}
+      <body className="antialiased" suppressHydrationWarning>
         {/* Runs before the app paints: restores the saved theme/language so there
             is no flash of the wrong theme. Falls back to the OS colour preference.
             Storage keys must stay in sync with ThemeLanguageContext. */}
