@@ -124,12 +124,25 @@ if (-not $gpuLive) {
     Write-Step "checking that address..."
     $g2 = Get-Health $paste 25
     if ($null -ne $g2 -and $g2.ok -eq $true) {
-      $body = @(
-        "# DarDesign - the render host. Rotates every Colab session.",
-        "NEXT_PUBLIC_API_URL=$paste",
-        "NEXT_PUBLIC_DATA_API_URL=http://localhost:8000"
+      # Written byte-by-byte rather than with Set-Content, and this is not
+      # fussiness. PowerShell 5.1's `Set-Content -Encoding utf8` emitted a
+      # UTF-8 BOM and, worse, terminated the first line with a bare CR and no
+      # LF -- so a dotenv parser read the comment and the URL as ONE line
+      # beginning with '#', and NEXT_PUBLIC_API_URL was silently never set.
+      # The app then fell back to localhost:8000, the LIGHT data backend, and
+      # every "render" would have come back a placeholder tint that looks like
+      # a working app producing bad output. Plain LF, no BOM, no ambiguity.
+      $lines = "# DarDesign - the render host. Rotates every Colab session.`n" +
+               "NEXT_PUBLIC_API_URL=$paste`n" +
+               "NEXT_PUBLIC_DATA_API_URL=http://localhost:8000`n"
+      [System.IO.File]::WriteAllText(
+        $envFile, $lines, (New-Object System.Text.UTF8Encoding($false))
       )
-      Set-Content -Path $envFile -Value $body -Encoding utf8
+      # Prove it parsed the way we intended before claiming success.
+      $check = (Get-Content $envFile) | Where-Object { $_ -match '^NEXT_PUBLIC_API_URL=' }
+      if (-not $check) {
+        Write-Bad "could not write .env.local correctly -- tell Claude, do not guess"
+      }
       if ($g2.light_mode -eq $false) {
         Write-Good "connected -- LIVE GENERATION WILL WORK"
         $gpuLive = $true
