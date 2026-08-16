@@ -159,7 +159,12 @@ export function restyleObjects(
   const unmatched: PlacedObject[] = [];
 
   const next = objects.map((o) => {
-    if (o.origin === "found" || !o.catalogId) return o;
+    // Found objects now carry a catalogId too, and they MUST convert: leaving
+    // a Lebanese sofa standing in a room the user has set to Khaleeji is
+    // exactly the mismatch that made Render with DAR prompt one culture while
+    // conditioning on another. Only unresolved massing (no catalogId) is
+    // skipped, because there is nothing to convert.
+    if (!o.catalogId) return o;
     const from = catalogItem(o.catalogId);
     if (!from || from.culture === culture) return o;
 
@@ -177,14 +182,20 @@ export function restyleObjects(
         (Math.abs(b.widthCm - from.widthCm) + Math.abs(b.depthCm - from.depthCm)),
     )[0];
     changed++;
+    // A FOUND object's footprint is a measurement of the user's room, so the
+    // counterpart is dropped into the measured envelope rather than resizing
+    // the room to the catalogue. A placed piece has no such measurement and
+    // takes the catalogue's own dimensions.
+    const measured = o.origin === "found";
     return {
       ...o,
       catalogId: to.id,
-      labelEn: to.nameEn,
-      labelAr: to.nameAr,
-      widthCm: to.widthCm,
-      depthCm: to.depthCm,
-      heightCm: to.heightCm,
+      labelEn: measured ? o.labelEn : to.nameEn,
+      labelAr: measured ? o.labelAr : to.nameAr,
+      category: to.category,
+      widthCm: measured ? o.widthCm : to.widthCm,
+      depthCm: measured ? o.depthCm : to.depthCm,
+      heightCm: measured ? o.heightCm : to.heightCm,
       materialKey: defaultMaterialFor(to),
     };
   });

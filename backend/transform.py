@@ -1417,6 +1417,18 @@ def render_scene(
             use_sdxl=False,
             control_override=(depth_image, seg_image),
         )
+    except PipelineError:
+        raise
+    except Exception as e:  # pragma: no cover — surfaced, not swallowed
+        # transform_room wraps generic failures so the caller gets a bilingual
+        # ApiError; this path did not, so anything that was not an OOM escaped
+        # raw into the keepalive stream's catch-all and reached the user as an
+        # untranslated stack-trace string.
+        logger.exception("scene render failed")
+        raise PipelineError(
+            f"scene render failed: {e}",
+            "تعذّر عرض المشهد",
+        ) from e
 
 
 def _generate(
@@ -1507,6 +1519,15 @@ def _generate(
             negative=negative, style=style, strength=strength, seed=seed,
             controlnet_weights=controlnet_weights, use_lora=use_lora,
             lora_scale=lora_scale, target_size=target_size, use_sdxl=use_sdxl,
+            # MUST be forwarded. Without it the retry falls through to
+            # _prepare_conditioning(image_path=out_path, ...) — and for
+            # /render-scene `out_path` is the output PNG that has not been
+            # written yet. Best case that raises; if a same-named file survives
+            # an earlier render it silently conditions on the WRONG image while
+            # everything else reports success. This is the only path on which
+            # "Render with DAR" could stop being the user's scene without
+            # saying so.
+            control_override=control_override,
             _fresh=True,
         )
 

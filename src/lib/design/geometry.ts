@@ -19,6 +19,7 @@
 import * as THREE from "three";
 import { CATEGORY_TO_ADE20K } from "./ade20k";
 import type { StyleId } from "@/context/ImageContext";
+import { isCatalogueBacked } from "./foundFurniture";
 import { catalogItem, catalogModel } from "./catalog";
 import { getMaterial } from "./materials";
 import type { MaterialSpec } from "./materials";
@@ -973,7 +974,17 @@ export function stampObjectIdentity(g: THREE.Object3D, o: PlacedObject) {
 export function buildObjectMesh(o: PlacedObject, onReady?: () => void): THREE.Group {
   const mat: THREE.Material = standardMaterial(o.materialKey);
   const accent: THREE.Material = accentFor(o.materialKey);
-  const builder = o.origin === "found" ? null : BUILDERS[o.category];
+  // A found object that resolved to a catalogue piece is drawn with that
+  // piece's real geometry. Only an UNRESOLVED detection — one with no
+  // counterpart in any culture, like a bed or a rug — keeps the abstract
+  // massing box, which is the honest drawing when the catalogue has nothing
+  // to stand in with. See foundFurniture.ts for what resolves and why.
+  //
+  // This also fixes the conditioning, not just the picture: Build Mode hands
+  // the ControlNet a segmentation pass, and a box labelled `table` tells the
+  // generator to make a table where the user's sofa is.
+  const massing = o.origin === "found" && !isCatalogueBacked(o);
+  const builder = massing ? null : BUILDERS[o.category];
   // The culture of the PIECE, not of the room: a Moroccan pouf carried into a
   // Lebanese room is still a Moroccan pouf, and should still be drawn as one.
   const culture = (o.catalogId ? catalogItem(o.catalogId)?.culture : undefined) ?? "lebanese";
@@ -987,10 +998,13 @@ export function buildObjectMesh(o: PlacedObject, onReady?: () => void): THREE.Gr
   g.userData.origin = o.origin;
   stampObjectIdentity(g, o);
   attachRealModel(g, o, onReady);
-  if (o.origin === "found") {
+  if (massing) {
     // Read as present but not authored: the catalogue pieces the user is
     // actually placing must visually dominate what was merely detected.
     // Lines and the footprint plate keep their own opacity (set above).
+    // Applies to massing ONLY — a catalogue-backed detection is real
+    // furniture and rendering it at 0.3 opacity is what made the room look
+    // empty.
     g.traverse((c) => {
       if (c instanceof THREE.Mesh && c.material instanceof THREE.MeshStandardMaterial) {
         const m = c.material.clone();
@@ -1017,7 +1031,9 @@ export function buildObjectMesh(o: PlacedObject, onReady?: () => void): THREE.Gr
  *  `sharedAsset` on the clone keeps DesignWorld.disposeObject from freeing the
  *  prototype's geometry out from under the other instances. */
 function attachRealModel(g: THREE.Group, o: PlacedObject, onReady?: () => void) {
-  if (o.origin === "found") return;
+  // Massing has no catalogue id and so no asset; a catalogue-backed detection
+  // is entitled to the same real GLB any placed piece would get.
+  if (o.origin === "found" && !isCatalogueBacked(o)) return;
   const model = catalogModel(o.catalogId);
   if (!model) return;
 

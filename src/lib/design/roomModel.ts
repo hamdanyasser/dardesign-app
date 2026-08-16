@@ -15,6 +15,8 @@
    ============================================================ */
 
 import type { ObjectMapObject, RedesignResult } from "@/lib/api";
+import { catalogItem, defaultMaterialFor } from "./catalog";
+import { resolveFoundPiece } from "./foundFurniture";
 import { SHELL_MATERIALS } from "./materials";
 import {
   SCENE_VERSION,
@@ -47,7 +49,10 @@ const FOUND_HEIGHT_CM: Record<string, number> = {
   chair: 95,
   armchair: 88,
   table: 45,
-  "coffee table": 42,
+  // The classKey is `coffee_table` with an UNDERSCORE. The old key was
+  // "coffee table" with a space, so the exact lookup missed and the substring
+  // loop below hit "table" first — every coffee table came out 45cm.
+  coffee_table: 42,
   desk: 75,
   cabinet: 160,
   wardrobe: 200,
@@ -62,6 +67,16 @@ const FOUND_HEIGHT_CM: Record<string, number> = {
   painting: 90,
   television: 70,
   tv: 70,
+  // Without these the substring loop falls through to the 75cm default, which
+  // extrudes an ottoman to seat height and a vase to standing height.
+  ottoman: 42,
+  bench: 45,
+  stool: 45,
+  chest: 80,
+  fireplace: 110,
+  vase: 40,
+  radiator: 60,
+  swivel_chair: 95,
 };
 
 function heightForClass(classKey: string): number {
@@ -148,6 +163,16 @@ const MAX_FOOTPRINT_CM: Record<string, [number, number]> = {
   plant: [90, 90],
   lamp: [60, 60],
   rug: [400, 320],
+  // Uncapped classes could span the whole room when the segmenter merged a
+  // run of objects into one blob — the same failure that made a cushion run
+  // 520cm wide (see ON_FURNITURE_CLASSES below).
+  ottoman: [90, 90],
+  bench: [200, 60],
+  chest: [140, 60],
+  fireplace: [180, 60],
+  vase: [50, 50],
+  radiator: [140, 30],
+  swivel_chair: [90, 95],
 };
 
 function capFootprint(classKey: string, w: number, d: number): [number, number] {
@@ -270,14 +295,19 @@ export function deriveRoom(
         continue;
       }
       if (isWallMounted(o.classKey) || isOnFurniture(o.classKey)) continue;
-      objects.push(foundObjectFrom(o, i, shell));
+      objects.push(foundObjectFrom(o, i, shell, culture));
     }
   }
 
   return { shell, objects, openings, shellSource };
 }
 
-function foundObjectFrom(o: ObjectMapObject, i: number, shell: RoomShell): PlacedObject {
+function foundObjectFrom(
+  o: ObjectMapObject,
+  i: number,
+  shell: RoomShell,
+  culture: SceneCulture,
+): PlacedObject {
   // object_map is normalized 0..1 with cy = 0 at the FAR wall. Room space has
   // z = -depth/2 at the far wall, so cy maps straight onto z.
   const x = (clamp(o.cx, 0, 1) - 0.5) * shell.widthCm;
@@ -285,20 +315,36 @@ function foundObjectFrom(o: ObjectMapObject, i: number, shell: RoomShell): Place
   const rawW = clamp(o.w, 0.02, 1) * shell.widthCm;
   const rawD = clamp(o.h, 0.02, 1) * shell.depthCm;
   const [w, d] = capFootprint(o.classKey, rawW, rawD);
+  const widthCm = Math.round(clamp(w, 20, shell.widthCm));
+  const depthCm = Math.round(clamp(d, 20, shell.depthCm));
+
+  // The nearest catalogue piece for this detected class, or null to stay a
+  // massing box. The MEASUREMENTS below are kept either way — the piece is a
+  // stand-in for what was detected, never a claim about what the photograph
+  // contained, and the Inspector says so.
+  const piece = resolveFoundPiece(o.classKey, culture, widthCm, depthCm);
+  const item = piece ? catalogItem(piece.catalogId) : undefined;
+
   return {
     uid: `found-${i}-${o.classKey}`,
     origin: "found",
-    catalogId: null,
-    category: o.classKey,
+    catalogId: piece?.catalogId ?? null,
+    // The catalogue category when resolved — geometry.ts keys BUILDERS on
+    // this, and the raw ADE class never matched it, which is the other half of
+    // why every detection drew as a box.
+    category: piece?.category ?? o.classKey,
     labelEn: o.labelEn,
     labelAr: o.labelAr,
     x: Math.round(x),
     z: Math.round(z),
     rotationDeg: 0,
-    widthCm: Math.round(clamp(w, 20, shell.widthCm)),
-    depthCm: Math.round(clamp(d, 20, shell.depthCm)),
+    // Measured footprint wins over the catalogue's. A detected 3-seater stays
+    // a 3-seater even if the nearest catalogue sofa is 20cm narrower: the
+    // footprint is the measurement, the piece is the stand-in.
+    widthCm,
+    depthCm,
     heightCm: heightForClass(o.classKey),
-    materialKey: "found",
+    materialKey: item ? defaultMaterialFor(item) : "found",
     confidence: o.confidence,
     // Found objects describe the room as it is. Moving one turns a
     // measurement into a fiction, so it takes an explicit unlock.

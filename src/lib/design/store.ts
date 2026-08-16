@@ -277,7 +277,12 @@ export function designReducer(state: DesignState, action: DesignAction): DesignS
       if (state.scene.culture === action.culture) return state;
       const shell = SHELL_MATERIALS[action.culture];
       const objects = state.scene.objects.map((o) => {
-        if (o.origin === "found") return o;
+        // Unresolved massing keeps the neutral "found" material whatever the
+        // room's language is — it is a survey volume, not a design choice.
+        // A catalogue-backed detection falls through to the `item` check below
+        // like any other piece: switching the rail still does not convert
+        // furniture, that stays the explicit Restyle action.
+        if (o.origin === "found" && !o.catalogId) return o;
         const item = o.catalogId ? catalogItem(o.catalogId) : undefined;
         // A piece keeps its own culture's material vocabulary; only pieces
         // that follow the room (no catalogue entry) are re-read.

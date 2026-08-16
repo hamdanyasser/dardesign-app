@@ -94,7 +94,12 @@ export function modelTier(
   opts: { catalogId?: string | null; category: string; origin: string },
   builtCategories: readonly string[],
 ): ModelTier {
-  if (opts.origin === "found") return "massing";
+  // A found object with no catalogue counterpart is genuinely massing: we know
+  // the class and the footprint and nothing about the form. One that resolved
+  // to a catalogue piece is drawn with that piece's real geometry, so claiming
+  // "massing" would understate it in the one place the UI reports provenance —
+  // and the tier has to describe what is on screen, in both directions.
+  if (opts.origin === "found" && !opts.catalogId) return "massing";
   if (catalogModel(opts.catalogId)) return "real";
   return builtCategories.includes(opts.category) ? "procedural" : "massing";
 }

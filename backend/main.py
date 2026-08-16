@@ -174,6 +174,7 @@ from .transform import (
     StylePack,
     compute_depth_seg,
     fit_size,
+    _depth_only_mode as depth_only_mode,
     provenance as pipeline_provenance,
     render_scene,
     transform_room,
@@ -439,6 +440,16 @@ class RenderSceneResponse(BaseModel):
     image: str
     duration_s: float
     placeholder: bool
+    # What this host actually did — same dict /redesign returns. Without it the
+    # panel could name no model, no LoRA and no ControlNet weights for a render
+    # whose whole claim is that it conditioned on the user's own scene.
+    provenance: dict | None = None
+    # False when DARDESIGN_DEPTH_ONLY dropped the segmentation ControlNet. That
+    # is the documented Colab/Kaggle T4 setting, so it may well be live — and
+    # the panel displays the ADE20K map as "Segments · identity" evidence, so
+    # without this flag it would be claiming a control image that never
+    # reached the model.
+    dual_controlnet: bool = True
 
 
 class RestyleResponse(BaseModel):
@@ -2107,9 +2118,17 @@ async def render_scene_endpoint(
 
     from PIL import Image
 
+    # Same guardrail /redesign applies. This endpoint accepts two uploads and
+    # was skipping it entirely — an extension allowlist and a magic-byte sniff
+    # before PIL is handed the bytes, plus the 10 MB ceiling.
+    depth_raw = await depth.read()
+    seg_raw = await seg.read()
+    _guard_upload(depth.filename, depth_raw)
+    _guard_upload(seg.filename, seg_raw)
+
     try:
-        depth_img = Image.open(io.BytesIO(await depth.read())).convert("RGB")
-        seg_img = Image.open(io.BytesIO(await seg.read())).convert("RGB")
+        depth_img = Image.open(io.BytesIO(depth_raw)).convert("RGB")
+        seg_img = Image.open(io.BytesIO(seg_raw)).convert("RGB")
     except Exception:
         _raise(ERR_BAD_IMAGE_DATA)
 
@@ -2182,6 +2201,8 @@ async def _render_scene_body(
         duration_s=duration,
         # The client must be able to say plainly that this is a stand-in.
         placeholder=_light_mode(),
+        provenance=pipeline_provenance([style]),
+        dual_controlnet=not depth_only_mode(),
     )
 
 

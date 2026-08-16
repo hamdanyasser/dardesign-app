@@ -1604,6 +1604,13 @@ export interface SceneRenderResult {
   /** True when the backend had no GPU and returned a LIGHT-mode stand-in.
    *  The UI must say so rather than presenting it as a render. */
   placeholder: boolean;
+  /** What the host actually ran — model, LoRA, ControlNet weights. Null on an
+   *  older backend that does not report it; null means unknown, never "none". */
+  provenance?: RedesignProvenance | null;
+  /** False when DARDESIGN_DEPTH_ONLY dropped the segmentation ControlNet, so
+   *  the panel can stop presenting the ADE20K map as a control image that
+   *  reached the model. Defaults true for backends that do not report it. */
+  dualControlNet: boolean;
 }
 
 /** The address a render will actually be posted to. Surfaced in the failure
@@ -1731,6 +1738,13 @@ export async function renderScene(
       image: j.image,
       durationS: typeof j.duration_s === "number" ? j.duration_s : null,
       placeholder: j.placeholder === true,
+      provenance:
+        j.provenance && typeof j.provenance === "object"
+          ? (j.provenance as RedesignProvenance)
+          : null,
+      // Absent on an older backend. Defaulting to true keeps the previous
+      // behaviour rather than accusing a working host of dropping a control.
+      dualControlNet: j.dual_controlnet !== false,
     };
   } finally {
     clearTimeout(timer);

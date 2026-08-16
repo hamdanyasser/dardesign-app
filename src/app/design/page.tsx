@@ -200,7 +200,10 @@ function BuildModeReady({
   const foreignCount = useMemo(() => {
     if (scene.culture === "all") return 0;
     return scene.objects.filter((o) => {
-      if (o.origin === "found" || !o.catalogId) return false;
+      // Found objects resolve to catalogue pieces now, so they count as
+      // foreign too — a Lebanese sofa read off the photo is just as wrong in
+      // a Khaleeji room as one the user dragged in.
+      if (!o.catalogId) return false;
       const item = catalogItem(o.catalogId);
       return !!item && item.culture !== scene.culture;
     }).length;
@@ -212,7 +215,7 @@ function BuildModeReady({
   const restyle = useCallback(() => {
     if (scene.culture === "all") return;
     const unmatched = scene.objects.filter((o) => {
-      if (o.origin === "found" || !o.catalogId) return false;
+      if (!o.catalogId) return false;
       const item = catalogItem(o.catalogId);
       if (!item || item.culture === scene.culture) return false;
       return !CATALOG.some((c) => c.culture === scene.culture && c.category === item.category);
@@ -226,6 +229,37 @@ function BuildModeReady({
         : null,
     );
   }, [scene.objects, scene.culture, isArabic]);
+
+  /* Called by Render with DAR immediately before it captures conditioning.
+   *
+   * The bug this closes: switching the catalogue rail changes scene.culture,
+   * the shell and the accent, but deliberately NOT the furniture. The handoff
+   * then sends scene.culture as the style, so the generator was prompted
+   * Khaleeji and fused the Khaleeji LoRA while every depth and segmentation
+   * silhouette it was conditioned on was still a Lebanese sofa. The result was
+   * a hybrid, and nothing on screen admitted it.
+   *
+   * Converting here means the conditioning and the prompt describe the same
+   * room. It runs inside the render gesture so ONE Ctrl+Z takes back both the
+   * conversion and the render, and it returns what it did so the panel can
+   * report it rather than mutating the room silently. */
+  const alignCultureForRender = useCallback(() => {
+    if (scene.culture === "all") return null;
+    const foreign = scene.objects.filter((o) => {
+      if (!o.catalogId) return false;
+      const item = catalogItem(o.catalogId);
+      return !!item && item.culture !== scene.culture;
+    });
+    if (!foreign.length) return null;
+    const kept = foreign.filter((o) => {
+      const item = catalogItem(o.catalogId as string);
+      return !!item && !CATALOG.some(
+        (c) => c.culture === scene.culture && c.category === item.category,
+      );
+    }).length;
+    dispatch({ type: "restyleTo", culture: scene.culture });
+    return { converted: foreign.length - kept, kept };
+  }, [scene.objects, scene.culture]);
 
   /* ---- catalogue drag ---- */
   const beginDrag = useCallback((item: CatalogItem, clientX: number, clientY: number) => {
@@ -731,6 +765,7 @@ function BuildModeReady({
             onClose={() => setHandoff(false)}
             capture={captureRef.current ?? undefined}
             renderIntent={renderIntent}
+            onAlignCulture={alignCultureForRender}
           />
         )}
       </div>
