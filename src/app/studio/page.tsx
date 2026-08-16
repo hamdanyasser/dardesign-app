@@ -874,6 +874,22 @@ export default function StudioPage() {
       {phase === "loading" && (
         <div className="cinema studio-workspace">
           <section className="loading-scene" role="status" aria-live="polite">
+            {/* Noise resolving into an eight-pointed star, then dissolving
+                back. Diffusion genuinely is noise resolving into form, so this
+                is an honest metaphor for what the backend is doing right now —
+                and it resolves into GEOMETRY, never a room, so it cannot be
+                read as "watch DAR generate your photograph". Decoration, not
+                evidence: the chapters beside it carry the actual explanation. */}
+            <video
+              className="wait-film"
+              src="/video/diffusion.mp4"
+              poster="/video/diffusion.jpg"
+              autoPlay
+              muted
+              loop
+              playsInline
+              aria-hidden
+            />
             <div className="canvas">
               <DissolveCanvas
                 progress={progress}

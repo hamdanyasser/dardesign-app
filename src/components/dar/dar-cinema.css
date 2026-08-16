@@ -236,3 +236,35 @@
     transform: scale(1.04);
   }
 }
+
+/* ── Act I threshold film ─────────────────────────────────────────
+   Behind the receding arches of Act I. Absolutely positioned, so it adds no
+   height -- this pane's height feeds the RAF scroll maths, and that is the one
+   thing on this page that must not move.
+
+   It sits first in the DOM so the tunnel stage and the gradient wash paint over
+   it; the arches stay in front, the film is what they recede into.
+
+   This component carries its OWN data-theme on .dar-cinema rather than reading
+   the one on <html>, so theme variants must be scoped to that root here and
+   cannot be written as html[data-theme=...] like the rest of the app. */
+.dar-cinema .dd-act-film {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  z-index: 0;
+  pointer-events: none;
+  /* The clip's blown-out arch opening is the part that would fight the
+     headline, so highlights come down before opacity is applied. */
+  opacity: 0.34;
+  filter: brightness(0.45) saturate(0.85);
+}
+.dar-cinema[data-theme="light"] .dd-act-film {
+  opacity: 0.26;
+  filter: brightness(1.2) saturate(0.7) contrast(0.85);
+}
+@media (prefers-reduced-motion: reduce) {
+  .dar-cinema .dd-act-film { display: none; }
+}

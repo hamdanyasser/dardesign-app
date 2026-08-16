@@ -1239,6 +1239,25 @@ html[lang="ar"] .cinema .style-card .name { font-family: var(--f-display-ar); fo
   place-items: center;
   overflow: hidden;
 }
+/* Sits above the scene's own gradient but BELOW the dissolve particles, so the
+   particles still read in front of it. The scene is dark in both themes (the
+   light-theme block above re-points its tokens to the dark set), so unlike the
+   culture cards this needs only one treatment. */
+.cinema .loading-scene .wait-film {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0.55;
+  filter: brightness(0.7) saturate(0.95);
+}
+@media (prefers-reduced-motion: reduce) {
+  .cinema .loading-scene .wait-film { display: none; }
+}
+
 .cinema .loading-scene .canvas { position: absolute; inset: 0; z-index: 1; }
 .cinema .loading-scene .core {
   position: relative;

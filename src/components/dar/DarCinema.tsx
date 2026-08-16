@@ -767,6 +767,27 @@ export default function DarCinema() {
               "radial-gradient(ellipse 64% 46% at 50% 42%, rgba(var(--gold-rgb),.16), transparent 62%), radial-gradient(ellipse 70% 40% at 50% 2%, rgba(var(--glow-rgb),.12), transparent 60%), var(--page)",
           }}
         >
+          {/* A carved arch with light crossing it, behind the receding tunnel.
+              This act says "walk through the arches"; the film is what is on
+              the other side of them.
+
+              Absolutely positioned, so it adds no height. That matters more
+              here than anywhere else in the app: this pane's height feeds the
+              RAF scroll maths that drives every scene's timing, and padding
+              has broken the choreography before. It is also architecture and
+              light only — never an interior — because the acts below carry
+              REAL DAR renders, and a generated room beside them is the one
+              thing a viewer could mistake for output. */}
+          <video
+            className="dd-act-film"
+            src="/video/threshold.mp4"
+            poster="/video/threshold.jpg"
+            autoPlay
+            muted
+            loop
+            playsInline
+            aria-hidden
+          />
           <div
             aria-hidden="true"
             style={{
