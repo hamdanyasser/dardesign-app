@@ -24,6 +24,8 @@ export type { StoryComparisonProps } from "./StoryComparison";
 
 export {
   createDesignStoryData,
+  createGenerationStoryAssets,
+  generationCapabilitiesFromProvenance,
   generationPipelineCapabilitiesFromMetadata,
   generationStoryStatusFromJobStatus,
   storyGenerationMetadataFromManifest,

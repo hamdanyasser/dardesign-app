@@ -169,6 +169,14 @@ export interface GenerationStoryAssets {
   research?: GenerationResearchAsset[];
   /** A real crop/detail asset for the loop point. Falls back to the original room. */
   detailTeaser?: StoryImage | null;
+  /**
+   * The renders this run actually produced, one per culture that was asked for.
+   * The generation chapter draws an abstract "visual metaphor" when this is
+   * empty — deliberately, because inventing a picture of inference would be a
+   * lie — but when the outputs exist there is no reason to show a metaphor for
+   * them. Never populate this from a placeholder run.
+   */
+  generatedOutputs?: StoryImage[];
 }
 
 export interface GenerationPipelineNode {

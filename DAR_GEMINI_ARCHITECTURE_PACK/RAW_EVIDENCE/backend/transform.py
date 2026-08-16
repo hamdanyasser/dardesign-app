@@ -1,0 +1,1480 @@
+"""DarDesign canonical inference pipeline.
+
+Single source of truth — same module is used:
+  - on Kaggle T4 (real SDXL + dual ControlNet + optional LoRA),
+  - locally on Windows (`DARDESIGN_LIGHT=1` → placeholder PNG, no GPU required),
+  - inside FastAPI (`backend/main.py` calls `transform_room(...)`),
+  - inside scripts/ (sweep, finals, ablate all import the same function).
+
+Public surface
+--------------
+    transform_room(image_path, style, *, strength=0.7, **opts) -> Path
+    StyleId       Literal["lebanese", "khaleeji", "moroccan"]
+    PipelineError raised on hard failures the caller should surface
+
+Behaviour
+---------
+* SDXL + dual ControlNet (Depth Anything V2 + OneFormer ADE20K) by default.
+* Lazy per-style LoRA load; if `models/loras/<style>/dardesign-<style>-lora.safetensors`
+  is missing, logs a warning and falls back to prompt-only generation.
+* On torch.cuda OOM, frees the SDXL pipeline and retries with SD 1.5 + the
+  ControlNet 1.1 depth/seg pair at 768x768.
+* On any other failure, raises `PipelineError` with a bilingual message.
+* `DARDESIGN_LIGHT=1` short-circuits everything and returns a placeholder image
+  so FastAPI is testable on a laptop. Logged loudly so it's never confused with
+  a real run.
+"""
+from __future__ import annotations
+
+import gc
+import logging
+import os
+import threading
+import time
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any, Literal
+
+logger = logging.getLogger(__name__)
+
+# These imports are guarded so the module is importable without the heavy ML
+# stack (e.g. on a Windows dev box without CUDA torch). Heavy imports happen
+# inside _load_pipeline().
+try:
+    import yaml  # type: ignore
+except ImportError:  # PyYAML is in requirements but might not be in light envs
+    yaml = None  # type: ignore
+
+ROOT = Path(__file__).resolve().parent.parent
+CONFIG_PATH = ROOT / "configs" / "pipeline.yaml"
+LORA_DIR = ROOT / "models" / "loras"
+DEFAULT_OUT_DIR = ROOT / "backend" / "uploads"
+
+StyleId = Literal["lebanese", "khaleeji", "moroccan", "persian"]
+# The three trained cultures — /redesign generates exactly these, keeping its
+# demo timing fixed. persian is the prompt-only 4th culture (docs/add_a_culture.md
+# minus the LoRA step): reachable via /restyle and /transform, never /redesign.
+CORE_STYLES = ("lebanese", "khaleeji", "moroccan")
+StylePack = (*CORE_STYLES, "persian")
+
+
+class PipelineError(RuntimeError):
+    """Raised on unrecoverable pipeline failures — the FastAPI layer surfaces this."""
+
+    def __init__(self, message_en: str, message_ar: str) -> None:
+        super().__init__(message_en)
+        self.message_en = message_en
+        self.message_ar = message_ar
+
+
+# ----------------------------------------------------------------------------
+# Config
+# ----------------------------------------------------------------------------
+
+_DEFAULT_CONFIG: dict[str, Any] = {
+    "base_model": "stabilityai/stable-diffusion-xl-base-1.0",
+    "fallback_model": "runwayml/stable-diffusion-v1-5",
+    "controlnet": {
+        "depth_sdxl": "diffusers/controlnet-depth-sdxl-1.0",
+        # NB: "diffusers/controlnet-seg-sdxl-1.0" does not exist on the Hub —
+        # SargeZT's is the standard ControlNetModel-loadable SDXL seg checkpoint.
+        "seg_sdxl": "SargeZT/sdxl-controlnet-seg",
+        "depth_sd15": "lllyasviel/sd-controlnet-depth",
+        "seg_sd15": "lllyasviel/sd-controlnet-seg",
+    },
+    "default_controlnet_weights": {"depth": 0.7, "seg": 0.5},
+    "steps": 30,
+    "guidance": 7.0,
+    "strength": 0.7,
+    "output_size": [1024, 1024],
+    "sd15_fallback_size": [768, 768],
+    "extra_negative_en": "low resolution, jpeg artifacts, color banding",
+    "lora_dir": "models/loras",
+    "lora_filename_template": "dardesign-{culture}-lora.safetensors",
+    "lora_scale": 0.8,
+}
+
+
+def _load_config() -> dict[str, Any]:
+    if yaml is None or not CONFIG_PATH.exists():
+        return _DEFAULT_CONFIG
+    try:
+        with open(CONFIG_PATH, "r", encoding="utf-8") as fh:
+            user = yaml.safe_load(fh) or {}
+    except Exception:  # pragma: no cover — corrupt YAML
+        logger.exception("failed to read pipeline.yaml; using built-in defaults")
+        return _DEFAULT_CONFIG
+    merged = dict(_DEFAULT_CONFIG)
+    merged.update(user)
+    return merged
+
+
+CONFIG = _load_config()
+
+SWEEP_WINNERS_PATH = ROOT / "configs" / "sweep_winners.json"
+
+
+def _winner_weights(style: str) -> tuple[float, float] | None:
+    """Per-style (depth, seg) ControlNet weights from configs/sweep_winners.json.
+
+    The eyeball-confirmed sweep winners override pipeline.yaml defaults so the
+    sweep actually reaches production ("weights tunable without code edits" —
+    ARCHITECTURE.md). Falls back to the file's "default" pair, then None.
+    """
+    try:
+        if not SWEEP_WINNERS_PATH.exists():
+            return None
+        import json as _json
+
+        data = _json.loads(SWEEP_WINNERS_PATH.read_text(encoding="utf-8"))
+        pair = data.get(style) or data.get("default")
+        if isinstance(pair, (list, tuple)) and len(pair) == 2:
+            return float(pair[0]), float(pair[1])
+    except Exception:
+        logger.exception("failed to read %s — using pipeline.yaml defaults", SWEEP_WINNERS_PATH)
+    return None
+
+
+# ----------------------------------------------------------------------------
+# Light mode (no GPU)
+# ----------------------------------------------------------------------------
+
+
+def _is_light_mode() -> bool:
+    return os.environ.get("DARDESIGN_LIGHT", "").lower() in ("1", "true", "yes")
+
+
+def _depth_only_mode() -> bool:
+    """Skip the segmentation ControlNet to fit a ~12.7 GB runtime.
+
+    Set DARDESIGN_DEPTH_ONLY=1 on standard Colab/Kaggle GPU runtimes, where the
+    full dual-ControlNet stack exceeds available system RAM and the process gets
+    OOM-killed. Leave it unset anywhere with more headroom.
+    """
+    return os.environ.get("DARDESIGN_DEPTH_ONLY", "").lower() in ("1", "true", "yes")
+
+
+def _gpu_resident_mode() -> bool:
+    """Keep pipeline weights in VRAM instead of system RAM.
+
+    Set DARDESIGN_GPU_RESIDENT=1 where VRAM is larger than system RAM — the
+    standard Colab/Kaggle T4 (≈15 GB VRAM, ≈12 GB RAM) is exactly that shape, and
+    the default CPU-offload strategy exhausts RAM there. Pair with
+    DARDESIGN_DEPTH_ONLY=1 so the weights actually fit VRAM.
+    """
+    return os.environ.get("DARDESIGN_GPU_RESIDENT", "").lower() in ("1", "true", "yes")
+
+
+def fit_size(width: int, height: int, long_side: int = 1024) -> tuple[int, int]:
+    """Scale (width, height) so the long side == long_side, keeping aspect,
+    rounded to multiples of 8 (UNet requirement).
+
+    Shared by real generation, LIGHT placeholders, and /redesign's original
+    re-encode so the before/after compare slider always gets matching geometry
+    — squashing everything to a fixed square made the two slider halves crop
+    differently under object-fit: cover and read as two different rooms."""
+    scale = long_side / max(width, height)
+    w = max(8, round(width * scale / 8) * 8)
+    h = max(8, round(height * scale / 8) * 8)
+    return w, h
+
+
+def _write_manifest(out_path: Path, manifest: dict) -> None:
+    """C2PA-inspired provenance sidecar: write <out>.manifest.json recording the
+    model, LoRA, seed, ControlNet weights and a SHA-256 of the output PNG, so any
+    render is auditable ('this image was made by DarDesign with these settings').
+    Best-effort — a manifest failure never costs the user their render."""
+    import hashlib
+    import json as _json
+
+    try:
+        meta = dict(manifest)
+        meta["output_sha256"] = hashlib.sha256(out_path.read_bytes()).hexdigest()
+        meta["generated_at"] = int(time.time())
+        out_path.with_suffix(".manifest.json").write_text(
+            _json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+    except Exception:
+        logger.exception("failed to write provenance manifest for %s", out_path)
+
+
+def _emit_placeholder(image_path: Path, style: str, out_path: Path) -> Path:
+    """Generate a culturally-tinted placeholder so light-mode dev can't be
+    confused for a real generation. Each culture gets a strong colour wash
+    + ornament overlay + a crop-proof centred PREVIEW notice.
+
+    Keeps the source aspect ratio (long side capped at 1024) so the before/after
+    compare slider aligns pixel-for-pixel with the original under object-fit:
+    cover — a square placeholder against a wide original reads as two different
+    rooms."""
+    import math
+
+    from PIL import Image, ImageDraw, ImageEnhance, ImageFont
+
+    # Distinct cultural casts so the user immediately sees A != B.
+    CULTURE = {
+        "lebanese": {"tint": (168, 50, 50),  "name": "Lebanese", "ar": "لبناني"},
+        "khaleeji": {"tint": (217, 154, 31), "name": "Khaleeji", "ar": "خليجي"},
+        "moroccan": {"tint": (30, 80, 143),  "name": "Moroccan", "ar": "مغربي"},
+        "persian":  {"tint": (32, 140, 141), "name": "Persian",  "ar": "فارسي"},
+    }
+    palette = CULTURE.get(style, {"tint": (212, 175, 55), "name": style.title(), "ar": ""})
+    tint = palette["tint"]
+
+    src = Image.open(image_path).convert("RGB")
+    src = src.resize(fit_size(*src.size))
+    w, h = src.size
+
+    # 1) desaturate the photo most of the way, then blend a solid culture colour
+    desat = ImageEnhance.Color(src).enhance(0.25)
+    tint_layer = Image.new("RGB", src.size, tint)
+    tinted = Image.blend(desat, tint_layer, 0.42)
+
+    # 2) ornament overlay — eight-point stars in a sparse grid
+    overlay = Image.new("RGBA", src.size, (0, 0, 0, 0))
+    draw = ImageDraw.Draw(overlay)
+    spacing = 192
+    for cx in range(spacing // 2, w, spacing):
+        for cy in range(spacing // 2, h, spacing):
+            r1, r2 = 28, 12
+            pts = []
+            for i in range(16):
+                r = r1 if i % 2 == 0 else r2
+                a = (i / 16) * 2 * math.pi - math.pi / 2
+                pts.append((cx + math.cos(a) * r, cy + math.sin(a) * r))
+            draw.polygon(pts, outline=(243, 220, 146, 90))
+
+    try:
+        title_font = ImageFont.truetype("arial.ttf", max(24, h // 24))
+        sub_font = ImageFont.truetype("arial.ttf", max(14, h // 44))
+    except Exception:
+        title_font = ImageFont.load_default()
+        sub_font = ImageFont.load_default()
+
+    # 3) centred pill — survives ANY object-fit crop (a top band gets cut off
+    #    when a wide viewport cover-crops the image).
+    pill_w, pill_h = int(w * 0.62), max(84, h // 7)
+    px0, py0 = (w - pill_w) // 2, (h - pill_h) // 2
+    draw.rounded_rectangle(
+        [px0, py0, px0 + pill_w, py0 + pill_h],
+        radius=pill_h // 2,
+        fill=(12, 10, 8, 215),
+        outline=(243, 220, 146, 160),
+        width=2,
+    )
+    # Latin-only text: PIL has no Arabic shaping without libraqm (it draws the
+    # letters disconnected and backwards) — the studio's preview banner carries
+    # the properly-shaped bilingual notice instead.
+    title = f"PREVIEW · {palette['name']}"
+    sub = "Placeholder (no GPU) - real renders need the Kaggle T4 backend"
+    tb = draw.textbbox((0, 0), title, font=title_font)
+    sb = draw.textbbox((0, 0), sub, font=sub_font)
+    draw.text(
+        ((w - (tb[2] - tb[0])) / 2, py0 + pill_h * 0.18),
+        title, fill=(243, 220, 146, 255), font=title_font,
+    )
+    draw.text(
+        ((w - (sb[2] - sb[0])) / 2, py0 + pill_h * 0.60),
+        sub, fill=(232, 216, 184, 230), font=sub_font,
+    )
+
+    composed = Image.alpha_composite(tinted.convert("RGBA"), overlay).convert("RGB")
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    composed.save(out_path, format="PNG", optimize=True)
+    logger.warning(
+        "DARDESIGN_LIGHT placeholder written to %s (style=%s) — NOT a real generation",
+        out_path, style,
+    )
+    _write_manifest(out_path, {"tool": "DarDesign", "style": style, "model": "DARDESIGN_LIGHT placeholder", "light_mode": True})
+    return out_path
+
+
+# ----------------------------------------------------------------------------
+# LoRA management
+# ----------------------------------------------------------------------------
+
+
+def _lora_path(style: StyleId) -> Path:
+    template = CONFIG.get("lora_filename_template", _DEFAULT_CONFIG["lora_filename_template"])
+    filename = template.format(culture=style)
+    return LORA_DIR / style / filename
+
+
+def _peft_key_to_diffusers(key: str) -> str:
+    """Map a raw-peft LoRA key to the diffusers pipeline format.
+
+    scripts/train_lora.py saves get_peft_model_state_dict(unet) output —
+    'base_model.model.<unet_path>.lora_A.weight' — but pipe.load_lora_weights
+    expects 'unet.<unet_path>.lora_A.weight'. Unmapped keys make peft try to
+    inject adapters at module paths that don't exist in the pipeline's UNet
+    (ValueError: Target modules {...} not found)."""
+    prefix = "base_model.model."
+    if key.startswith(prefix):
+        return "unet." + key[len(prefix):]
+    return key
+
+
+def _load_lora_state_dict(path: Path) -> dict:
+    """Load the LoRA safetensors with keys remapped for the pipeline loader."""
+    from safetensors.torch import load_file
+
+    return {_peft_key_to_diffusers(k): v for k, v in load_file(str(path)).items()}
+
+
+def _has_lora(style: StyleId) -> bool:
+    return _lora_path(style).is_file()
+
+
+# ----------------------------------------------------------------------------
+# Pipeline cache (per-style)
+# ----------------------------------------------------------------------------
+
+
+@dataclass
+class _LoadedPipe:
+    pipe: Any
+    is_sdxl: bool
+    style_loaded: StyleId | None  # which LoRA is currently fused, if any
+    scale_loaded: float | None = None  # the scale it was fused at (Style Intensity Slider)
+    has_seg: bool = True  # False → seg ControlNet failed to load; depth-only conditioning
+
+
+_PIPE_CACHE: dict[str, _LoadedPipe] = {}
+
+
+def _free_pipe(key: str) -> None:
+    pipe_obj = _PIPE_CACHE.pop(key, None)
+    if pipe_obj is None:
+        return
+    try:
+        del pipe_obj.pipe
+    except Exception:
+        pass
+    gc.collect()
+    try:
+        import torch
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+    except Exception:
+        pass
+
+
+def _load_pipeline(*, use_sdxl: bool) -> _LoadedPipe:
+    """Load SDXL+dual ControlNet (or SD1.5+dual ControlNet on fallback) and cache it.
+
+    Heavy imports live inside this function so the module is importable on
+    machines without diffusers/torch.
+    """
+    key = "sdxl" if use_sdxl else "sd15"
+    if key in _PIPE_CACHE:
+        return _PIPE_CACHE[key]
+
+    import torch
+    from diffusers import (
+        ControlNetModel,
+        StableDiffusionControlNetPipeline,
+        StableDiffusionXLControlNetPipeline,
+    )
+
+    dtype = torch.float16 if torch.cuda.is_available() else torch.float32
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+
+    cn_cfg = CONFIG["controlnet"]
+    seg_key = "seg_sdxl" if use_sdxl else "seg_sd15"
+    depth_key = "depth_sdxl" if use_sdxl else "depth_sd15"
+
+    depth_cn = ControlNetModel.from_pretrained(cn_cfg[depth_key], torch_dtype=dtype)
+    # Depth is the structure anchor and non-negotiable; a seg checkpoint failure
+    # degrades to depth-only (loudly) instead of killing the demo.
+    has_seg = True
+    if _depth_only_mode():
+        # Deliberate low-memory mode. enable_model_cpu_offload() keeps every model
+        # resident in *system* RAM, and on a standard 12.7 GB Colab/Kaggle runtime
+        # SDXL + two SDXL ControlNets + OneFormer + Depth Anything lands around
+        # 13.5 GB — enough for the OOM killer to take the process out mid-load.
+        # Dropping the seg ControlNet frees ~2.5 GB, the cheapest single saving
+        # available, and costs only conditioning fidelity: depth still pins the
+        # geometry. Placement masks are unaffected, since those come from
+        # compute_depth_seg()'s own OneFormer pass, not from this ControlNet.
+        logger.warning(
+            "DARDESIGN_DEPTH_ONLY set — loading depth ControlNet only (~2.5 GB saved). "
+            "Structural conditioning is depth-only for this session."
+        )
+        controlnet: Any = depth_cn
+        has_seg = False
+    else:
+        try:
+            seg_cn = ControlNetModel.from_pretrained(cn_cfg[seg_key], torch_dtype=dtype)
+            controlnet = [depth_cn, seg_cn]
+        except Exception:
+            logger.exception(
+                "seg ControlNet %s failed to load — falling back to DEPTH-ONLY conditioning",
+                cn_cfg[seg_key],
+            )
+            controlnet = depth_cn
+            has_seg = False
+
+    if use_sdxl:
+        pipe = StableDiffusionXLControlNetPipeline.from_pretrained(
+            CONFIG["base_model"],
+            controlnet=controlnet,
+            torch_dtype=dtype,
+            variant="fp16" if dtype == torch.float16 else None,
+        )
+    else:
+        pipe = StableDiffusionControlNetPipeline.from_pretrained(
+            CONFIG["fallback_model"],
+            controlnet=controlnet,
+            torch_dtype=dtype,
+            safety_checker=None,
+        )
+
+    if device == "cuda":
+        if _gpu_resident_mode():
+            # Weights live in VRAM, not system RAM.
+            #
+            # enable_model_cpu_offload() is the opposite trade: it parks every
+            # model in system RAM and streams it to the GPU per step. That is the
+            # right call when VRAM is the scarce resource — but on a standard
+            # Colab/Kaggle T4 the split is ~15 GB VRAM against ~12 GB RAM, so
+            # offloading exhausts the scarce side and the OOM killer takes out the
+            # whole kernel (observed: backend gone, `free -g` showing 12 GB total).
+            #
+            # Depth-only SDXL is ~9.5 GB of fp16 weights, which fits VRAM with room
+            # for activations, and system RAM then only carries OneFormer, Depth
+            # Anything and the torch runtime.
+            pipe = pipe.to(device)
+            # VAE slicing only, by default.
+            #
+            # Attention slicing was here too, and it cost far more speed than it
+            # was worth: generation went from ~4 min to 10+ on a T4. Measured on
+            # a live run, depth-only SDXL sits at 9.6 GB of the T4's 15.3 GB, so
+            # ~5.7 GB of headroom was going unused to buy memory we already had.
+            #
+            # VAE slicing stays because the decode spike is real and it costs
+            # almost no time. Set DARDESIGN_SAFE_ATTENTION=1 to put attention
+            # slicing back if a larger render or a busier GPU ever does OOM.
+            try:
+                pipe.enable_vae_slicing()
+                if os.environ.get("DARDESIGN_SAFE_ATTENTION", "").lower() in ("1", "true", "yes"):
+                    pipe.enable_attention_slicing()
+                    logger.warning("DARDESIGN_SAFE_ATTENTION — attention slicing on (slower)")
+            except Exception:
+                logger.warning("VAE slicing unavailable", exc_info=True)
+            logger.warning(
+                "DARDESIGN_GPU_RESIDENT set — pipeline pinned to VRAM (no CPU offload)."
+            )
+        else:
+            try:
+                pipe.enable_model_cpu_offload()
+            except Exception:
+                pipe = pipe.to(device)
+        try:
+            pipe.enable_xformers_memory_efficient_attention()
+        except Exception:
+            pass
+    else:
+        pipe = pipe.to(device)
+
+    pipe.set_progress_bar_config(disable=True)
+
+    loaded = _LoadedPipe(pipe=pipe, is_sdxl=use_sdxl, style_loaded=None, has_seg=has_seg)
+    _PIPE_CACHE[key] = loaded
+    logger.info("loaded %s pipeline on %s (dtype=%s, dual_controlnet=%s)", key, device, dtype, has_seg)
+    return loaded
+
+
+def _attach_lora(loaded: _LoadedPipe, style: StyleId, lora_scale: float | None = None) -> None:
+    """Lazy-load and fuse the LoRA for `style` at `lora_scale` (the Style Intensity
+    Slider: 0.0 ≈ generic SDXL, 1.0 ≈ full culture). Hot-swaps if a different style —
+    or the same style at a different scale — is currently loaded."""
+    scale = float(lora_scale if lora_scale is not None else CONFIG.get("lora_scale", 0.8))
+    if loaded.style_loaded == style and loaded.scale_loaded == scale:
+        return  # already attached at this scale
+
+    try:
+        if loaded.style_loaded is not None:
+            try:
+                loaded.pipe.unfuse_lora()
+                loaded.pipe.unload_lora_weights()
+            except Exception:
+                logger.exception("failed to unload previous LoRA %s", loaded.style_loaded)
+
+        path = _lora_path(style)
+        if not path.is_file():
+            loaded.style_loaded = None
+            loaded.scale_loaded = None
+            logger.warning(
+                "LoRA file not found for style=%s at %s — falling back to prompt-only",
+                style, path,
+            )
+            return
+
+        loaded.pipe.load_lora_weights(
+            _load_lora_state_dict(path),
+            adapter_name=f"dardesign-{style}",
+        )
+        try:
+            loaded.pipe.fuse_lora(lora_scale=scale)
+        except Exception:
+            # Older diffusers: scale is set at call time via cross_attention_kwargs
+            pass
+        loaded.style_loaded = style
+        loaded.scale_loaded = scale
+        logger.info("attached LoRA %s (scale=%.2f)", path.name, scale)
+    except Exception:
+        logger.exception("LoRA load failed for style=%s — continuing prompt-only", style)
+        loaded.style_loaded = None
+        loaded.scale_loaded = None
+
+
+# ----------------------------------------------------------------------------
+# Conditioning (depth + seg)
+# ----------------------------------------------------------------------------
+
+
+# Canonical 150-class ADE20K palette (mmsegmentation) — the colour contract the
+# seg ControlNet was trained on; OneFormer class ids index straight into it.
+_ADE20K_PALETTE: tuple[tuple[int, int, int], ...] = (
+    (120, 120, 120), (180, 120, 120), (6, 230, 230), (80, 50, 50), (4, 200, 3), (120, 120, 80),
+    (140, 140, 140), (204, 5, 255), (230, 230, 230), (4, 250, 7), (224, 5, 255), (235, 255, 7),
+    (150, 5, 61), (120, 120, 70), (8, 255, 51), (255, 6, 82), (143, 255, 140), (204, 255, 4),
+    (255, 51, 7), (204, 70, 3), (0, 102, 200), (61, 230, 250), (255, 6, 51), (11, 102, 255),
+    (255, 7, 71), (255, 9, 224), (9, 7, 230), (220, 220, 220), (255, 9, 92), (112, 9, 255),
+    (8, 255, 214), (7, 255, 224), (255, 184, 6), (10, 255, 71), (255, 41, 10), (7, 255, 255),
+    (224, 255, 8), (102, 8, 255), (255, 61, 6), (255, 194, 7), (255, 122, 8), (0, 255, 20),
+    (255, 8, 41), (255, 5, 153), (6, 51, 255), (235, 12, 255), (160, 150, 20), (0, 163, 255),
+    (140, 140, 140), (250, 10, 15), (20, 255, 0), (31, 255, 0), (255, 31, 0), (255, 224, 0),
+    (153, 255, 0), (0, 0, 255), (255, 71, 0), (0, 235, 255), (0, 173, 255), (31, 0, 255),
+    (11, 200, 200), (255, 82, 0), (0, 255, 245), (0, 61, 255), (0, 255, 112), (0, 255, 133),
+    (255, 0, 0), (255, 163, 0), (255, 102, 0), (194, 255, 0), (0, 143, 255), (51, 255, 0),
+    (0, 82, 255), (0, 255, 41), (0, 255, 173), (10, 0, 255), (173, 255, 0), (0, 255, 153),
+    (255, 92, 0), (255, 0, 255), (255, 0, 245), (255, 0, 102), (255, 173, 0), (255, 0, 20),
+    (255, 184, 184), (0, 31, 255), (0, 255, 61), (0, 71, 255), (255, 0, 204), (0, 255, 194),
+    (0, 255, 82), (0, 10, 255), (0, 112, 255), (51, 0, 255), (0, 194, 255), (0, 122, 255),
+    (0, 255, 163), (255, 153, 0), (0, 255, 10), (255, 112, 0), (143, 255, 0), (82, 0, 255),
+    (163, 255, 0), (255, 235, 0), (8, 184, 170), (133, 0, 255), (0, 255, 92), (184, 0, 255),
+    (255, 0, 31), (0, 184, 255), (0, 214, 255), (255, 0, 112), (92, 255, 0), (0, 224, 255),
+    (112, 224, 255), (70, 184, 160), (163, 0, 255), (153, 0, 255), (71, 255, 0), (255, 0, 163),
+    (255, 204, 0), (255, 0, 143), (0, 255, 235), (133, 255, 0), (255, 0, 235), (245, 0, 255),
+    (255, 0, 122), (255, 245, 0), (10, 190, 212), (214, 255, 0), (0, 204, 255), (20, 0, 255),
+    (255, 255, 0), (0, 153, 255), (0, 41, 255), (0, 255, 204), (41, 0, 255), (41, 255, 0),
+    (173, 0, 255), (0, 245, 255), (71, 0, 255), (122, 0, 255), (0, 255, 184), (0, 92, 255),
+    (184, 255, 0), (0, 133, 255), (255, 214, 0), (25, 194, 194), (102, 255, 0), (92, 0, 255),
+)
+
+_ANNOTATOR_CACHE: dict[str, Any] = {}
+
+
+def _depth_control_image(src: Any) -> Any:
+    """Depth control image via Depth Anything V2 (transformers), MiDaS fallback.
+
+    The annotator is cached module-wide — /redesign runs three styles per
+    request and must not reload it each time.
+    """
+    if "depth" not in _ANNOTATOR_CACHE:
+        try:
+            from transformers import pipeline as _hf_pipeline
+
+            _ANNOTATOR_CACHE["depth"] = (
+                "dav2",
+                _hf_pipeline("depth-estimation", model="depth-anything/Depth-Anything-V2-Small-hf"),
+            )
+        except Exception:
+            logger.exception("Depth Anything V2 unavailable — falling back to MiDaS")
+            from controlnet_aux import MidasDetector  # type: ignore
+
+            _ANNOTATOR_CACHE["depth"] = ("midas", MidasDetector.from_pretrained("lllyasviel/Annotators"))
+    kind, proc = _ANNOTATOR_CACHE["depth"]
+    depth = proc(src)["depth"] if kind == "dav2" else proc(src)
+    return depth.convert("RGB").resize(src.size)
+
+
+def _seg_control_image(src: Any) -> Any:
+    """ADE20K-colorised OneFormer semantic map — the seg ControlNet's input.
+
+    Shares the OneFormer weights with compute_depth_seg via _DEPTH_SEG_CACHE,
+    so one download serves both the conditioning and the 2D-map projection.
+    """
+    import numpy as np
+    import torch
+    from PIL import Image
+    from transformers import OneFormerForUniversalSegmentation, OneFormerProcessor
+
+    if "seg" not in _DEPTH_SEG_CACHE:
+        ckpt = "shi-labs/oneformer_ade20k_swin_large"
+        _DEPTH_SEG_CACHE["seg"] = (
+            OneFormerProcessor.from_pretrained(ckpt),
+            OneFormerForUniversalSegmentation.from_pretrained(ckpt),
+        )
+    processor, model = _DEPTH_SEG_CACHE["seg"]
+    inputs = processor(images=src, task_inputs=["semantic"], return_tensors="pt")
+    with torch.no_grad():
+        outputs = model(**inputs)
+    ids = (
+        processor.post_process_semantic_segmentation(outputs, target_sizes=[src.size[::-1]])[0]
+        .cpu()
+        .numpy()
+    )
+    palette = np.asarray(_ADE20K_PALETTE, dtype=np.uint8)
+    return Image.fromarray(palette[np.clip(ids, 0, len(palette) - 1)])
+
+
+def _prepare_conditioning(image_path: Path, target_size: tuple[int, int]) -> tuple[Any, Any, Any]:
+    """Return (resized_input_pil, depth_pil, seg_pil)."""
+    from PIL import Image
+
+    src = Image.open(image_path).convert("RGB").resize(target_size)
+
+    depth = _depth_control_image(src)
+
+    try:
+        seg = _seg_control_image(src)
+    except Exception:
+        logger.exception("OneFormer ADE20K unavailable; using depth as both control inputs")
+        seg = depth
+
+    return src, depth, seg
+
+
+# ----------------------------------------------------------------------------
+# Depth + raw-id segmentation for the 2D object-map projection
+# ----------------------------------------------------------------------------
+
+_PROJECTION_SIZE = 384  # working resolution — the map only needs centroids
+_DEPTH_SEG_CACHE: dict[str, Any] = {}
+
+
+def _synthetic_depth_seg(size: int = _PROJECTION_SIZE) -> tuple[Any, Any]:
+    """DARDESIGN_LIGHT stand-in: a deterministic living-room layout so the
+    /redesign → projection → RoomMap2D wiring is exercisable without a GPU.
+    NOT real detections — same spirit as the PREVIEW placeholder images."""
+    import numpy as np
+
+    h = w = size
+    seg = np.zeros((h, w), dtype=np.int32)  # 0 = wall; ignored by projection
+
+    def put(class_id: int, y0: float, y1: float, x0: float, x1: float) -> None:
+        seg[int(y0 * h):int(y1 * h), int(x0 * w):int(x1 * w)] = class_id
+
+    put(8, 0.05, 0.30, 0.35, 0.65)    # window on the far wall
+    put(14, 0.10, 0.55, 0.86, 0.97)   # door, right
+    put(10, 0.30, 0.55, 0.04, 0.18)   # cabinet, left
+    put(36, 0.32, 0.50, 0.20, 0.28)   # lamp
+    put(28, 0.55, 0.92, 0.22, 0.78)   # rug, centre foreground
+    put(15, 0.58, 0.74, 0.38, 0.62)   # table on the rug
+    put(19, 0.60, 0.78, 0.68, 0.82)   # chair, right of the table
+    put(23, 0.66, 0.95, 0.05, 0.35)   # sofa, near left
+
+    # Disparity-style depth (larger = closer): far wall at top, floor at bottom.
+    depth = np.tile(np.linspace(0.25, 0.95, h, dtype=np.float32)[:, None], (1, w))
+    return depth, seg
+
+
+def _model_depth_seg(
+    image_path: str | Path, size: int = _PROJECTION_SIZE, *, timings: dict | None = None
+) -> tuple[Any, Any]:
+    """The real thing: Depth Anything V2 + OneFormer ADE20K on the actual photo.
+
+    Runs on CPU on purpose: one-shot per request, must not steal VRAM from the
+    SDXL pipeline on the T4. That is also what makes it usable with no GPU at
+    all — it is slow there (tens of seconds), not impossible, which is what
+    DARDESIGN_REAL_ANALYSIS trades on.
+    """
+    import numpy as np
+    from PIL import Image
+
+    src = Image.open(image_path).convert("RGB").resize((size, size))
+
+    # Same cached Depth Anything V2 annotator the ControlNet conditioning uses.
+    t0 = time.time()
+    depth_pil = _depth_control_image(src)
+    depth = np.asarray(depth_pil.convert("L").resize((size, size)), dtype=np.float32)
+    if timings is not None:
+        timings["depth_s"] = round(time.time() - t0, 2)
+
+    # Same checkpoint the seg ControlNet input uses, so the weights are already
+    # in the HF cache by the time /redesign gets here.
+    import torch
+    from transformers import OneFormerForUniversalSegmentation, OneFormerProcessor
+
+    t0 = time.time()
+    if "seg" not in _DEPTH_SEG_CACHE:
+        ckpt = "shi-labs/oneformer_ade20k_swin_large"
+        _DEPTH_SEG_CACHE["seg"] = (
+            OneFormerProcessor.from_pretrained(ckpt),
+            OneFormerForUniversalSegmentation.from_pretrained(ckpt),
+        )
+    processor, model = _DEPTH_SEG_CACHE["seg"]
+    inputs = processor(images=src, task_inputs=["semantic"], return_tensors="pt")
+    with torch.no_grad():
+        outputs = model(**inputs)
+    seg = (
+        processor.post_process_semantic_segmentation(outputs, target_sizes=[(size, size)])[0]
+        .cpu()
+        .numpy()
+        .astype(np.int32)
+    )
+    if timings is not None:
+        timings["seg_s"] = round(time.time() - t0, 2)
+    return depth, seg
+
+
+# ----------------------------------------------------------------------------
+# Opt-in real room analysis on a machine with no GPU
+#
+# The models above already run on CPU — they are skipped in light mode only to
+# avoid a ~1 GB download and tens of seconds per image, not because they need a
+# GPU. DARDESIGN_REAL_ANALYSIS=1 turns them back on while keeping the generated
+# images as placeholders, so the placement engine can be exercised against the
+# room the user actually uploaded rather than the synthetic stand-in.
+#
+# Off by default, and deliberately so: this is a testing/verification mode until
+# its speed and accuracy have been measured on the target machine.
+# ----------------------------------------------------------------------------
+
+REAL_ANALYSIS_ENV = "DARDESIGN_REAL_ANALYSIS"
+ANALYSIS_TIMEOUT_ENV = "DARDESIGN_ANALYSIS_TIMEOUT"          # seconds, per image
+ANALYSIS_LOAD_TIMEOUT_ENV = "DARDESIGN_ANALYSIS_LOAD_TIMEOUT"  # seconds, first load
+ANALYSIS_NO_DOWNLOAD_ENV = "DARDESIGN_ANALYSIS_NO_DOWNLOAD"  # cache-only, never fetch
+
+_DEFAULT_ANALYSIS_TIMEOUT = 180.0
+_DEFAULT_LOAD_TIMEOUT = 1800.0  # generous: the first load may include the download
+
+DEPTH_MODEL = "depth-anything/Depth-Anything-V2-Small-hf"
+SEG_MODEL = "shi-labs/oneformer_ade20k_swin_large"
+
+# Exact fallback reasons — recorded on the analysis meta so a synthetic room is
+# never silently mistaken for a real one.
+FALLBACK_DISABLED = "flag_disabled"
+FALLBACK_MISSING_DEP = "missing_dependency"
+FALLBACK_LOAD_FAILED = "load_failed"
+FALLBACK_TIMEOUT = "timeout"
+FALLBACK_INFERENCE_FAILED = "inference_failed"
+FALLBACK_WORKER_DIED = "worker_died"
+
+
+def _real_analysis_enabled() -> bool:
+    return os.environ.get(REAL_ANALYSIS_ENV, "").lower() in ("1", "true", "yes")
+
+
+def _analysis_no_download() -> bool:
+    return os.environ.get(ANALYSIS_NO_DOWNLOAD_ENV, "").lower() in ("1", "true", "yes")
+
+
+def _env_seconds(name: str, default: float) -> float:
+    try:
+        return max(1.0, float(os.environ.get(name, "") or default))
+    except ValueError:
+        return default
+
+
+def _transformers_available() -> bool:
+    """Checked without importing it — the parent process must stay light."""
+    from importlib.util import find_spec
+
+    try:
+        return find_spec("transformers") is not None
+    except (ImportError, ValueError):
+        return False
+
+
+def _hf_cache_root() -> Path:
+    base = os.environ.get("HF_HOME")
+    return (Path(base) / "hub") if base else (Path.home() / ".cache" / "huggingface" / "hub")
+
+
+def _model_is_cached(repo: str) -> bool:
+    """True when the weights are already on disk, so no download will happen."""
+    return (_hf_cache_root() / f"models--{repo.replace('/', '--')}").is_dir()
+
+
+def analysis_cache_status() -> dict:
+    """Which model weights are already local. Use before a demo to be sure the
+    ~1 GB download has happened and will not be attempted again."""
+    return {
+        "cache_root": str(_hf_cache_root()),
+        "depth_model": DEPTH_MODEL,
+        "depth_cached": _model_is_cached(DEPTH_MODEL),
+        "seg_model": SEG_MODEL,
+        "seg_cached": _model_is_cached(SEG_MODEL),
+    }
+
+
+def _peak_rss_mb() -> float | None:
+    """Peak resident memory of the calling process, or None if unavailable."""
+    try:  # Windows
+        import ctypes
+        import ctypes.wintypes as wt
+
+        class _PMC(ctypes.Structure):
+            _fields_ = [
+                ("cb", wt.DWORD), ("PageFaultCount", wt.DWORD),
+                ("PeakWorkingSetSize", ctypes.c_size_t), ("WorkingSetSize", ctypes.c_size_t),
+                ("QuotaPeakPagedPoolUsage", ctypes.c_size_t),
+                ("QuotaPagedPoolUsage", ctypes.c_size_t),
+                ("QuotaPeakNonPagedPoolUsage", ctypes.c_size_t),
+                ("QuotaNonPagedPoolUsage", ctypes.c_size_t),
+                ("PagefileUsage", ctypes.c_size_t), ("PeakPagefileUsage", ctypes.c_size_t),
+            ]
+
+        counters = _PMC()
+        counters.cb = ctypes.sizeof(_PMC)
+        ok = ctypes.windll.psapi.GetProcessMemoryInfo(  # type: ignore[attr-defined]
+            ctypes.windll.kernel32.GetCurrentProcess(),  # type: ignore[attr-defined]
+            ctypes.byref(counters), counters.cb,
+        )
+        if ok:
+            return round(counters.PeakWorkingSetSize / (1024 * 1024), 1)
+    except Exception:  # noqa: BLE001 — diagnostics only, never fatal
+        pass
+    try:  # POSIX
+        import resource
+
+        return round(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024, 1)
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _load_analysis_models() -> None:
+    """Load both checkpoints into this process's caches. No inference."""
+    from transformers import (  # noqa: PLC0415
+        OneFormerForUniversalSegmentation,
+        OneFormerProcessor,
+        pipeline as hf_pipeline,
+    )
+
+    if "depth" not in _ANNOTATOR_CACHE:
+        # Deliberately not falling back to MiDaS here: on this path a missing
+        # depth model must surface as a load failure with a reason, not quietly
+        # swap in a different model than the one that was measured.
+        _ANNOTATOR_CACHE["depth"] = ("dav2", hf_pipeline("depth-estimation", model=DEPTH_MODEL))
+    if "seg" not in _DEPTH_SEG_CACHE:
+        _DEPTH_SEG_CACHE["seg"] = (
+            OneFormerProcessor.from_pretrained(SEG_MODEL),
+            OneFormerForUniversalSegmentation.from_pretrained(SEG_MODEL),
+        )
+
+
+def _analysis_worker_main(conn: Any, no_download: bool) -> None:
+    """Child process: load the models once, then serve requests until closed.
+
+    Everything heavy lives here. The parent never imports torch or transformers,
+    so a wedged or bloated inference cannot take the API process with it.
+    """
+    if no_download:
+        # Cache-only. A missing checkpoint then fails immediately instead of
+        # starting a 1 GB download in the middle of a demo.
+        os.environ["HF_HUB_OFFLINE"] = "1"
+        os.environ["TRANSFORMERS_OFFLINE"] = "1"
+    try:
+        started = time.time()
+        _load_analysis_models()
+        conn.send((
+            "ready",
+            {"load_s": round(time.time() - started, 2), "worker_peak_rss_mb": _peak_rss_mb()},
+        ))
+    except BaseException as e:  # noqa: BLE001 — must be reported, never raised here
+        try:
+            conn.send(("load_error", f"{type(e).__name__}: {e}"))
+        except Exception:  # noqa: BLE001
+            pass
+        return
+
+    while True:
+        try:
+            msg = conn.recv()
+        except (EOFError, OSError):
+            return
+        if not msg or msg[0] == "stop":
+            return
+        _, image_path, size = msg
+        timings: dict = {}
+        try:
+            started = time.time()
+            depth, seg = _model_depth_seg(image_path, size, timings=timings)
+            timings["analysis_s"] = round(time.time() - started, 2)
+            timings["worker_peak_rss_mb"] = _peak_rss_mb()
+            conn.send(("ok", depth, seg, timings))
+        except BaseException as e:  # noqa: BLE001
+            try:
+                conn.send(("error", f"{type(e).__name__}: {e}"))
+            except Exception:  # noqa: BLE001
+                return
+
+
+class AnalysisFailure(Exception):
+    """Real analysis could not produce a result. Carries the exact reason."""
+
+    def __init__(self, reason: str, detail: str = "") -> None:
+        super().__init__(f"{reason}: {detail}" if detail else reason)
+        self.reason = reason
+        self.detail = detail
+
+
+class _AnalysisWorker:
+    """Owns the single child process that holds the models.
+
+    A process rather than a thread, for one reason: a CPU-bound torch forward
+    pass does not yield to Python, so a thread that overruns its timeout keeps
+    running and keeps its memory — on Windows there is no way to interrupt it.
+    Killing a process actually stops the work. The cost is that a timeout also
+    discards the loaded weights, which is the right trade: an analysis that hung
+    once will most likely hang again.
+
+    One worker, one lock: concurrent requests queue rather than each loading
+    their own ~1 GB copy of the weights.
+    """
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._proc: Any = None
+        self._conn: Any = None
+        self._load_meta: dict = {}
+
+    def _spawn(self, load_timeout: float, no_download: bool) -> None:
+        """Start the child and block until its models are loaded. Lock held."""
+        import multiprocessing as mp
+
+        cached = _model_is_cached(DEPTH_MODEL) and _model_is_cached(SEG_MODEL)
+        if no_download and not cached:
+            raise AnalysisFailure(
+                FALLBACK_LOAD_FAILED,
+                f"{ANALYSIS_NO_DOWNLOAD_ENV} is set but the weights are not in "
+                f"{_hf_cache_root()}",
+            )
+        logger.info(
+            "[analysis] loading models (cache hit: %s)%s",
+            "yes" if cached else "no",
+            "" if cached else " — first run downloads ~1 GB, this will take a while",
+        )
+
+        ctx = mp.get_context("spawn")  # explicit: the only mode Windows has
+        parent_conn, child_conn = ctx.Pipe()
+        proc = ctx.Process(
+            target=_analysis_worker_main,
+            args=(child_conn, no_download),
+            name="dardesign-analysis",
+            daemon=True,
+        )
+        proc.start()
+        child_conn.close()  # the parent keeps only its own end
+
+        try:
+            if not parent_conn.poll(load_timeout):
+                raise AnalysisFailure(
+                    FALLBACK_LOAD_FAILED, f"models did not load within {load_timeout:.0f}s"
+                )
+            msg = parent_conn.recv()
+        except AnalysisFailure:
+            _terminate(proc)
+            parent_conn.close()
+            raise
+        except (EOFError, OSError) as e:
+            _terminate(proc)
+            parent_conn.close()
+            raise AnalysisFailure(FALLBACK_LOAD_FAILED, f"worker died while loading: {e}") from e
+
+        if msg[0] != "ready":
+            _terminate(proc)
+            parent_conn.close()
+            raise AnalysisFailure(FALLBACK_LOAD_FAILED, str(msg[1]))
+
+        self._proc, self._conn = proc, parent_conn
+        self._load_meta = {"cache_hit": cached, **(msg[1] or {})}
+        logger.info(
+            "[analysis] models ready in %ss (cache hit: %s)",
+            self._load_meta.get("load_s"), "yes" if cached else "no",
+        )
+
+    def run(self, image_path: str | Path, size: int) -> tuple[Any, Any, dict]:
+        """Analyse one image. Raises AnalysisFailure with an exact reason."""
+        timeout = _env_seconds(ANALYSIS_TIMEOUT_ENV, _DEFAULT_ANALYSIS_TIMEOUT)
+        load_timeout = _env_seconds(ANALYSIS_LOAD_TIMEOUT_ENV, _DEFAULT_LOAD_TIMEOUT)
+        no_download = _analysis_no_download()
+
+        with self._lock:
+            if self._proc is None or not self._proc.is_alive():
+                self._reset()
+                self._spawn(load_timeout, no_download)
+
+            logger.info("[analysis] analyzing room (timeout %.0fs)…", timeout)
+            try:
+                self._conn.send(("run", str(image_path), size))
+            except (EOFError, OSError) as e:
+                self._reset()
+                raise AnalysisFailure(FALLBACK_WORKER_DIED, str(e)) from e
+
+            if not self._conn.poll(timeout):
+                # The forward pass is wedged or simply too slow for this machine.
+                # Kill it — leaving it running would hold gigabytes and compete
+                # for the same cores as the next request.
+                self._reset()
+                raise AnalysisFailure(
+                    FALLBACK_TIMEOUT, f"no result within {timeout:.0f}s; worker killed"
+                )
+            try:
+                msg = self._conn.recv()
+            except (EOFError, OSError) as e:
+                self._reset()
+                raise AnalysisFailure(FALLBACK_WORKER_DIED, str(e)) from e
+
+            if msg[0] == "ok":
+                _, depth, seg, timings = msg
+                return depth, seg, {**self._load_meta, **timings}
+
+            # An inference error leaves the worker healthy and its weights loaded,
+            # so keep it: the next image may well succeed.
+            raise AnalysisFailure(FALLBACK_INFERENCE_FAILED, str(msg[1]))
+
+    def _reset(self) -> None:
+        """Kill the worker and forget it. Lock held."""
+        if self._proc is not None:
+            _terminate(self._proc)
+        if self._conn is not None:
+            try:
+                self._conn.close()
+            except Exception:  # noqa: BLE001
+                pass
+        self._proc, self._conn, self._load_meta = None, None, {}
+
+    def shutdown(self) -> None:
+        with self._lock:
+            self._reset()
+
+
+def _terminate(proc: Any) -> None:
+    """Stop a worker for good — terminate, then kill if it ignores that."""
+    try:
+        proc.terminate()
+        proc.join(5)
+        if proc.is_alive():
+            proc.kill()
+            proc.join(5)
+    except Exception:  # noqa: BLE001
+        pass
+
+
+_ANALYSIS_WORKER = _AnalysisWorker()
+
+
+def shutdown_analysis_worker() -> None:
+    """Release the worker process and its weights. Safe to call at any time."""
+    _ANALYSIS_WORKER.shutdown()
+
+
+def _synthetic_result(meta: dict, reason: str, size: int, detail: str = "") -> tuple[Any, Any]:
+    meta.update({"source": "synthetic", "fallback_reason": reason})
+    if detail:
+        meta["fallback_detail"] = detail
+    return _synthetic_depth_seg(size)
+
+
+def compute_depth_seg(
+    image_path: str | Path, *, size: int = _PROJECTION_SIZE, meta: dict | None = None
+) -> tuple[Any, Any]:
+    """Return (depth_array, seg_class_ids) for backend.projection.
+
+    depth_array   — (H, W) float32, Depth Anything convention (larger = closer)
+    seg_class_ids — (H, W) int32 raw ADE20K-150 ids; `_prepare_conditioning`
+                    can't be reused here because it returns the *colorized*
+                    control images, not the id map the projection needs.
+
+    Three paths, in order:
+
+      * GPU/normal mode — the real models, in-process. Unchanged.
+      * light mode + DARDESIGN_REAL_ANALYSIS=1 — the same real models, in a
+        killable worker process, so the placement engine can be tested against
+        the actual photo on a machine with no GPU.
+      * light mode otherwise — the synthetic stand-in.
+
+    `meta` (optional, filled in place) records which path ran: `source` is
+    "model" or "synthetic", and on a fallback `fallback_reason` says exactly why,
+    so a synthetic room can never be mistaken for a real one downstream.
+    """
+    m = meta if meta is not None else {}
+    m["source"] = None
+    m["fallback_reason"] = None
+
+    # Production path, untouched: outside light mode the models already run here.
+    if not _is_light_mode():
+        m["source"] = "model"
+        timings: dict = {}
+        try:
+            return _model_depth_seg(image_path, size, timings=timings)
+        finally:
+            m.update(timings)
+
+    if not _real_analysis_enabled():
+        return _synthetic_result(m, FALLBACK_DISABLED, size)
+
+    if not _transformers_available():
+        logger.warning(
+            "[analysis] %s=1 but `transformers` is not installed — using the "
+            "synthetic room. Install it to analyse the real photo.", REAL_ANALYSIS_ENV,
+        )
+        return _synthetic_result(
+            m, FALLBACK_MISSING_DEP, size, "transformers is not installed"
+        )
+
+    try:
+        started = time.time()
+        depth, seg, worker_meta = _ANALYSIS_WORKER.run(image_path, size)
+    except AnalysisFailure as e:
+        logger.warning("[analysis] falling back to the synthetic room — %s", e)
+        return _synthetic_result(m, e.reason, size, e.detail)
+    except Exception as e:  # noqa: BLE001 — the analysis must never break /redesign
+        logger.exception("[analysis] unexpected failure — falling back")
+        return _synthetic_result(m, FALLBACK_INFERENCE_FAILED, size, f"{type(e).__name__}: {e}")
+
+    m["source"] = "model"
+    m.update(worker_meta)
+    m["total_s"] = round(time.time() - started, 2)
+    logger.info(
+        "[analysis] complete — source=model, depth %ss, segmentation %ss, "
+        "worker peak RSS %s MB",
+        worker_meta.get("depth_s"), worker_meta.get("seg_s"),
+        worker_meta.get("worker_peak_rss_mb"),
+    )
+    return depth, seg
+
+
+# ----------------------------------------------------------------------------
+# Public entry point
+# ----------------------------------------------------------------------------
+
+
+def transform_room(
+    image_path: str | Path,
+    style: StyleId,
+    *,
+    strength: float = 0.7,
+    out_dir: str | Path | None = None,
+    seed: int | None = None,
+    room: str | None = None,
+    use_lora: bool = True,
+    use_segmentation: bool = True,
+    use_ontology: bool = True,
+    controlnet_weights: tuple[float, float] | None = None,
+    lora_scale: float | None = None,
+) -> Path:
+    """Transform a room photo into a culturally-styled redesign.
+
+    Returns the path to the generated PNG.
+
+    Switches:
+        use_lora=False        → ablation (--no-lora)
+        use_segmentation=False → ablation (--no-segmentation): seg control gets weight 0
+        use_ontology=False    → ablation (--no-ontology): plain "<style> interior" prompt
+    """
+    if style not in StylePack:
+        raise PipelineError(
+            f"unknown style {style!r}",
+            "النمط غير معروف",
+        )
+
+    image_path = Path(image_path)
+    if not image_path.exists():
+        raise PipelineError(
+            f"input image not found: {image_path}",
+            "ملف الصورة المدخلة غير موجود",
+        )
+
+    out_dir = Path(out_dir) if out_dir is not None else DEFAULT_OUT_DIR
+    out_dir.mkdir(parents=True, exist_ok=True)
+    stamp = int(time.time())
+    out_path = out_dir / f"{image_path.stem}_{style}_{stamp}.png"
+
+    if _is_light_mode():
+        return _emit_placeholder(image_path, style, out_path)
+
+    # Build prompts (ontology-aware unless ablated)
+    if use_ontology:
+        from backend.prompt_builder import build_prompts
+        prompts = build_prompts(style, room=room, seed=seed)
+        positive = prompts.positive_en
+        negative = (
+            prompts.negative_en
+            + ", "
+            + CONFIG.get("extra_negative_en", _DEFAULT_CONFIG["extra_negative_en"])
+        )
+    else:
+        positive = f"a {room or 'interior'} in {style} style, photorealistic, 8k, magazine quality"
+        negative = CONFIG.get("extra_negative_en", _DEFAULT_CONFIG["extra_negative_en"])
+
+    cn_w = controlnet_weights or _winner_weights(style) or (
+        CONFIG["default_controlnet_weights"]["depth"],
+        CONFIG["default_controlnet_weights"]["seg"],
+    )
+    if not use_segmentation:
+        cn_w = (cn_w[0], 0.0)
+
+    # Render at the input's aspect (long side from config) so outputs align
+    # with the original in the compare slider instead of being squashed square.
+    from PIL import Image
+    with Image.open(image_path) as _im:
+        src_w, src_h = _im.size
+
+    # First attempt: SDXL
+    try:
+        return _generate(
+            image_path=image_path,
+            out_path=out_path,
+            positive=positive,
+            negative=negative,
+            style=style,
+            strength=strength,
+            seed=seed,
+            controlnet_weights=cn_w,
+            use_lora=use_lora,
+            lora_scale=lora_scale,
+            target_size=fit_size(src_w, src_h, int(CONFIG["output_size"][0])),
+            use_sdxl=True,
+        )
+    except _OutOfMemory:
+        logger.warning("SDXL OOM — releasing pipeline and falling back to SD 1.5")
+        _free_pipe("sdxl")
+        return _generate(
+            image_path=image_path,
+            out_path=out_path,
+            positive=positive,
+            negative=negative,
+            style=style,
+            strength=strength,
+            seed=seed,
+            controlnet_weights=cn_w,
+            use_lora=use_lora,
+            lora_scale=lora_scale,
+            target_size=fit_size(src_w, src_h, int(CONFIG["sd15_fallback_size"][0])),
+            use_sdxl=False,
+        )
+    except Exception as e:  # pragma: no cover — surfaces to FastAPI
+        logger.exception("pipeline error")
+        raise PipelineError(
+            f"generation failed: {e}",
+            "فشلت عملية التوليد",
+        ) from e
+
+
+# ----------------------------------------------------------------------------
+# Inner generation
+# ----------------------------------------------------------------------------
+
+
+class _OutOfMemory(Exception):
+    pass
+
+
+def render_scene(
+    *,
+    depth_image: Any,
+    seg_image: Any,
+    style: StyleId,
+    out_path: Path,
+    seed: int | None = None,
+    room: str | None = None,
+    use_lora: bool = True,
+    controlnet_weights: tuple[float, float] | None = None,
+    lora_scale: float | None = None,
+    reference_path: Path | None = None,
+) -> Path:
+    """Render a Build Mode scene through the existing SDXL + dual-ControlNet path.
+
+    The one difference from transform_room is where the control images come
+    from. Normally depth and segmentation are annotator output derived from the
+    user's photograph; here they are rendered from the 3D scene the user
+    composed, so furniture placement, orientation, room geometry and viewpoint
+    are conditioned rather than described. Prompt, LoRA, weights and scheduler
+    are the ordinary cultural path — nothing about the model changes.
+
+    What this can and cannot hold is worth stating plainly, because the UI
+    promises it: layout, silhouette and viewpoint are strongly preserved
+    because they are literally the control signal. The appearance of any one
+    piece is not — SDXL invents surface, ornament and detail inside the
+    silhouette it is given. Material choices reach the model only through the
+    prompt, so they steer rather than bind.
+    """
+    if style not in StylePack:
+        raise PipelineError(f"unknown style {style!r}", "النمط غير معروف")
+
+    out_path = Path(out_path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+
+    if _is_light_mode():
+        # No GPU here. Emit the honest placeholder rather than anything that
+        # could be mistaken for a render of the user's design.
+        ref = reference_path if reference_path and Path(reference_path).exists() else None
+        if ref is None:
+            from PIL import Image
+
+            tmp = out_path.with_suffix(".src.png")
+            depth_image.convert("RGB").save(tmp)
+            ref = tmp
+        return _emit_placeholder(Path(ref), style, out_path)
+
+    from backend.prompt_builder import build_prompts
+
+    prompts = build_prompts(style, room=room, seed=seed)
+    positive = prompts.positive_en
+    negative = (
+        prompts.negative_en
+        + ", "
+        + CONFIG.get("extra_negative_en", _DEFAULT_CONFIG["extra_negative_en"])
+    )
+
+    cn_w = controlnet_weights or _winner_weights(style) or (
+        CONFIG["default_controlnet_weights"]["depth"],
+        CONFIG["default_controlnet_weights"]["seg"],
+    )
+
+    w, h = depth_image.size
+    target = fit_size(w, h, int(CONFIG["output_size"][0]))
+
+    try:
+        return _generate(
+            image_path=out_path,  # unused when control_override is supplied
+            out_path=out_path,
+            positive=positive,
+            negative=negative,
+            style=style,
+            strength=0.7,
+            seed=seed,
+            controlnet_weights=cn_w,
+            use_lora=use_lora,
+            lora_scale=lora_scale,
+            target_size=target,
+            use_sdxl=True,
+            control_override=(depth_image, seg_image),
+        )
+    except _OutOfMemory:
+        logger.warning("SDXL OOM on scene render — falling back to SD 1.5")
+        _free_pipe("sdxl")
+        return _generate(
+            image_path=out_path,
+            out_path=out_path,
+            positive=positive,
+            negative=negative,
+            style=style,
+            strength=0.7,
+            seed=seed,
+            controlnet_weights=cn_w,
+            use_lora=use_lora,
+            lora_scale=lora_scale,
+            target_size=fit_size(w, h, int(CONFIG["sd15_fallback_size"][0])),
+            use_sdxl=False,
+            control_override=(depth_image, seg_image),
+        )
+
+
+def _generate(
+    *,
+    image_path: Path,
+    out_path: Path,
+    positive: str,
+    negative: str,
+    style: StyleId,
+    strength: float,
+    seed: int | None,
+    controlnet_weights: tuple[float, float],
+    use_lora: bool,
+    target_size: tuple[int, int],
+    use_sdxl: bool,
+    lora_scale: float | None = None,
+    control_override: tuple[Any, Any] | None = None,
+    _fresh: bool = False,
+) -> Path:
+    import torch
+
+    loaded = _load_pipeline(use_sdxl=use_sdxl)
+    if use_lora:
+        _attach_lora(loaded, style, lora_scale)
+    else:
+        # Force-unload any LoRA from a previous request (ablation cleanliness)
+        if loaded.style_loaded is not None:
+            try:
+                loaded.pipe.unfuse_lora()
+                loaded.pipe.unload_lora_weights()
+            except Exception:
+                pass
+            loaded.style_loaded = None
+
+    if control_override is not None:
+        # Build Mode path: the caller has already rendered depth + ADE20K
+        # segmentation from the 3D scene the user composed, so the layout the
+        # ControlNets see is the user's design rather than an annotator's
+        # reading of the original photograph. Everything downstream — LoRA,
+        # prompt, weights, scheduler — is unchanged, which is the point: this
+        # is the same generation path, conditioned on different control images.
+        depth, seg = control_override
+        depth = depth.convert("RGB").resize(target_size)
+        seg = seg.convert("RGB").resize(target_size)
+    else:
+        _src, depth, seg = _prepare_conditioning(image_path, target_size)
+
+    generator = None
+    if seed is not None:
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        generator = torch.Generator(device=device).manual_seed(seed)
+
+    kwargs: dict[str, Any] = dict(
+        prompt=positive,
+        negative_prompt=negative,
+        num_inference_steps=int(CONFIG.get("steps", 30)),
+        guidance_scale=float(CONFIG.get("guidance", 7.0)),
+        generator=generator,
+    )
+    if loaded.has_seg:
+        kwargs["image"] = [depth, seg]
+        kwargs["controlnet_conditioning_scale"] = list(controlnet_weights)
+    else:  # seg ControlNet unavailable — depth-only conditioning
+        kwargs["image"] = depth
+        kwargs["controlnet_conditioning_scale"] = float(controlnet_weights[0])
+    # SDXL controlnet uses different size kwargs from SD1.5
+    if use_sdxl:
+        kwargs["width"] = target_size[0]
+        kwargs["height"] = target_size[1]
+
+    try:
+        result = loaded.pipe(**kwargs)
+    except RuntimeError as e:
+        if "out of memory" in str(e).lower() or "CUDA" in str(e):
+            raise _OutOfMemory(str(e)) from e
+        raise
+    except AttributeError as e:
+        # Seen live on the T4: "'CLIPTextModelWithProjection' object has no
+        # attribute '_hf_hook'" — the accelerate CPU-offload hooks got corrupted
+        # (a LoRA hot-swap raced or half-failed). The pipeline object is
+        # unsalvageable; rebuild it once from the local HF cache and re-run.
+        if "_hf_hook" not in str(e) or _fresh:
+            raise
+        logger.warning("offload hooks corrupted (%s) — rebuilding pipeline, retrying once", e)
+        _free_pipe("sdxl" if use_sdxl else "sd15")
+        return _generate(
+            image_path=image_path, out_path=out_path, positive=positive,
+            negative=negative, style=style, strength=strength, seed=seed,
+            controlnet_weights=controlnet_weights, use_lora=use_lora,
+            lora_scale=lora_scale, target_size=target_size, use_sdxl=use_sdxl,
+            _fresh=True,
+        )
+
+    image = result.images[0]
+    image.save(out_path, format="PNG", optimize=True)
+    logger.info(
+        "wrote %s (style=%s, sdxl=%s, lora=%s, cn=%s, size=%s, seed=%s)",
+        out_path, style, use_sdxl, loaded.style_loaded is not None,
+        controlnet_weights, target_size, seed,
+    )
+    _write_manifest(out_path, {
+        "tool": "DarDesign", "style": style,
+        "model": "stabilityai/stable-diffusion-xl-base-1.0" if use_sdxl else "runwayml/stable-diffusion-v1-5",
+        "lora": _lora_path(style).name if loaded.style_loaded is not None else None,
+        "lora_scale": loaded.scale_loaded,
+        "seed": seed,
+        "controlnet": {
+            "depth": controlnet_weights[0],
+            "seg": controlnet_weights[1] if loaded.has_seg else None,
+        },
+        "dual_controlnet": loaded.has_seg,
+        "use_lora": use_lora, "use_sdxl": use_sdxl, "light_mode": False,
+    })
+    return out_path

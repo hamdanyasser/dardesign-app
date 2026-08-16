@@ -174,6 +174,8 @@ from .transform import (
     StylePack,
     compute_depth_seg,
     fit_size,
+    _depth_only_mode as depth_only_mode,
+    provenance as pipeline_provenance,
     render_scene,
     transform_room,
 )
@@ -389,6 +391,13 @@ class RedesignResponse(BaseModel):
     ssim: dict[str, float] | None = None
     # True in DARDESIGN_LIGHT: images are tinted stand-ins, not real renders.
     placeholder: bool | None = None
+    # What this host actually did: base model, the per-style LoRA (or null when
+    # the file is genuinely absent), the fused scale, and the ControlNet weights
+    # sweep_winners.json resolved to. Read from the same config the generator
+    # obeys — see transform.provenance(). Before this existed the client could
+    # not prove any of it, which is why "Inside DAR" had to label its pipeline
+    # chapter CONCEPTUAL ARCHITECTURE and RoomReport's footer hardcoded a claim.
+    provenance: dict | None = None
     privacy_notice: str = PRIVACY_NOTICE
 
 
@@ -431,6 +440,16 @@ class RenderSceneResponse(BaseModel):
     image: str
     duration_s: float
     placeholder: bool
+    # What this host actually did — same dict /redesign returns. Without it the
+    # panel could name no model, no LoRA and no ControlNet weights for a render
+    # whose whole claim is that it conditioned on the user's own scene.
+    provenance: dict | None = None
+    # False when DARDESIGN_DEPTH_ONLY dropped the segmentation ControlNet. That
+    # is the documented Colab/Kaggle T4 setting, so it may well be live — and
+    # the panel displays the ADE20K map as "Segments · identity" evidence, so
+    # without this flag it would be claiming a control image that never
+    # reached the model.
+    dual_controlnet: bool = True
 
 
 class RestyleResponse(BaseModel):
@@ -444,6 +463,24 @@ class RestyleResponse(BaseModel):
 
 
 # ---------- endpoints ----------
+
+
+@app.get("/api/provenance")
+async def provenance_endpoint(styles: str | None = None) -> dict:
+    """What this host WILL do, answerable before any generation runs.
+
+    The same dict /redesign returns after a render, served on its own so the
+    client can know it up front. That matters for one screen in particular:
+    "Inside DAR" plays during the ~2 minute wait, and its pipeline chapter had
+    to caption itself CONCEPTUAL ARCHITECTURE because nothing about the run was
+    knowable yet. But the model, the per-culture LoRA and the ControlNet
+    weights are CONFIGURATION, not results — they are decided before the first
+    step and can be stated honestly while the user waits.
+
+    Cheap: reads config and the filesystem, touches no GPU and takes no lock.
+    """
+    requested = [s.strip() for s in (styles or "").split(",") if s.strip()]
+    return pipeline_provenance(requested or list(CORE_STYLES))
 
 
 @app.get("/healthz")
@@ -667,6 +704,7 @@ async def redesign(file: UploadFile, styles: str | None = Form(default=None)) ->
             duration_s=duration_s,
             ssim=ssim_scores or None,
             placeholder=True if _light_mode() else None,
+            provenance=pipeline_provenance(list(requested)),
             **images,
         )
 
@@ -2117,9 +2155,17 @@ async def render_scene_endpoint(
 
     from PIL import Image
 
+    # Same guardrail /redesign applies. This endpoint accepts two uploads and
+    # was skipping it entirely — an extension allowlist and a magic-byte sniff
+    # before PIL is handed the bytes, plus the 10 MB ceiling.
+    depth_raw = await depth.read()
+    seg_raw = await seg.read()
+    _guard_upload(depth.filename, depth_raw)
+    _guard_upload(seg.filename, seg_raw)
+
     try:
-        depth_img = Image.open(io.BytesIO(await depth.read())).convert("RGB")
-        seg_img = Image.open(io.BytesIO(await seg.read())).convert("RGB")
+        depth_img = Image.open(io.BytesIO(depth_raw)).convert("RGB")
+        seg_img = Image.open(io.BytesIO(seg_raw)).convert("RGB")
     except Exception:
         _raise(ERR_BAD_IMAGE_DATA)
 
@@ -2192,6 +2238,8 @@ async def _render_scene_body(
         duration_s=duration,
         # The client must be able to say plainly that this is a stand-in.
         placeholder=_light_mode(),
+        provenance=pipeline_provenance([style]),
+        dual_controlnet=not depth_only_mode(),
     )
 
 

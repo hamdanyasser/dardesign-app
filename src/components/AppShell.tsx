@@ -21,6 +21,7 @@ import {
   Users,
   X,
 } from "lucide-react";
+import DarMark from "@/components/DarMark";
 import { useAuth } from "@/context/AuthContext";
 import { useThemeLanguage } from "@/context/ThemeLanguageContext";
 import { cn } from "@/lib/utils";
@@ -118,7 +119,7 @@ function Navigation({ close }: { close?: () => void }) {
         aria-label={isArabic ? "الصفحة الرئيسية لدار ديزاين" : "DarDesign home"}
       >
         <span className="app-brand-mark" aria-hidden>
-          DD
+          <DarMark size={22} />
         </span>
         <span>
           <strong>DarDesign</strong>

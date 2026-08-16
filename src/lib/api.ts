@@ -379,6 +379,28 @@ export interface RedesignResult {
   ssim?: Record<string, number> | null;
   /** True in DARDESIGN_LIGHT: images are tinted stand-ins, not real renders. */
   placeholder?: boolean | null;
+  /** What the render host actually did — base model, the per-culture LoRA (null
+   *  where the file is genuinely absent, i.e. the prompt-only path), the fused
+   *  scale, and the ControlNet weights `sweep_winners.json` resolved to. Read
+   *  server-side from the same config the generator obeys.
+   *
+   *  Absent on older backends, and in LIGHT it carries `{light_mode: true}` and
+   *  nothing else, because in that branch none of it happens. Treat a missing
+   *  key as "unknown" and an explicit null as "absent" — they are not the same,
+   *  and the UI is allowed to state the second but not the first. */
+  provenance?: RedesignProvenance | null;
+}
+
+/** @see RedesignResult.provenance */
+export interface RedesignProvenance {
+  light_mode?: boolean;
+  model?: string | null;
+  lora_scale?: number | null;
+  /** style -> LoRA filename, or null when that culture has no LoRA on disk. */
+  lora?: Record<string, string | null>;
+  /** style -> the (depth, seg) ControlNet weights actually used. */
+  controlnet?: Record<string, { depth: number; seg: number }>;
+  dual_controlnet?: boolean;
 }
 
 const REDESIGN_STYLE_KEYS = ["lebanese", "khaleeji", "moroccan"] as const;
@@ -393,6 +415,36 @@ const REDESIGN_STYLE_KEYS = ["lebanese", "khaleeji", "moroccan"] as const;
  * and abort cleanly if it's exceeded. A caller-supplied `signal` (e.g. for a
  * "cancel"/unmount) is honoured in addition to the internal timeout.
  */
+/**
+ * What the render host will do, asked BEFORE any generation runs.
+ *
+ * The model, the per-culture LoRA and the ControlNet weights are configuration
+ * rather than results, so they can be stated honestly while the user waits —
+ * which is the whole point: "Inside DAR" plays during the ~2 minute wait and
+ * had nothing true to say about the pipeline until now.
+ *
+ * Resolves to null on ANY failure, including an older backend that has no such
+ * endpoint. A null here means "unknown", and the UI must fall back to its
+ * generic diagram rather than assert anything.
+ */
+export async function fetchProvenance(
+  styles?: string[],
+  signal?: AbortSignal,
+): Promise<RedesignProvenance | null> {
+  try {
+    const q = styles?.length ? `?styles=${encodeURIComponent(styles.join(","))}` : "";
+    const res = await fetch(`${API_URL}/api/provenance${q}`, {
+      headers: { "ngrok-skip-browser-warning": "true" },
+      signal: signal ?? AbortSignal.timeout(8000),
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data && typeof data === "object" ? (data as RedesignProvenance) : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function redesignRoom(
   file: File,
   {
@@ -1576,6 +1628,13 @@ export interface SceneRenderResult {
   /** True when the backend had no GPU and returned a LIGHT-mode stand-in.
    *  The UI must say so rather than presenting it as a render. */
   placeholder: boolean;
+  /** What the host actually ran — model, LoRA, ControlNet weights. Null on an
+   *  older backend that does not report it; null means unknown, never "none". */
+  provenance?: RedesignProvenance | null;
+  /** False when DARDESIGN_DEPTH_ONLY dropped the segmentation ControlNet, so
+   *  the panel can stop presenting the ADE20K map as a control image that
+   *  reached the model. Defaults true for backends that do not report it. */
+  dualControlNet: boolean;
 }
 
 /** The address a render will actually be posted to. Surfaced in the failure
@@ -1703,6 +1762,13 @@ export async function renderScene(
       image: j.image,
       durationS: typeof j.duration_s === "number" ? j.duration_s : null,
       placeholder: j.placeholder === true,
+      provenance:
+        j.provenance && typeof j.provenance === "object"
+          ? (j.provenance as RedesignProvenance)
+          : null,
+      // Absent on an older backend. Defaulting to true keeps the previous
+      // behaviour rather than accusing a working host of dropping a control.
+      dualControlNet: j.dual_controlnet !== false,
     };
   } finally {
     clearTimeout(timer);

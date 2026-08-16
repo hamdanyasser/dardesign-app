@@ -1,0 +1,23 @@
+# DarDesign backend — LIGHT subset (DARDESIGN_LIGHT=1: placeholder PNGs, no GPU).
+# Enough for the full API surface + the whole pytest suite. Used by the
+# Dockerfile (light image) and CI. Real generation needs requirements.txt.
+
+# --- API ---
+fastapi==0.115.6
+uvicorn[standard]==0.32.1
+python-multipart==0.0.20
+# 2.12.5+ is required by google-genai; at 2.10.3 pip could not resolve this
+# file at all and CI failed before running a single test.
+pydantic==2.13.4
+
+# --- Imaging / IO ---
+pillow==11.0.0
+numpy==1.26.4
+scipy==1.15.3            # backend/projection.py — 2D object-map blob analysis
+PyYAML==6.0.2
+
+# --- dev / tests ---
+pytest==8.3.4
+httpx==0.28.1
+anthropic==0.121.0            # backend/design_planner.py - optional; absent or unkeyed = rule-based plans
+google-genai==2.17.0         # backend/design_planner.py - optional second provider; absent or unkeyed = rule-based plans

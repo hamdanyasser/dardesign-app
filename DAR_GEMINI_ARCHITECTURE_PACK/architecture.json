@@ -1,0 +1,895 @@
+{
+  "$comment": "DAR Design — machine-readable architecture. Produced by inspecting the repository at branch feat/frontend-visual-overhaul @ 60dc112 on 2026-08-14. Every node carries `implemented` and `verified` flags; NEVER render a node with implemented:false as part of the live system.",
+  "project": {
+    "name": "DAR Design",
+    "nameAr": "دار ديزاين",
+    "tagline": "Culturally grounded AI interior design for Arab domestic interiors",
+    "masterFlow": "The LLM designs · DAR validates · the user edits · ControlNet + SDXL renders",
+    "masterFlowTechnical": "LLM = Designer · DAR = Spatial Truth · Build Mode = User Control · ControlNet + SDXL = Renderer",
+    "cultures": {
+      "supported": [
+        "lebanese",
+        "khaleeji",
+        "moroccan"
+      ],
+      "promptOnly": [
+        "persian"
+      ],
+      "note": "Persian has ontology terms and a trigger phrase but NO trained LoRA, NO catalogue items, and is excluded from /redesign, Build Mode and the planner. Do not diagram it as supported."
+    },
+    "inspectedAt": "2026-08-14",
+    "branch": "feat/frontend-visual-overhaul",
+    "commit": "2380fa8",
+    "testSuite": "583 passed, 1 skipped (pytest, DARDESIGN_LIGHT=1)",
+    "$auditNote": "Inspection began at 60dc112. Four commits landed DURING the audit (d80f03a, a4cec54, ab8d9b4, 2380fa8), adding real CC0 3D assets, a GLTF loader, PBR textures and procedural ornament. Every affected document was corrected; the pack describes 2380fa8. Still exactly ONE real model of 27 catalogue pieces."
+  },
+  "nodeTypes": {
+    "user": "A human action",
+    "frontend": "Next.js / React surface",
+    "backend": "FastAPI service",
+    "ai_ml": "A learned model makes a judgement",
+    "generative_ai": "Pixels are synthesised",
+    "cultural_knowledge": "Curated, auditable data",
+    "deterministic": "Ordinary code, no model involved",
+    "three_d": "The three.js scene",
+    "storage": "Persistence",
+    "evaluation": "Measurement"
+  },
+  "colorSemantics": {
+    "ai_ml": "violet",
+    "generative_ai": "magenta",
+    "deterministic": "teal",
+    "cultural_knowledge": "amber",
+    "three_d": "blue",
+    "user": "charcoal",
+    "frontend": "charcoal",
+    "backend": "slate",
+    "storage": "slate",
+    "evaluation": "slate",
+    "notImplemented": "dashed outline, 40% opacity, no fill"
+  },
+  "nodes": [
+    {
+      "id": "user",
+      "label": "User",
+      "type": "user",
+      "implemented": true,
+      "verified": true,
+      "heroDiagram": true,
+      "description": "Uploads a room photograph, writes a design brief, edits the 3D scene.",
+      "sources": [
+        "src/app/studio/page.tsx",
+        "src/app/design/page.tsx"
+      ]
+    },
+    {
+      "id": "studio",
+      "label": "Studio",
+      "type": "frontend",
+      "implemented": true,
+      "verified": true,
+      "heroDiagram": false,
+      "description": "Upload → quota consume → /redesign → results. Three narrative tabs render; the six-tab ResultTab type in the source is dead code.",
+      "sources": [
+        "src/app/studio/page.tsx"
+      ]
+    },
+    {
+      "id": "depth_model",
+      "label": "Depth Anything V2 Small",
+      "type": "ai_ml",
+      "implemented": true,
+      "verified": true,
+      "heroDiagram": true,
+      "modelId": "depth-anything/Depth-Anything-V2-Small-hf",
+      "fallbackModelId": "lllyasviel/Annotators (MidasDetector)",
+      "description": "Monocular relative depth. DAR inverts its disparity so 0 = nearest.",
+      "sources": [
+        "backend/transform.py::_depth_control_image"
+      ]
+    },
+    {
+      "id": "seg_model",
+      "label": "OneFormer ADE20K Swin-L",
+      "type": "ai_ml",
+      "implemented": true,
+      "verified": true,
+      "heroDiagram": true,
+      "modelId": "shi-labs/oneformer_ade20k_swin_large",
+      "description": "150-class semantic segmentation. ADE20K is the shared vocabulary with the seg ControlNet.",
+      "sources": [
+        "backend/transform.py::_seg_control_image"
+      ]
+    },
+    {
+      "id": "room_analysis",
+      "label": "Room Analysis",
+      "type": "deterministic",
+      "implemented": true,
+      "verified": true,
+      "heroDiagram": true,
+      "description": "Floor/wall/occupied/protected/free-floor masks, scale estimate from ASSUMED furniture widths, candidate placement spots. summary() contains NO room width/depth/height.",
+      "caveat": "Scale estimation observed to fail badly in both directions (130 m² and 3.6 m² in one session).",
+      "sources": [
+        "backend/room_analysis.py::analyze_room",
+        "backend/room_analysis.py::_estimate_scale"
+      ]
+    },
+    {
+      "id": "projection",
+      "label": "Top-down + Region Projection",
+      "type": "deterministic",
+      "implemented": true,
+      "verified": true,
+      "heroDiagram": false,
+      "description": "project_top_down() → object_map (cy is camera-axis depth). seg_bounding_boxes() → seg_regions (image space).",
+      "sources": [
+        "backend/projection.py"
+      ]
+    },
+    {
+      "id": "ontology",
+      "label": "Cultural Ontology",
+      "type": "cultural_knowledge",
+      "implemented": true,
+      "verified": true,
+      "heroDiagram": true,
+      "heroPlacement": "side rail feeding the prompt builder, the planner and the 3D materials — NOT a step in the pipeline",
+      "description": "113 curated terms: 4 cultures × 7 categories, EN + AR, each with a weight and a `verified` flag.",
+      "verificationStatus": {
+        "lebanese": {
+          "terms": 30,
+          "verified": false
+        },
+        "khaleeji": {
+          "terms": 30,
+          "verified": true
+        },
+        "moroccan": {
+          "terms": 30,
+          "verified": true
+        },
+        "persian": {
+          "terms": 23,
+          "verified": false
+        }
+      },
+      "caveat": "strict=True (which would exclude unverified terms) is passed by no production caller, so unverified Lebanese and Persian terms reach the generation prompt.",
+      "sources": [
+        "ontology/ontology.json",
+        "backend/prompt_builder.py"
+      ]
+    },
+    {
+      "id": "catalogue",
+      "label": "Furniture Catalogue",
+      "type": "cultural_knowledge",
+      "implemented": true,
+      "verified": true,
+      "heroDiagram": true,
+      "description": "27 items (9 per culture, 12 categories) with real centimetre dimensions, footprints, must_touch_wall and preferred_zones. Becomes the LLM's JSON-Schema enum.",
+      "sources": [
+        "ontology/furniture.json",
+        "backend/furniture.py",
+        "src/lib/design/catalog.ts"
+      ]
+    },
+    {
+      "id": "prompt_builder",
+      "label": "Prompt Builder",
+      "type": "deterministic",
+      "implemented": true,
+      "verified": true,
+      "heroDiagram": false,
+      "description": "Seeded weighted sampling from the ontology → bilingual positive/negative prompts + the LoRA trigger phrase. Same seed ⇒ same prompt.",
+      "sources": [
+        "backend/prompt_builder.py::build_prompts"
+      ]
+    },
+    {
+      "id": "llm_planner",
+      "label": "LLM Design Planner",
+      "type": "ai_ml",
+      "implemented": true,
+      "verified": true,
+      "heroDiagram": true,
+      "liveProvider": "gemini",
+      "liveModel": "gemini-3.5-flash",
+      "codeDefaultProvider": "anthropic",
+      "codeDefaultModel": "claude-sonnet-5",
+      "providerSelection": "DARDESIGN_LLM_PROVIDER > ANTHROPIC_API_KEY > GEMINI_API_KEY > null (rules)",
+      "description": "ONE call returns both `understood` (interpretation of the brief) and `items[]` (catalogue ids + positions). Emits NO dimensions and NO invented ids.",
+      "verifiedBy": "GET /api/design/planner-status → {configured:true, provider:'gemini', model:'gemini-3.5-flash'}",
+      "sources": [
+        "backend/design_planner.py",
+        "src/components/design/PlanPanel.tsx"
+      ]
+    },
+    {
+      "id": "rule_planner",
+      "label": "Rule-based Planner (fallback)",
+      "type": "deterministic",
+      "implemented": true,
+      "verified": true,
+      "heroDiagram": true,
+      "heroStyle": "dashed",
+      "description": "Deterministic layout when no LLM is configured or reachable. Tagged source:'rules'; the UI badge says 'Planned by DAR's rules'. CI runs this path.",
+      "verifiedBy": "Exercised in production against a real 400 credit-balance error — the user still got a furnished room.",
+      "sources": [
+        "backend/design_planner.py::fallback_plan"
+      ]
+    },
+    {
+      "id": "spatial_validator",
+      "label": "DAR Spatial Validator",
+      "type": "deterministic",
+      "implemented": true,
+      "verified": true,
+      "heroDiagram": true,
+      "heroEmphasis": "PRIMARY — the most visually prominent element; draw as a hexagon",
+      "description": "Oriented-rectangle separating-axis collision on the floor plane. Two-tier verdict: BLOCKING (out-of-bounds, overlaps a user-placed piece) refuses; ADVISORY (replaces-existing, needs-wall, blocks an opening) is stated but never refuses.",
+      "keyClaim": "The SAME engine colours a human's drag ghost, explains the verdict, refuses a human's drop, and gates an AI plan.",
+      "gates": [
+        {
+          "n": 1,
+          "name": "JSON-Schema enum",
+          "where": "backend/design_planner.py::plan_schema",
+          "effect": "an invented catalogue id is UNREPRESENTABLE, enforced on both providers"
+        },
+        {
+          "n": 2,
+          "name": "no size fields",
+          "where": "backend/design_planner.py::plan_schema",
+          "effect": "dimensions come only from furniture.json"
+        },
+        {
+          "n": 3,
+          "name": "validate_items",
+          "where": "backend/design_planner.py",
+          "effect": "dropped AND reported with distinct true reasons"
+        },
+        {
+          "n": 4,
+          "name": "gatePlan → evaluatePlacement",
+          "where": "src/lib/design/planner.ts + placement.ts",
+          "effect": "oriented-rect SAT; one findSpot repair attempt; items validated IN ORDER against the growing scene"
+        },
+        {
+          "n": 5,
+          "name": "culture coherence",
+          "where": "backend/design_planner.py::validate_items",
+          "effect": "one room, one culture unless 'all'"
+        },
+        {
+          "n": 6,
+          "name": "opening keep-clear",
+          "where": "src/lib/design/planner.ts::blockedOpening",
+          "effect": "door 90 cm / window 40 cm; advisory, not blocking"
+        }
+      ],
+      "sources": [
+        "src/lib/design/placement.ts",
+        "src/lib/design/planner.ts",
+        "backend/design_planner.py"
+      ]
+    },
+    {
+      "id": "room_derivation",
+      "label": "Room Derivation",
+      "type": "deterministic",
+      "implemented": true,
+      "verified": true,
+      "heroDiagram": false,
+      "description": "Backs a floor area out of room_analysis and reconstructs object_map footprints as locked 'found' massing.",
+      "caveat": "Room HEIGHT is always a 300 cm constant. Aspect ratio is always an assumed 1.25. Only AREA is estimated. Plausibility band 9-90 m²; outside it, a DEFAULT room labelled shellSource:'default'.",
+      "sources": [
+        "src/lib/design/roomModel.ts::deriveRoom"
+      ]
+    },
+    {
+      "id": "build_mode",
+      "label": "Build Mode (3D)",
+      "type": "three_d",
+      "implemented": true,
+      "verified": true,
+      "heroDiagram": true,
+      "description": "Metric three.js room in centimetres. Opens on a room reconstructed from the user's photograph, not an empty grid. 12 procedural geometry builders at real ontology dimensions; 22 ontology-sourced materials; snapshot undo/redo with gesture coalescing; localStorage persistence. 14 CC0 PBR texture sets whose colour maps are greyscale, so the ontology's per-culture palette survives and the surface only gains grain.",
+      "criticalFact": "THREE HONESTY TIERS, all implemented and labelled in the UI: 1 of 27 catalogue pieces is a REAL MODEL (leb-ottoman-001, the CC0 Ottoman_01 scan from Poly Haven, uniformly 'contain'-fitted inside its declared collision box); 26 are ENHANCED PROCEDURAL authored geometry; objects read off the user's photograph are FALLBACK MASSING. Do NOT state 'no 3D models' and do NOT imply a large model library.",
+      "sources": [
+        "src/lib/design/scene3d.ts",
+        "src/lib/design/geometry.ts",
+        "src/app/design/page.tsx",
+        "src/lib/design/modelLoader.ts",
+        "ontology/furniture_models.json"
+      ]
+    },
+    {
+      "id": "user_edits",
+      "label": "User Edits",
+      "type": "user",
+      "implemented": true,
+      "verified": true,
+      "heroDiagram": true,
+      "description": "Move, rotate, add, delete, duplicate, re-material, lock, resize the room, toggle the found layer. An entire AI plan applies as ONE gesture, so one Ctrl+Z removes all of it.",
+      "sources": [
+        "src/components/design/DesignCanvas.tsx",
+        "src/lib/design/store.ts"
+      ]
+    },
+    {
+      "id": "conditioning_capture",
+      "label": "Depth + Segmentation Capture",
+      "type": "three_d",
+      "implemented": true,
+      "verified": true,
+      "heroDiagram": true,
+      "description": "Three offscreen passes from a purpose-built INTERIOR camera (eye 155 cm, FOV 54° ≈ 24 mm, walks in clear of furniture by 55 cm, keeps only the user's azimuth): beauty (sRGB, evidence), depth (NoToneMapping + Linear), segmentation (exact ADE20K palette).",
+      "keyClaim": "Layout stops being something the model infers from a sentence and becomes something it is conditioned on.",
+      "verifiedBy": "Segmentation output is pixel-exact against the backend palette (ceiling 120,120,80; wall 120,120,120).",
+      "sources": [
+        "src/lib/design/scene3d.ts::renderConditioning",
+        "src/lib/design/ade20k.ts"
+      ]
+    },
+    {
+      "id": "controlnet_depth",
+      "label": "ControlNet (depth)",
+      "type": "generative_ai",
+      "implemented": true,
+      "verified": true,
+      "heroDiagram": true,
+      "modelId": "diffusers/controlnet-depth-sdxl-1.0",
+      "weight": 0.7,
+      "description": "Binds volume, distance, perspective and 3D silhouette. The stronger of the two.",
+      "sources": [
+        "backend/transform.py",
+        "configs/pipeline.yaml"
+      ]
+    },
+    {
+      "id": "controlnet_seg",
+      "label": "ControlNet (segmentation)",
+      "type": "generative_ai",
+      "implemented": true,
+      "verified": true,
+      "heroDiagram": true,
+      "modelId": "SargeZT/sdxl-controlnet-seg",
+      "weight": 0.5,
+      "description": "Binds object identity and wall/floor/ceiling extents. Deliberately looser than depth, leaving the generator room to invent culturally appropriate surface inside the silhouette.",
+      "note": "diffusers/controlnet-seg-sdxl-1.0 does not exist on the HF Hub; SargeZT's is the standard ControlNetModel-loadable SDXL seg checkpoint.",
+      "sources": [
+        "backend/transform.py",
+        "configs/pipeline.yaml"
+      ]
+    },
+    {
+      "id": "cultural_lora",
+      "label": "Cultural LoRA",
+      "type": "generative_ai",
+      "implemented": true,
+      "verified": true,
+      "heroDiagram": true,
+      "heroPlacement": "attached to / fused into SDXL — NOT a separate pipeline stage",
+      "description": "One per culture, rank 16, 1500 steps, trained on a free Kaggle T4. Fused at lora_scale 0.8. All three files present on disk at 93,076,472 bytes each.",
+      "trainingImages": {
+        "lebanese": 19,
+        "khaleeji": 14,
+        "moroccan": 12
+      },
+      "note": "The Style Intensity Slider (/restyle) exposes lora_scale 0-1 directly — that is the LoRA ablation made interactive.",
+      "sources": [
+        "backend/transform.py::_attach_lora",
+        "scripts/train_lora.py",
+        "models/loras/"
+      ]
+    },
+    {
+      "id": "sdxl",
+      "label": "SDXL 1.0",
+      "type": "generative_ai",
+      "implemented": true,
+      "verified": true,
+      "heroDiagram": true,
+      "modelId": "stabilityai/stable-diffusion-xl-base-1.0",
+      "params": {
+        "steps": 30,
+        "guidance": 7.0,
+        "size": [
+          1024,
+          1024
+        ],
+        "dtype": "fp16"
+      },
+      "description": "The generator. Runs with the dual ControlNet and a fused cultural LoRA.",
+      "sources": [
+        "backend/transform.py::_generate"
+      ]
+    },
+    {
+      "id": "sd15_fallback",
+      "label": "SD 1.5 + ControlNet 1.1 (OOM fallback)",
+      "type": "generative_ai",
+      "implemented": true,
+      "verified": false,
+      "heroDiagram": true,
+      "heroStyle": "dashed",
+      "modelId": "runwayml/stable-diffusion-v1-5",
+      "params": {
+        "size": [
+          768,
+          768
+        ]
+      },
+      "description": "On CUDA OOM, frees the SDXL pipeline and re-runs at 768². Code path exists; no OOM event has been observed in the recorded history.",
+      "sources": [
+        "backend/transform.py::transform_room"
+      ]
+    },
+    {
+      "id": "final_render",
+      "label": "Final Cultural Interior",
+      "type": "generative_ai",
+      "implemented": true,
+      "verified": true,
+      "heroDiagram": true,
+      "description": "A photorealistic render plus a manifest recording exactly which model, LoRA, seed and ControlNet weights ran.",
+      "honestyContract": {
+        "held": [
+          "placement",
+          "orientation",
+          "geometry",
+          "viewpoint"
+        ],
+        "notHeld": [
+          "the appearance of any individual piece — the model invents surface and ornament inside the silhouette; materials reach it through the prompt, so they steer rather than bind"
+        ]
+      },
+      "sources": [
+        "backend/transform.py::_write_manifest",
+        "src/components/design/HandoffPanel.tsx"
+      ]
+    },
+    {
+      "id": "render_host",
+      "label": "Render Host (Kaggle T4)",
+      "type": "backend",
+      "implemented": true,
+      "verified": true,
+      "heroDiagram": false,
+      "envVar": "NEXT_PUBLIC_API_URL",
+      "description": "Ephemeral GPU host behind a rotating tunnel. NO users table, sent NO session cookie, holds no durable state.",
+      "endpoints": [
+        "/redesign",
+        "/restyle",
+        "/render-scene",
+        "/api/furniture/*",
+        "/api/color/*",
+        "/share/*",
+        "/audit",
+        "/healthz"
+      ],
+      "sources": [
+        "backend/main.py",
+        "src/lib/api.ts"
+      ]
+    },
+    {
+      "id": "data_host",
+      "label": "Data Host",
+      "type": "backend",
+      "implemented": true,
+      "verified": true,
+      "heroDiagram": false,
+      "envVar": "NEXT_PUBLIC_DATA_API_URL",
+      "description": "The developer's own machine. SQLite + images/, and the LLM API key. Falls back to API_URL when unset.",
+      "endpoints": [
+        "/api/auth/*",
+        "/api/history/*",
+        "/api/feedback",
+        "/api/subscription/*",
+        "/api/usage/consume",
+        "/api/design/plan",
+        "/api/admin/*"
+      ],
+      "sources": [
+        "backend/main.py",
+        "backend/db.py",
+        "src/lib/api.ts"
+      ]
+    },
+    {
+      "id": "database",
+      "label": "SQLite",
+      "type": "storage",
+      "implemented": true,
+      "verified": true,
+      "heroDiagram": false,
+      "tables": [
+        "users",
+        "history",
+        "feedback",
+        "subscription_requests",
+        "evaluation_results"
+      ],
+      "description": "WAL mode, foreign keys ON. Evaluation scores are COLUMNS on the history row, not a side table — so deleting a design removes it from every average in the same instant.",
+      "currentRowCounts": {
+        "users": 3,
+        "history": 4,
+        "feedback": 2,
+        "subscription_requests": 2,
+        "evaluation_results": 0
+      },
+      "sources": [
+        "backend/db.py"
+      ]
+    },
+    {
+      "id": "truth_gate",
+      "label": "Explainability Truth Gate",
+      "type": "deterministic",
+      "implemented": true,
+      "verified": true,
+      "heroDiagram": false,
+      "description": "adapters.ts returns null rather than degrade, never falls back to demo data, and emits unmeasured values as {value:null, measured:false} — rendered as an em-dash, never a zero.",
+      "sources": [
+        "src/components/story/adapters.ts"
+      ]
+    },
+    {
+      "id": "evaluation_system",
+      "label": "Evaluation System",
+      "type": "evaluation",
+      "implemented": true,
+      "verified": true,
+      "heroDiagram": false,
+      "description": "SSIM (hand-rolled on numpy+scipy, matching skimage to 1e-9), LPIPS, CLIP zero-shot culture recognition, coverage denominators, one shared SQL filter builder.",
+      "criticalCaveat": "IMPLEMENTED but almost UNMEASURED. SSIM n=3, duration n=4, human ratings n=2. LPIPS, CLIP and the confusion matrix hold ZERO data — the lpips and open_clip packages are not installed. NEVER attach a metric value to any diagram.",
+      "sources": [
+        "backend/quality.py",
+        "backend/evaluation.py",
+        "backend/db.py"
+      ]
+    },
+    {
+      "id": "rag",
+      "label": "RAG / Vector Store / Embeddings",
+      "type": "ai_ml",
+      "implemented": false,
+      "verified": false,
+      "heroDiagram": false,
+      "renderAs": "OMIT, or draw dashed at 40% opacity inside a box explicitly labelled NOT IMPLEMENTED",
+      "description": "NOT IMPLEMENTED. No retrieval, no embedding model, no vector store, no chunking, no similarity search over cultural knowledge. Verified by repo-wide search and by the absence of any such dependency in either requirements file.",
+      "insteadUses": "A curated ontology indexed by culture key (O(1) dict lookup) plus a closed catalogue enforced as a JSON-Schema enum.",
+      "note": "backend/guardrails.py::filter_chunk mentions 'RAG chunks' in its docstring, but its only production caller applies it to static ontology JSON entries. It is a defensive sanitiser, not retrieval.",
+      "sources": [
+        "07_RAG_ARCHITECTURE.md"
+      ]
+    },
+    {
+      "id": "gltf_models",
+      "label": "Real 3D Assets (CC0)",
+      "type": "three_d",
+      "implemented": true,
+      "verified": true,
+      "heroDiagram": false,
+      "renderAs": "draw normally, but label the ratio: 1 real scan of 27 pieces",
+      "description": "IMPLEMENTED as of 2026-08-14 (commits a4cec54, ab8d9b4). ONE real model: public/models/Ottoman_01.glb (651 KB, CC0-1.0, Caspian Fortune, Poly Haven) bound to catalogue id leb-ottoman-001 via the sidecar registry ontology/furniture_models.json. Loaded by src/lib/design/modelLoader.ts with GLTFLoader. The other 26 catalogue pieces remain enhanced procedural geometry.",
+      "sources": [
+        "ontology/furniture_models.json",
+        "src/lib/design/modelLoader.ts",
+        "public/ASSET-LICENSES.md",
+        "public/models/Ottoman_01.glb"
+      ],
+      "whyOnlyOne": "There is no CC0 library of Lebanese, Khaleeji or Moroccan furniture. ~20 candidate scans were inspected against DAR's catalogue art and all but one were rejected as culturally wrong. DAR's own LoRA-generated catalogue art is more culturally specific than anything available under CC0.",
+      "loadBearingRules": [
+        "The visual may never outgrow the collision box — uniform 'contain' scale only, because placement.ts collides the catalogue's declared rectangle and the inspector, minimap and planner all quote those numbers.",
+        "Nothing unclassified may reach the segmentation pass — loading is async, so the swap re-stamps userData.ade across the whole subtree, and a procedural stand-in is on screen from frame one."
+      ]
+    },
+    {
+      "id": "ablation_results",
+      "label": "LoRA-vs-Baseline Ablation Results",
+      "type": "evaluation",
+      "implemented": true,
+      "verified": false,
+      "hasData": false,
+      "heroDiagram": false,
+      "renderAs": "dashed — the code path exists, the data does not",
+      "description": "automatic_metrics() splits eval/results.csv by arm and computes deltas. eval/results.csv DOES NOT EXIST; evaluation_results holds 0 rows; outputs/ is empty. The panel was removed from the page rather than shown permanently empty.",
+      "sources": [
+        "backend/evaluation.py::automatic_metrics",
+        "eval/CORPUS.md"
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "from": "user",
+      "to": "studio",
+      "label": "room photograph"
+    },
+    {
+      "from": "studio",
+      "to": "render_host",
+      "label": "POST /redesign (multipart, keepalive-streamed)"
+    },
+    {
+      "from": "studio",
+      "to": "data_host",
+      "label": "POST /api/usage/consume (before generating)"
+    },
+    {
+      "from": "render_host",
+      "to": "depth_model",
+      "label": "one depth+seg pass, whatever the culture count"
+    },
+    {
+      "from": "render_host",
+      "to": "seg_model",
+      "label": "one depth+seg pass"
+    },
+    {
+      "from": "depth_model",
+      "to": "room_analysis",
+      "label": "depth array"
+    },
+    {
+      "from": "seg_model",
+      "to": "room_analysis",
+      "label": "ADE20K class ids"
+    },
+    {
+      "from": "depth_model",
+      "to": "projection",
+      "label": "depth"
+    },
+    {
+      "from": "seg_model",
+      "to": "projection",
+      "label": "seg"
+    },
+    {
+      "from": "projection",
+      "to": "room_derivation",
+      "label": "object_map"
+    },
+    {
+      "from": "room_analysis",
+      "to": "room_derivation",
+      "label": "free_floor_m2 + scale_confidence"
+    },
+    {
+      "from": "ontology",
+      "to": "prompt_builder",
+      "label": "seeded weighted term sample"
+    },
+    {
+      "from": "ontology",
+      "to": "build_mode",
+      "label": "material colour palettes"
+    },
+    {
+      "from": "catalogue",
+      "to": "llm_planner",
+      "label": "catalogue_projection ⇒ the JSON-Schema enum"
+    },
+    {
+      "from": "catalogue",
+      "to": "build_mode",
+      "label": "real centimetre dimensions"
+    },
+    {
+      "from": "user",
+      "to": "llm_planner",
+      "label": "natural-language brief (AR or EN)"
+    },
+    {
+      "from": "room_derivation",
+      "to": "llm_planner",
+      "label": "room rectangle + found objects + openings"
+    },
+    {
+      "from": "llm_planner",
+      "to": "spatial_validator",
+      "label": "proposed placements (catalogId, x, z, rotation)"
+    },
+    {
+      "from": "rule_planner",
+      "to": "spatial_validator",
+      "label": "deterministic layout (no-key path)",
+      "style": "dashed"
+    },
+    {
+      "from": "llm_planner",
+      "to": "rule_planner",
+      "label": "no key / provider error / call cap",
+      "style": "dashed"
+    },
+    {
+      "from": "spatial_validator",
+      "to": "build_mode",
+      "label": "validated placements + a list of what was refused"
+    },
+    {
+      "from": "room_derivation",
+      "to": "build_mode",
+      "label": "room shell + locked found massing"
+    },
+    {
+      "from": "build_mode",
+      "to": "user_edits",
+      "label": "the editable scene"
+    },
+    {
+      "from": "user_edits",
+      "to": "spatial_validator",
+      "label": "every drag re-validated live (ghost colour)"
+    },
+    {
+      "from": "user_edits",
+      "to": "conditioning_capture",
+      "label": "the final scene"
+    },
+    {
+      "from": "conditioning_capture",
+      "to": "controlnet_depth",
+      "label": "depth pass (linear, untone-mapped)"
+    },
+    {
+      "from": "conditioning_capture",
+      "to": "controlnet_seg",
+      "label": "segmentation pass (exact ADE20K palette)"
+    },
+    {
+      "from": "depth_model",
+      "to": "controlnet_depth",
+      "label": "photo-derived depth (the /redesign path)"
+    },
+    {
+      "from": "seg_model",
+      "to": "controlnet_seg",
+      "label": "photo-derived seg (the /redesign path)"
+    },
+    {
+      "from": "prompt_builder",
+      "to": "sdxl",
+      "label": "positive + negative prompts, EN/AR, + trigger phrase"
+    },
+    {
+      "from": "controlnet_depth",
+      "to": "sdxl",
+      "label": "conditioning, weight 0.7"
+    },
+    {
+      "from": "controlnet_seg",
+      "to": "sdxl",
+      "label": "conditioning, weight 0.5"
+    },
+    {
+      "from": "cultural_lora",
+      "to": "sdxl",
+      "label": "fused into the UNet at scale 0.8"
+    },
+    {
+      "from": "sdxl",
+      "to": "final_render",
+      "label": "PNG + provenance manifest"
+    },
+    {
+      "from": "sdxl",
+      "to": "sd15_fallback",
+      "label": "CUDA out of memory",
+      "style": "dashed"
+    },
+    {
+      "from": "sd15_fallback",
+      "to": "final_render",
+      "label": "768² render",
+      "style": "dashed"
+    },
+    {
+      "from": "final_render",
+      "to": "studio",
+      "label": "data URLs + object_map + seg_regions + depth_map"
+    },
+    {
+      "from": "final_render",
+      "to": "truth_gate",
+      "label": "result + provenance"
+    },
+    {
+      "from": "truth_gate",
+      "to": "studio",
+      "label": "gated story data, or null"
+    },
+    {
+      "from": "studio",
+      "to": "database",
+      "label": "POST /api/history (save)"
+    },
+    {
+      "from": "database",
+      "to": "evaluation_system",
+      "label": "history rows (IsEdited=0 AND IsLight=0)"
+    },
+    {
+      "from": "evaluation_system",
+      "to": "ablation_results",
+      "label": "reads eval/results.csv — FILE DOES NOT EXIST",
+      "style": "dashed"
+    }
+  ],
+  "heroFlow": [
+    {
+      "n": 1,
+      "node": "user",
+      "caption": "It starts with a photograph of a real room."
+    },
+    {
+      "n": 2,
+      "node": [
+        "depth_model",
+        "seg_model",
+        "room_analysis"
+      ],
+      "caption": "Two models read it — depth and semantic segmentation."
+    },
+    {
+      "n": 3,
+      "node": [
+        "ontology",
+        "catalogue"
+      ],
+      "caption": "Cultural knowledge is a curated, auditable file, not something the model recalls.",
+      "placement": "side rail"
+    },
+    {
+      "n": 4,
+      "node": "llm_planner",
+      "caption": "The model reads the brief and proposes pieces from a fixed catalogue."
+    },
+    {
+      "n": 5,
+      "node": "spatial_validator",
+      "caption": "And here is the point: DAR decides whether that is allowed — with the same collision engine that judges a human's drag.",
+      "emphasis": "PRIMARY"
+    },
+    {
+      "n": 6,
+      "node": "build_mode",
+      "caption": "The user gets a real, metric, editable 3D room."
+    },
+    {
+      "n": 7,
+      "node": "conditioning_capture",
+      "caption": "Because it is 3D, DAR can produce the exact two control images the generator already used."
+    },
+    {
+      "n": 8,
+      "node": [
+        "sdxl",
+        "controlnet_depth",
+        "controlnet_seg",
+        "cultural_lora"
+      ],
+      "caption": "So the layout is not described to the model — it is imposed on it."
+    }
+  ],
+  "heroBypass": {
+    "from": "room_analysis",
+    "to": "sdxl",
+    "label": "Studio path — Build Mode is optional",
+    "note": "REQUIRED in the hero diagram. Without it the diagram wrongly implies every render passes through the 3D editor."
+  },
+  "forbiddenInDiagrams": [
+    "Any RAG, vector store, embedding or retriever node outside a clearly-marked NOT IMPLEMENTED box",
+    "Any numeric metric value (SSIM, LPIPS, CLIP, accuracy, percentages) — almost none are measured",
+    "Persian shown as a supported culture",
+    "Six Studio result tabs — that type is dead code; only three narrative tabs render",
+    "Time-of-day or sun simulation as a Build Mode feature — that is /v2, a different route",
+    "The retired /upload + /transform + /status + /result polling flow presented as live",
+    "The cultural ontology drawn as a step in the pipeline rather than a side rail",
+    "A \"3D model library\" node implying many assets — there is exactly ONE real CC0 model out of 27 catalogue pieces; label the ratio or omit the node",
+    "Stating that DAR has no 3D models — that was true before 2026-08-14 and is now wrong"
+  ]
+}

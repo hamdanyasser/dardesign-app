@@ -107,9 +107,13 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
+  // These tint browser chrome only, but they are the one place a stale palette
+  // survives silently. Both now match --dd-bg exactly: the dark value follows
+  // the limestone-at-night repalette, and the light one closes the #faf8f5 vs
+  // #f7f0e4 drift CLAUDE.md had flagged as the last of the old cream.
   themeColor: [
-    { media: "(prefers-color-scheme: dark)", color: "#0a0a0f" },
-    { media: "(prefers-color-scheme: light)", color: "#faf8f5" },
+    { media: "(prefers-color-scheme: dark)", color: "#0e1d37" },
+    { media: "(prefers-color-scheme: light)", color: "#f7f0e4" },
   ],
 };
 

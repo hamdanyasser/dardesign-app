@@ -9,22 +9,39 @@
    the app's next/font vars (--font-reem-kufi, --font-tajawal) on <html>.
    ============================================================ */
 
+/* Dark = "limestone at night", matching globals.css and cinema.css. The warm
+   charcoal ground moved to indigo-slate and --gold now holds limestone; see
+   the measured rationale in globals.css.
+   CAREFUL: --ink here is the TEXT colour, the opposite of cinema.css where it
+   is the page ground. That inversion is long-standing and scoped; keep it. */
 .dar-cinema {
-  --page: #0e0b08;
-  --panel: #181410;
-  --surface: #221c16;
-  --scan: #2a2218;
-  --ink: #f4ede2;
-  --soft: #e4d8c3;
-  --gold: #c9a227;
-  --gold-bright: #e3c36a;
-  --gold-light: #f0dfa6;
-  --on-gold: #181410;
-  --gold-rgb: 201, 162, 39;
-  --cream-rgb: 228, 216, 195;
-  --glow-rgb: 227, 195, 106;
-  --page-rgb: 14, 11, 8;
-  --vignette-rgb: 8, 6, 4;
+  --page: #0e1d37;
+  --panel: #192843;
+  --surface: #233350;
+  --scan: #30405d;
+  --ink: #f2eee6;
+  --soft: #e9e3d6;
+  --gold: #e8dcc4;
+  --gold-bright: #f6efe0;
+  --gold-light: #faf5e9;
+  --on-gold: #0e1d37;
+  --gold-rgb: 232, 220, 196;
+  --cream-rgb: 221, 215, 201;
+  --glow-rgb: 246, 239, 224;
+  --page-rgb: 14, 29, 55;
+  --vignette-rgb: 5, 13, 28;
+  /* Ornament metal — see --dd-metal in globals.css. Used on the threshold
+     arches and nowhere structural. */
+  --metal: #d3b065;
+  --metal-bright: #ecd49a;
+  --metal-dim: #967a45;
+  --metal-rgb: 211, 176, 101;
+  /* Per-culture label accents. These were hardcoded inline and picked for a
+     dark page, so on light they were sand-on-cream — measured Lc 15 and 22,
+     i.e. invisible. Tokens now, with a light variant that actually carries. */
+  --c-leb: #e7d8c0;
+  --c-kha: #e8dcc4;
+  --c-mor: #fac8b3;
 
   background: var(--page);
   color: var(--ink);
@@ -33,22 +50,32 @@
   overflow-x: clip;
 }
 
+/* LIGHT. Mirrors globals.css's limestone-and-cobalt exactly. It used to be a
+   warm cream page with an olive-gold accent, which made the landing a third
+   light theme alongside globals.css and cinema.css. One theme, one ground. */
 .dar-cinema[data-theme="light"] {
-  --page: #f4ecdd;
-  --panel: #eadfca;
-  --surface: #fffaf0;
-  --scan: #efe6d4;
-  --ink: #2a2014;
-  --soft: #5b4e3a;
-  --gold: #8a6e0c;
-  --gold-bright: #a9870f;
-  --gold-light: #c2a02b;
-  --on-gold: #fffaf0;
-  --gold-rgb: 138, 110, 12;
-  --cream-rgb: 120, 104, 82;
-  --glow-rgb: 175, 140, 30;
-  --page-rgb: 244, 236, 221;
-  --vignette-rgb: 150, 128, 92;
+  --page: #f7f0e4;
+  --panel: #eae4d8;
+  --surface: #ffffff;
+  --scan: #ded7c8;
+  --ink: #241f18;
+  --soft: #28231b;
+  --gold: #174590;
+  --gold-bright: #123c7c;
+  --gold-light: #5b7cb8;
+  --on-gold: #ffffff;
+  --gold-rgb: 23, 69, 144;
+  --cream-rgb: 107, 99, 84;
+  --glow-rgb: 63, 116, 196;
+  --page-rgb: 247, 240, 228;
+  --vignette-rgb: 140, 130, 110;
+  --metal: #8a6a2a;
+  --metal-bright: #6d521d;
+  --metal-dim: #b09250;
+  --metal-rgb: 138, 106, 42;
+  --c-leb: #634d2f;
+  --c-kha: #6d521d;
+  --c-mor: #8f3f24;
 }
 
 /* Reem Kufi is reserved for large display moments only. */

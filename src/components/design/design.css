@@ -592,7 +592,36 @@ html[lang="ar"] .dar-build .handoff-title { font-family: var(--f-display-ar); }
   border-radius: 6px;
   background: var(--surface);
   padding: 14px;
-  z-index: 5;
+  /* Above the source card. The planner is a text field and buttons; the card
+     is a thumbnail. If the two ever meet, the thing you can type into has to
+     win — the bug this replaces was a photograph drawn over a textarea. */
+  z-index: 20;
+}
+
+/* The room photo sits at the bottom of this same column, so the planner has to
+   stop above it rather than run underneath.
+   `.planner` grew to 28px from the bottom while `.sourcecard` starts ~172px up
+   from it, and the card's higher z-index meant it covered the brief field and
+   both buttons — the panel looked broken rather than overlapped.
+   The reserve applies ONLY when a card is actually present (`:has`), so a
+   hand-built room with no source photo keeps the full height. */
+.dar-build .sourcecard {
+  --dar-source-h: 178px; /* 168px wide, 4:3 image + label + note + borders */
+}
+.dar-build .stage:has(> .sourcecard) .planner {
+  max-height: calc(100% - 214px - 178px);
+}
+
+/* Short viewports cannot give both the room photo and a usable planner. The
+   photo is ambient context and the planner is the task, so the photo yields —
+   it is still one click away from the Studio tab. */
+@media (max-height: 720px) {
+  .dar-build .stage:has(> .planner) .sourcecard {
+    display: none;
+  }
+  .dar-build .stage:has(> .sourcecard) .planner {
+    max-height: calc(100% - 214px);
+  }
 }
 
 .dar-build .insp-x {

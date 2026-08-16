@@ -59,6 +59,17 @@ export const CATEGORY_TO_ADE20K: Record<string, number> = {
   painting: 22,
   mirror: 27,
   curtain: 18,
+  // Without these, stampObjectIdentity's `?? CATEGORY_TO_ADE20K.table` fallback
+  // labelled them ADE 15 (table) in the segmentation pass — so the ControlNet
+  // was told to put a table where the user's chest of drawers or fireplace is.
+  // A silently wrong conditioning class is worse than a missing object.
+  chest: 44,
+  fireplace: 49,
+  radiator: 146,
+  swivel_chair: 75,
+  // The catalogue's own categories that had no entry either.
+  console: 10,
+  screen: 24,
 };
 
 /** Shell surfaces. */

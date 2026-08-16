@@ -56,7 +56,7 @@ export default function AuthForm({
       dir={isArabic ? "rtl" : "ltr"}
     >
       <div className="pointer-events-none absolute inset-0">
-        <div className="absolute -left-24 top-24 h-80 w-80 rounded-full bg-[rgba(212,175,55,0.14)] blur-3xl" />
+        <div className="absolute -left-24 top-24 h-80 w-80 rounded-full bg-[color-mix(in_srgb,var(--dd-gold)_14%,transparent)] blur-3xl" />
         <div className="absolute right-0 top-1/4 h-72 w-72 rounded-full bg-[rgba(255,255,255,0.08)] blur-3xl" />
       </div>
       <IslamicPattern opacity={0.04} />
@@ -201,7 +201,7 @@ export default function AuthForm({
             <button
               type="submit"
               disabled={pending}
-              className="font-editorial-mono mt-4 flex w-full items-center justify-center gap-2 rounded-[1.5rem] bg-gradient-to-r from-[var(--dd-gold)] to-[var(--dd-gold-hover)] px-5 py-3 text-xs text-[var(--dd-ink)] shadow-[0_15px_35px_rgba(212,175,55,0.18)] transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-50"
+              className="font-editorial-mono mt-4 flex w-full items-center justify-center gap-2 rounded-[1.5rem] bg-gradient-to-r from-[var(--dd-gold)] to-[var(--dd-gold-hover)] px-5 py-3 text-xs text-[var(--dd-ink)] shadow-[0_15px_35px_color-mix(in_srgb,var(--dd-gold)_18%,transparent)] transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {pending && <Loader2 className="h-4 w-4 animate-spin" />}
               {pending ? pendingLabel : submitLabel}
@@ -258,7 +258,7 @@ export function AuthField({
         placeholder={placeholder}
         onChange={(e) => onChange(e.target.value)}
         className={cn(
-          "mt-2 h-12 w-full rounded-[1rem] border border-[var(--dd-border)] bg-[var(--dd-surface-strong)] px-4 text-[15px] text-[var(--dd-text)] outline-none transition duration-200 placeholder:text-[var(--dd-text-secondary)]/60 focus:border-[var(--dd-gold)] focus:ring-2 focus:ring-[rgba(212,175,55,0.12)]",
+          "mt-2 h-12 w-full rounded-[1rem] border border-[var(--dd-border)] bg-[var(--dd-surface-strong)] px-4 text-[15px] text-[var(--dd-text)] outline-none transition duration-200 placeholder:text-[var(--dd-text-secondary)]/60 focus:border-[var(--dd-gold)] focus:ring-2 focus:ring-[color-mix(in_srgb,var(--dd-gold)_12%,transparent)]",
           isArabic ? "text-right" : "text-left",
         )}
         dir={type === "email" || type === "tel" ? "ltr" : undefined}

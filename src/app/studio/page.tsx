@@ -28,12 +28,15 @@ import CulturalNarration from "@/components/CulturalNarration";
 import DepthOrbit from "@/components/DepthOrbit";
 import FurniturePlacement from "@/components/FurniturePlacement";
 import BeforeAfterSlider from "@/components/before-after-slider";
+import ProvenanceXray from "@/components/ProvenanceXray";
 import EnterBuildMode from "@/components/design/EnterBuildMode";
 import {
   CultureDNA,
   DesignStory,
   GenerationStory,
   createDesignStoryData,
+  createGenerationStoryAssets,
+  generationCapabilitiesFromProvenance,
   type GenerationStoryAssets,
 } from "@/components/story";
 import RoomReport from "@/components/RoomReport";
@@ -46,8 +49,10 @@ import { DarAudio } from "@/lib/audio";
 import {
   ApiError,
   consumeGeneration,
+  fetchProvenance,
   fetchSubscription,
   redesignRoom,
+  type RedesignProvenance,
   type RedesignResult,
   type SubscriptionState,
 } from "@/lib/api";
@@ -166,6 +171,19 @@ export default function StudioPage() {
   // True when the last attempt was refused for having no designs left, which
   // turns the error scene into an upgrade prompt rather than a "try again".
   const [quotaBlocked, setQuotaBlocked] = useState(false);
+  /* What the render host will do, fetched once on mount. The model, the LoRA
+     and the ControlNet weights are CONFIGURATION, not results, so they are
+     knowable before a generation starts — which is what lets "Inside DAR"'s
+     pipeline chapter state real facts during the wait instead of captioning
+     itself as a diagram. Null on any failure, including an older backend with
+     no such endpoint; null means unknown and the chapter falls back. */
+  const [hostProvenance, setHostProvenance] = useState<RedesignProvenance | null>(null);
+
+  useEffect(() => {
+    const ac = new AbortController();
+    fetchProvenance(undefined, ac.signal).then(setHostProvenance).catch(() => {});
+    return () => ac.abort();
+  }, []);
 
   // Defense Mode: read ?demo=1 via window.location (client-only page; avoids
   // the useSearchParams Suspense requirement) and load the static manifest.
@@ -883,6 +901,13 @@ export default function StudioPage() {
           <GenerationStory
             inputImage={imagePreviewUrl}
             culture={generateScope}
+            // Real host configuration, known before the render returns. The
+            // assets (depth, segmentation, renders) genuinely do not exist yet
+            // and are deliberately NOT passed here.
+            capabilities={generationCapabilitiesFromProvenance(
+              hostProvenance,
+              generateScope === "all" ? "lebanese" : generateScope,
+            )}
             status={{ state: "requesting", elapsedSeconds: elapsed }}
           />
         </section>
@@ -964,6 +989,21 @@ export default function StudioPage() {
           // outright when the original or the selected output is missing. Null
           // simply means the explanation layer is not offered.
           const storyData = createDesignStoryData(result, featured);
+          // Inside DAR's chapters were rendering as diagrams-of-a-pipeline
+          // because `assets` was never passed — the prop existed, the type was
+          // even imported here, and nothing filled it. This hands the chapters
+          // the run's OWN depth map and segmentation regions, behind the same
+          // placeholder gate storyData uses.
+          const generationAssets: GenerationStoryAssets | null =
+            createGenerationStoryAssets(result);
+          // What the render host actually did, for the culture on screen. Empty
+          // on a LIGHT run or an older backend, which keeps the pipeline chapter
+          // captioned as architecture rather than letting it claim a LoRA and a
+          // dual ControlNet it cannot prove.
+          const generationCapabilities = generationCapabilitiesFromProvenance(
+            result.provenance,
+            featured,
+          );
           return (
             <>
               <div className="cinema studio-workspace">
@@ -1089,6 +1129,33 @@ export default function StudioPage() {
                       className="compare max-w-none rounded-none"
                     />
                   </div>
+
+                  {/* Provenance X-ray. Mounted right under the reveal, because
+                      this is the moment the claim needs its evidence: the wipe
+                      above says "we redesigned your room", and this says what
+                      the room was measured as. It renders itself away when the
+                      run returned no real depth or regions, so a LIGHT run or an
+                      older backend simply does not show it — never a sample. */}
+                  {(() => {
+                    const realDepth =
+                      !result.placeholder && typeof result.depth_map === "string"
+                        ? result.depth_map
+                        : null;
+                    const realRegions =
+                      !result.placeholder && result.seg_regions?.placeholder !== true
+                        ? result.seg_regions?.regions ?? null
+                        : null;
+                    if (!realDepth && !realRegions?.length) return null;
+                    return (
+                      <div style={{ padding: "0 0 var(--s-7)" }}>
+                        <ProvenanceXray
+                          renderSrc={featuredSrc}
+                          depthSrc={realDepth}
+                          regions={realRegions}
+                        />
+                      </div>
+                    );
+                  })()}
 
                   <div className="actions">
                     <button
@@ -1357,6 +1424,14 @@ export default function StudioPage() {
                           <GenerationStory
                             inputImage={result.original}
                             culture={featured}
+                            // The real depth map and segmentation regions this
+                            // run produced. Gated by the same placeholder rule
+                            // createDesignStoryData uses, so a LIGHT run passes
+                            // null here and the chapters keep their honest
+                            // fallback rather than presenting a synthetic room
+                            // as evidence.
+                            assets={generationAssets ?? undefined}
+                            capabilities={generationCapabilities}
                             status={{
                               state: "done",
                               jobId: result.job_id ?? null,

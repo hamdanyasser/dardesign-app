@@ -76,7 +76,7 @@ const SOULS: Record<Tradition, Soul> = {
     ar: "لبناني",
     en: "the Lebanese house",
     accent: "#3E5C44",
-    accentText: "#D8C3A5",
+    accentText: "var(--c-leb)",
     glow: "rgba(62,92,68,.30)",
     line: "قناطر، أرز، وحجر جبل — بيت يتنفّس نحو البحر.",
     wall: `linear-gradient(rgba(255,246,226,.16), rgba(0,0,0,.26)), ${ASHLAR} 0 0 / 72px 34px`,
@@ -96,7 +96,7 @@ const SOULS: Record<Tradition, Soul> = {
     ar: "خليجي",
     en: "the Khaleeji house",
     accent: "var(--gold)",
-    accentText: "var(--gold)",
+    accentText: "var(--c-kha)",
     glow: "rgba(var(--gold-rgb),.22)",
     line: "مجلس، سدو، وجص محفور — بيت الضيافة.",
     wall: `linear-gradient(rgba(255,246,226,.14), rgba(0,0,0,.24)), ${JUSS} 0 0 / 40px 40px, #efe6d2`,
@@ -116,7 +116,7 @@ const SOULS: Record<Tradition, Soul> = {
     ar: "مغربي",
     en: "the Moroccan house",
     accent: "#2B50AA",
-    accentText: "#C1603D",
+    accentText: "var(--c-mor)",
     glow: "rgba(43,80,170,.26)",
     line: "زليج، تادلاكت، وفانوس — بيت الرياض.",
     /* Tadelakt above, zellige dado below — which is exactly what this soul's
@@ -611,10 +611,10 @@ export default function DarCinema() {
           >
             دار
           </span>
-          <span style={{ fontSize: 15, color: "var(--soft)", opacity: 0.8 }}>
+          <span style={{ fontSize: 15, color: "var(--soft)", opacity: 0.95 }}>
             البيت يُفهَم قبل أن يتغيّر · a house is understood before it changes
           </span>
-          <span style={{ fontSize: 12, color: "var(--gold)", opacity: 0.7 }}>اضغط للدخول · click to enter</span>
+          <span style={{ fontSize: 12, color: "var(--gold)", opacity: 0.95 }}>اضغط للدخول · click to enter</span>
         </div>
       )}
 
@@ -646,7 +646,7 @@ export default function DarCinema() {
               non-wrapping content, so on a 414px phone the studio button was
               pushed 15px off the left edge. The tagline is the one part that
               is decoration rather than navigation. */}
-          <span className="dd-chrome-sub" style={{ fontSize: 12, color: "var(--soft)", opacity: 0.8, whiteSpace: "nowrap" }}>
+          <span className="dd-chrome-sub" style={{ fontSize: 12, color: "var(--soft)", opacity: 0.95, whiteSpace: "nowrap" }}>
             سينما الدار · the cinematic house
           </span>
         </div>
@@ -783,10 +783,29 @@ export default function DarCinema() {
           />
           <div style={{ position: "absolute", inset: 0, perspective: "1100px", perspectiveOrigin: "50% 46%" }}>
             <div data-tunnel-stage="" style={{ position: "absolute", inset: 0, transformStyle: "preserve-3d" }}>
-              {archLayer(-380, "العتبة", "linear-gradient(165deg, var(--gold-light), var(--gold) 45%, #6b5a2a)", "0 0 60px rgba(var(--gold-rgb),.28), inset 0 0 40px rgba(var(--gold-rgb),.10)", "var(--gold-light)", 0.95)}
-              {archLayer(-800, "الفهم", "linear-gradient(165deg, var(--gold-bright), var(--gold) 50%, #5c4d24)", "0 0 46px rgba(var(--gold-rgb),.20), inset 0 0 36px rgba(var(--gold-rgb),.08)", "var(--gold-bright)", 0.85)}
-              {archLayer(-1220, "التحوّل", "linear-gradient(165deg, var(--gold), #8b7432 55%, #4a3d1d)", "0 0 36px rgba(var(--gold-rgb),.14)", "var(--gold)", 0.75)}
-              {archLayer(-1640, "الإسناد", "linear-gradient(165deg, #8b7432, #5c4d24 60%, #3a3017)", "0 0 26px rgba(var(--gold-rgb),.10)", "var(--gold)", 0.6)}
+              {/* THE ONE PLACE THE METAL LIVES. Everything structural on this page
+                  is limestone on indigo; these four arches are the exception, and
+                  they earn it — a lit metal edge receding into a blue night is what
+                  the threshold actually is, and the Louvre Abu Dhabi identity calls
+                  the same effect "light entering like rays through moucharabiehs".
+                  Each arch fades from lit metal to its own shadow, nearest brightest.
+                  Do not spread --metal past this block: gold reads as luxury at this
+                  ratio and as costume at any larger one. */}
+              {/* Every stop here must come from the METAL family. These two used
+                  --gold-light / --gold-bright for their top stop, which are ACCENT
+                  tokens — cobalt in light mode — so the arch graded from blue at the
+                  top to gold at the bottom, and the label sat on cobalt against
+                  cream. Two colour families inside one object reads as a mistake,
+                  because it is one. */}
+              {/* Label opacity is a DEPTH cue, but it multiplies against contrast,
+                  and in light mode the far arches measured Lc 29-57 against a
+                  75 target — legible on a laptop, gone on a beam. Depth now comes
+                  from the arch stroke and glow (which may fade freely); the labels
+                  hold a readable floor. */}
+              {archLayer(-380, "العتبة", "linear-gradient(165deg, var(--metal-bright), var(--metal) 45%, var(--metal-dim))", "0 0 60px rgba(var(--metal-rgb),.30), inset 0 0 40px rgba(var(--metal-rgb),.12)", "var(--ink)", 1)}
+              {archLayer(-800, "الفهم", "linear-gradient(165deg, var(--metal-bright), var(--metal) 50%, var(--metal-dim))", "0 0 46px rgba(var(--metal-rgb),.22), inset 0 0 36px rgba(var(--metal-rgb),.09)", "var(--ink)", 1)}
+              {archLayer(-1220, "التحوّل", "linear-gradient(165deg, var(--metal), var(--metal-dim) 55%, var(--metal-dim))", "0 0 36px rgba(var(--metal-rgb),.16)", "var(--ink)", 0.92)}
+              {archLayer(-1640, "الإسناد", "linear-gradient(165deg, var(--metal-dim), var(--metal-dim) 60%, var(--metal-dim))", "0 0 26px rgba(var(--metal-rgb),.11)", "var(--ink)", 0.86)}
 
               {/* the room at the end of the tunnel */}
               <div
@@ -858,7 +877,7 @@ export default function DarCinema() {
           />
           <div data-tunnel-cue="" style={{ position: "absolute", bottom: 28, right: 0, left: 0, display: "flex", flexDirection: "column", alignItems: "center", gap: 4, pointerEvents: "none" }}>
             <span style={{ fontSize: 15, color: "var(--gold)", fontWeight: 500, whiteSpace: "nowrap" }}>اعبر العتبة — مرّر للأمام</span>
-            <span style={{ fontSize: 12, color: "var(--soft)", opacity: 0.75, whiteSpace: "nowrap" }}>scroll to walk through the arches</span>
+            <span style={{ fontSize: 12, color: "var(--soft)", opacity: 0.95, whiteSpace: "nowrap" }}>scroll to walk through the arches</span>
             <span aria-hidden="true" style={{ display: "block", width: 1, height: 26, background: "linear-gradient(to bottom, var(--gold), transparent)", animation: "ddCue 2.2s ease-in-out infinite" }} />
           </div>
         </div>
@@ -871,7 +890,7 @@ export default function DarCinema() {
             <h2 className="dd-display" style={{ margin: 0, fontWeight: 600, fontSize: "clamp(24px, 4vw, 48px)", lineHeight: 1.5, color: "var(--ink)", whiteSpace: "nowrap" }}>
               الآلة تقرأ — لا تخمّن
             </h2>
-            <p style={{ margin: "2px 0 0", fontSize: 14, color: "var(--soft)", opacity: 0.85, whiteSpace: "nowrap" }}>depth · segmentation · ontology — watch it read</p>
+            <p style={{ margin: "2px 0 0", fontSize: 14, color: "var(--soft)", opacity: 0.95, whiteSpace: "nowrap" }}>depth · segmentation · ontology — watch it read</p>
           </div>
 
           <div style={{ perspective: "1100px" }}>
@@ -893,22 +912,29 @@ export default function DarCinema() {
               <div aria-hidden="true" style={{ position: "absolute", top: -7, right: -7, width: 28, height: 28, borderTop: "2px solid var(--gold)", borderRight: "2px solid var(--gold)", borderRadius: "0 4px 0 0" }} />
               <div aria-hidden="true" style={{ position: "absolute", bottom: -7, left: -7, width: 28, height: 28, borderBottom: "2px solid var(--gold)", borderLeft: "2px solid var(--gold)", borderRadius: "0 0 0 4px" }} />
               <div aria-hidden="true" style={{ position: "absolute", bottom: -7, right: -7, width: 28, height: 28, borderBottom: "2px solid var(--gold)", borderRight: "2px solid var(--gold)", borderRadius: "0 0 4px 0" }} />
+              {/* Detection labels. These are pinned to LIGHT-ON-DARK in both themes
+                  and must stay that way: they sit on a photograph, not on the page,
+                  so the page's theme tells you nothing about what is behind them.
+                  They used to read `color: var(--ink)` over a hardcoded near-black
+                  chip — and in .dar-cinema `--ink` is the TEXT colour, which is dark
+                  in light mode. The result was dark text on a black chip, invisible
+                  for anyone who opened the landing in light mode. */}
               {/* labels */}
               <div data-scan-label="0.46" style={{ position: "absolute", top: "14%", left: "10%", transform: "translateZ(70px) scale(.6)", opacity: 0, transition: `opacity 500ms ${EASE}, transform 500ms ${EASE}`, display: "flex", alignItems: "center", gap: 8 }}>
-                <span style={{ background: "rgba(24,20,16,.92)", border: "1px solid var(--gold)", borderRadius: 6, padding: "6px 12px", fontSize: 15, color: "var(--ink)", boxShadow: "0 12px 32px rgba(0,0,0,.5)" }}>
-                  نافذة <span style={{ fontSize: 11, color: "var(--soft)", opacity: 0.8 }}>window · ثقة ٩٦٪</span>
+                <span style={{ background: "rgba(9,18,32,.92)", border: "1px solid rgba(232,220,196,.55)", borderRadius: 6, padding: "6px 12px", fontSize: 15, color: "#f2eee6", boxShadow: "0 12px 32px rgba(0,0,0,.5)" }}>
+                  نافذة <span style={{ fontSize: 11, color: "rgba(232,220,196,.78)" }}>window · ثقة ٩٦٪</span>
                 </span>
                 <span aria-hidden="true" style={{ width: 7, height: 7, borderRadius: "50%", background: "var(--gold)" }} />
               </div>
               <div data-scan-label="0.62" style={{ position: "absolute", top: "56%", right: "8%", transform: "translateZ(70px) scale(.6)", opacity: 0, transition: `opacity 500ms ${EASE}, transform 500ms ${EASE}`, display: "flex", alignItems: "center", gap: 8 }}>
                 <span aria-hidden="true" style={{ width: 7, height: 7, borderRadius: "50%", background: "var(--gold)" }} />
-                <span style={{ background: "rgba(24,20,16,.92)", border: "1px solid var(--gold)", borderRadius: 6, padding: "6px 12px", fontSize: 15, color: "var(--ink)", boxShadow: "0 12px 32px rgba(0,0,0,.5)" }}>
-                  أريكة <span style={{ fontSize: 11, color: "var(--soft)", opacity: 0.8 }}>sofa · ثقة ٩٤٪</span>
+                <span style={{ background: "rgba(9,18,32,.92)", border: "1px solid rgba(232,220,196,.55)", borderRadius: 6, padding: "6px 12px", fontSize: 15, color: "#f2eee6", boxShadow: "0 12px 32px rgba(0,0,0,.5)" }}>
+                  أريكة <span style={{ fontSize: 11, color: "rgba(232,220,196,.78)" }}>sofa · ثقة ٩٤٪</span>
                 </span>
               </div>
               <div data-scan-label="0.78" style={{ position: "absolute", bottom: "10%", left: "24%", transform: "translateZ(70px) scale(.6)", opacity: 0, transition: `opacity 500ms ${EASE}, transform 500ms ${EASE}`, display: "flex", alignItems: "center", gap: 8 }}>
-                <span style={{ background: "rgba(24,20,16,.92)", border: "1px solid var(--gold)", borderRadius: 6, padding: "6px 12px", fontSize: 15, color: "var(--ink)", boxShadow: "0 12px 32px rgba(0,0,0,.5)" }}>
-                  سجادة <span style={{ fontSize: 11, color: "var(--soft)", opacity: 0.8 }}>rug · ثقة ٩١٪</span>
+                <span style={{ background: "rgba(9,18,32,.92)", border: "1px solid rgba(232,220,196,.55)", borderRadius: 6, padding: "6px 12px", fontSize: 15, color: "#f2eee6", boxShadow: "0 12px 32px rgba(0,0,0,.5)" }}>
+                  سجادة <span style={{ fontSize: 11, color: "rgba(232,220,196,.78)" }}>rug · ثقة ٩١٪</span>
                 </span>
                 <span aria-hidden="true" style={{ width: 22, height: 1, background: "rgba(var(--gold-rgb),.7)" }} />
                 <span aria-hidden="true" style={{ width: 7, height: 7, borderRadius: "50%", background: "var(--gold)" }} />
@@ -916,7 +942,7 @@ export default function DarCinema() {
             </div>
           </div>
 
-          <p style={{ margin: 0, fontSize: 15, color: "var(--soft)", opacity: 0.8 }}>مرّر — الصورة تنهض من الطاولة وتُقرأ عنصراً عنصراً</p>
+          <p style={{ margin: 0, fontSize: 15, color: "var(--soft)", opacity: 0.95 }}>مرّر — الصورة تنهض من الطاولة وتُقرأ عنصراً عنصراً</p>
         </div>
       </section>
 
@@ -934,9 +960,9 @@ export default function DarCinema() {
             <div style={{ position: "absolute", inset: 0, perspective: "1500px" }}>
               <div data-ring="" style={{ position: "absolute", left: "50%", top: "50%", transformStyle: "preserve-3d", transform: "rotateY(0deg)" }}>
                 {([
-                  { id: "lebanese", ar: "لبناني", en: "Lebanese", deg: 0, border: "#3E5C44", bg: "var(--surface)", enColor: "#D8C3A5" },
-                  { id: "khaleeji", ar: "خليجي", en: "Khaleeji", deg: 120, border: "rgba(var(--gold-rgb),.7)", bg: "#1F2A3A", enColor: "var(--gold)" },
-                  { id: "moroccan", ar: "مغربي", en: "Moroccan", deg: 240, border: "#2B50AA", bg: "var(--surface)", enColor: "#C1603D" },
+                  { id: "lebanese", ar: "لبناني", en: "Lebanese", deg: 0, border: "#3E5C44", bg: "var(--surface)", enColor: "var(--c-leb)" },
+                  { id: "khaleeji", ar: "خليجي", en: "Khaleeji", deg: 120, border: "rgba(var(--gold-rgb),.7)", bg: "var(--panel)", enColor: "var(--c-kha)" },
+                  { id: "moroccan", ar: "مغربي", en: "Moroccan", deg: 240, border: "#2B50AA", bg: "var(--surface)", enColor: "var(--c-mor)" },
                 ] as const).map((c, i) => (
                   <div
                     key={c.id}
@@ -1048,9 +1074,14 @@ export default function DarCinema() {
                   maxWidth: "calc(100% - 24px)",
                   padding: "5px 12px",
                   borderRadius: 999,
-                  background: "rgba(12,10,8,.62)",
+                  /* Pinned light-on-dark, and the scrim must actually be OPAQUE
+                     enough to be the background it claims to be. At .66 over a
+                     light page the blend came out mid-tone and limestone text on
+                     it measured Lc 0 — i.e. this "fix" simply failed in the other
+                     direction. .88 makes the chip its own ground in both themes. */
+                  background: "rgba(9,18,32,.88)",
                   fontSize: 12,
-                  color: "var(--soft)",
+                  color: "rgba(232,220,196,.92)",
                   pointerEvents: "none",
                   whiteSpace: "nowrap",
                   overflow: "hidden",
@@ -1064,18 +1095,22 @@ export default function DarCinema() {
             {/* material legend */}
             <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
               <p className="dd-display" style={{ margin: 0, fontSize: 24, lineHeight: 1.4, color: soul.accentText }}>
-                {soul.ar} <span style={{ fontFamily: "var(--font-tajawal), sans-serif", fontSize: 13, color: "var(--soft)", opacity: 0.8 }}>{soul.en}</span>
+                {soul.ar} <span style={{ fontFamily: "var(--font-tajawal), sans-serif", fontSize: 13, color: "var(--soft)", opacity: 0.95 }}>{soul.en}</span>
               </p>
               {soul.mats.map(([ar, en], i) => (
                 <div key={i} style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
                   <span aria-hidden="true" style={{ width: 7, height: 7, borderRadius: "50%", background: soul.accent, flex: "none", position: "relative", top: -3 }} />
                   <span style={{ fontSize: 16, color: "var(--ink)" }}>
                     {ar}
-                    <span style={{ display: "block", fontSize: 12, color: "var(--soft)", opacity: 0.75 }}>{en}</span>
+                    {/* 12px at .75 measured Lc 70.8 against a 75 target. The token
+                        cannot absorb this without collapsing into --ink, so the
+                        opacity gives way instead — it was decoration, the
+                        readability is not. */}
+                    <span style={{ display: "block", fontSize: 12, color: "var(--soft)", opacity: 0.92 }}>{en}</span>
                   </span>
                 </div>
               ))}
-              <p style={{ margin: "6px 0 0", fontSize: 14, lineHeight: 1.75, color: "var(--soft)", opacity: 0.85 }}>كل خامة هنا مسمّاة ومُسنَدة — لا زخرفة بلا اسم.</p>
+              <p style={{ margin: "6px 0 0", fontSize: 14, lineHeight: 1.75, color: "var(--soft)", opacity: 0.95 }}>كل خامة هنا مسمّاة ومُسنَدة — لا زخرفة بلا اسم.</p>
             </div>
           </div>
         </div>
@@ -1098,7 +1133,7 @@ export default function DarCinema() {
         <div style={{ position: "relative", maxWidth: 1200, margin: "0 auto" }}>
           <p data-reveal="" className="dd-display" style={{ margin: "0 0 56px", textAlign: "center", fontSize: "clamp(24px, 3.4vw, 42px)", lineHeight: 1.6, color: "var(--soft)" }}>
             غيرُنا يعطيك ديكوراً — <span style={{ color: "var(--gold-bright)" }}>نحن نعطيك إسناداً.</span>
-            <span style={{ display: "block", fontFamily: "var(--font-tajawal), sans-serif", fontSize: 15, opacity: 0.8, marginTop: 6 }}>Every other tool gives you decor. We give you provenance.</span>
+            <span style={{ display: "block", fontFamily: "var(--font-tajawal), sans-serif", fontSize: 15, opacity: 0.95, marginTop: 6 }}>Every other tool gives you decor. We give you provenance.</span>
           </p>
 
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(270px, 1fr))", gap: 32, marginBottom: "10vh" }}>
@@ -1116,7 +1151,7 @@ export default function DarCinema() {
                 <h3 className="dd-display" style={{ margin: 0, fontSize: 44, lineHeight: 1.4, fontWeight: 600, color: "var(--ink)" }}>{c.ar}</h3>
                 <p style={{ margin: 0, fontSize: 13, color: "var(--gold)", letterSpacing: ".08em" }}>{c.code}</p>
                 <p style={{ margin: 0, fontSize: 16, lineHeight: 1.75, color: "var(--soft)" }}>{c.body}</p>
-                <p style={{ margin: "auto 0 0", paddingTop: 14, fontSize: 13, color: "var(--soft)", opacity: 0.7, borderTop: "1px solid rgba(var(--cream-rgb),.14)" }}>{c.src}</p>
+                <p style={{ margin: "auto 0 0", paddingTop: 14, fontSize: 13, color: "var(--soft)", opacity: 0.95, borderTop: "1px solid rgba(var(--cream-rgb),.14)" }}>{c.src}</p>
               </article>
             ))}
           </div>
@@ -1142,7 +1177,7 @@ export default function DarCinema() {
             >
               <span className="dd-display" style={{ fontSize: "clamp(24px, 4vw, 34px)", lineHeight: 1.6, fontWeight: 600, color: "var(--ink)", whiteSpace: "nowrap" }}>ادخل الاستوديو</span>
               <span style={{ fontSize: 14, color: "var(--gold)", whiteSpace: "nowrap" }}>Enter the Studio ←</span>
-              <span style={{ fontSize: 13, color: "var(--soft)", opacity: 0.75 }}>ارفع صورة غرفتك — اعرفها ثلاث مرات</span>
+              <span style={{ fontSize: 13, color: "var(--soft)", opacity: 0.95 }}>ارفع صورة غرفتك — اعرفها ثلاث مرات</span>
             </Link>
           </div>
         </div>
@@ -1150,9 +1185,9 @@ export default function DarCinema() {
 
       <footer style={{ borderTop: "1px solid rgba(var(--cream-rgb),.12)", padding: "28px 32px", display: "flex", flexWrap: "wrap", alignItems: "baseline", justifyContent: "space-between", gap: 12, background: "var(--page)" }}>
         <span className="dd-display" style={{ color: "var(--gold)", fontSize: 17, whiteSpace: "nowrap" }}>
-          دار ديزاين <span style={{ fontFamily: "var(--font-tajawal), sans-serif", fontSize: 12, color: "var(--soft)", opacity: 0.8 }}>DarDesign</span>
+          دار ديزاين <span style={{ fontFamily: "var(--font-tajawal), sans-serif", fontSize: 12, color: "var(--soft)", opacity: 0.95 }}>DarDesign</span>
         </span>
-        <span style={{ fontSize: 14, color: "var(--soft)", opacity: 0.75 }}>كل عنصرٍ مسمّى ومُسنَد · every element named and sourced</span>
+        <span style={{ fontSize: 14, color: "var(--soft)", opacity: 0.95 }}>كل عنصرٍ مسمّى ومُسنَد · every element named and sourced</span>
       </footer>
     </div>
   );

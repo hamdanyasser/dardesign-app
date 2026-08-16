@@ -1,7 +1,13 @@
-import type { JobStatus, RedesignResult, StyleId } from "@/lib/api";
+import type {
+  JobStatus,
+  RedesignProvenance,
+  RedesignResult,
+  StyleId,
+} from "@/lib/api";
 import type {
   DesignStoryData,
   GenerationPipelineCapabilities,
+  GenerationStoryAssets,
   GenerationStoryStatus,
   LocalizedText,
   StoryGenerationMetadata,
@@ -491,6 +497,136 @@ export function createDesignStoryData(
     edited,
     placeholder: displayIsPlaceholder,
   };
+}
+
+/**
+ * Hand "Inside DAR" the real depth map and segmentation regions this run
+ * produced, so its chapters stop being diagrams of a pipeline and start being
+ * the pipeline's own output.
+ *
+ * `GenerationStoryAssets` was designed for exactly this — its own field docs
+ * say "/redesign.depth_map is suitable after completion/replay" — and Studio
+ * simply never passed it, at either mount point. That is why those chapters
+ * read as empty: not a rendering bug, an unwired input.
+ *
+ * The placeholder gate here is deliberately IDENTICAL to the one
+ * createDesignStoryData applies, and for the same reason: in LIGHT mode the
+ * synthetic room's depth and segmentation are manufactured, and presenting
+ * them as evidence would be a lie told more convincingly than any empty state.
+ * Any placeholder marker anywhere in the response disqualifies the whole set,
+ * because depth has no envelope of its own — it comes off the same pass.
+ *
+ * Returns `null`, not an empty object, when nothing is real, so a caller can
+ * pass it straight through and let the component keep its honest fallback.
+ */
+export function createGenerationStoryAssets(
+  result: RedesignResult | null | undefined,
+): GenerationStoryAssets | null {
+  if (!result) return null;
+
+  const isPlaceholder = Boolean(
+    result.placeholder === true ||
+      result.seg_regions?.placeholder === true ||
+      result.object_map?.placeholder === true ||
+      result.room_analysis?.placeholder === true,
+  );
+  if (isPlaceholder) return null;
+
+  const assets: GenerationStoryAssets = {};
+
+  if (isNonEmptyString(result.depth_map)) {
+    assets.depthImage = {
+      src: result.depth_map,
+      alt: {
+        en: "Depth map estimated from the uploaded room — nearer surfaces lighter.",
+        ar: "خريطة العمق المُقدّرة من الغرفة المرفوعة — الأسطح الأقرب أفتح.",
+      },
+    };
+  }
+
+  if (result.seg_regions != null && result.seg_regions.placeholder !== true) {
+    const regions = result.seg_regions.regions;
+    if (Array.isArray(regions) && regions.length > 0) {
+      assets.segmentationRegions = regions;
+    }
+  }
+
+  // The generation chapter draws an abstract metaphor when it has nothing real.
+  // It has something real: the renders this run just produced. Driven by
+  // `styles` rather than by which image fields happen to be non-null, so a
+  // one-culture request describes one culture.
+  const produced = (result.styles ?? (["lebanese", "khaleeji", "moroccan"] as StyleId[]))
+    .filter((style): style is StyleId => isNonEmptyString(result[style]))
+    .map((style) => ({
+      src: result[style] as string,
+      alt: {
+        en: `The room generated in the ${CULTURE_NAMES[style].en} style.`,
+        ar: `الغرفة المولّدة بالطابع ${CULTURE_NAMES[style].ar}.`,
+      },
+      caption: CULTURE_NAMES[style],
+    }));
+  if (produced.length > 0) assets.generatedOutputs = produced;
+
+  // The loop point shows the room the user actually uploaded rather than a
+  // stock interior. It is the one asset that is unambiguously theirs.
+  if (isNonEmptyString(result.original)) {
+    assets.detailTeaser = {
+      src: result.original,
+      alt: {
+        en: "Detail from the room you uploaded.",
+        ar: "تفصيل من الغرفة التي رفعتها.",
+      },
+    };
+  }
+
+  return Object.keys(assets).length > 0 ? assets : null;
+}
+
+/**
+ * Turn `/redesign.provenance` into the capabilities the pipeline chapter may
+ * state, for the ONE culture on screen.
+ *
+ * The chapter used to caption itself "conceptual architecture — not live
+ * telemetry" because nothing could prove otherwise: the response carried no
+ * provenance, so `capabilities` was always empty and every node was a label on
+ * a diagram. The backend now reports what it obeys (see transform.provenance),
+ * and this narrows it to the selected culture, because "a LoRA was used" is a
+ * per-culture fact — Lebanese may have one where Persian does not.
+ *
+ * It deliberately routes through storyGenerationMetadataFromManifest and
+ * generationPipelineCapabilitiesFromMetadata rather than deriving capabilities
+ * directly: those two already encode when a claim is permitted (placeholder
+ * suppresses everything; a null LoRA means absent, not unknown; ControlNet
+ * counts only at a weight above zero). A second derivation would be a second
+ * opinion about honesty, and the two would drift.
+ */
+export function generationCapabilitiesFromProvenance(
+  provenance: RedesignProvenance | null | undefined,
+  culture: StyleId,
+): GenerationPipelineCapabilities {
+  if (!provenance || provenance.light_mode === true) return {};
+
+  const controlnet = provenance.controlnet?.[culture];
+  // Flattened into the manifest shape the existing adapter already understands.
+  const manifest: Record<string, unknown> = {};
+  if (isNonEmptyString(provenance.model)) manifest.model = provenance.model;
+  if (finiteNumber(provenance.lora_scale)) manifest.lora_scale = provenance.lora_scale;
+  // Only assert the LoRA when this culture was actually described. Writing the
+  // key at all is the difference between "absent" and "unknown".
+  if (provenance.lora && Object.prototype.hasOwnProperty.call(provenance.lora, culture)) {
+    manifest.lora = provenance.lora[culture];
+  }
+  if (controlnet) {
+    manifest.controlnet = { depth: controlnet.depth, seg: controlnet.seg };
+    if (typeof provenance.dual_controlnet === "boolean") {
+      manifest.dual_controlnet = provenance.dual_controlnet;
+    }
+  }
+  if (Object.keys(manifest).length === 0) return {};
+
+  return generationPipelineCapabilitiesFromMetadata(
+    storyGenerationMetadataFromManifest(manifest),
+  );
 }
 
 /** Convert the legacy asynchronous job status without inventing stage progress. */

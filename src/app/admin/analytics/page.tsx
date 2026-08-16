@@ -191,7 +191,7 @@ export default function AdminAnalyticsPage() {
         key: "basic",
         label: t("Basic", "أساسي"),
         value: basicCount,
-        color: "#8b7432",
+        color: "var(--dd-gold-dim)",
       },
       {
         key: "pro",
@@ -547,8 +547,8 @@ function UserGrowthLineChart({
       >
         <defs>
           <linearGradient id="user-growth-fill" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="rgba(212,175,55,0.35)" />
-            <stop offset="100%" stopColor="rgba(212,175,55,0)" />
+            <stop offset="0%" stopColor="color-mix(in srgb, var(--dd-gold) 35%, transparent)" />
+            <stop offset="100%" stopColor="color-mix(in srgb, var(--dd-gold) 0%, transparent)" />
           </linearGradient>
         </defs>
         <g>

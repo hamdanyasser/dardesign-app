@@ -93,10 +93,15 @@ export default function HandoffPanel({
   onClose,
   capture,
   renderIntent,
+  onAlignCulture,
 }: {
   scene: DesignScene;
   isArabic: boolean;
   onClose: () => void;
+  /** Converts any furniture that does not belong to the room's culture, run
+   *  immediately before capture so the conditioning and the prompt describe
+   *  the same room. Returns what it changed, or null if nothing needed it. */
+  onAlignCulture?: () => { converted: number; kept: number } | null;
   /** What the planner understood that the generator can act on: a room type
    *  the prompt builder knows, and the LoRA scale /restyle already exposes.
    *  Both optional — a hand-built room simply renders on the defaults. */
@@ -110,6 +115,7 @@ export default function HandoffPanel({
   const [result, setResult] = useState<SceneRenderResult | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [elapsed, setElapsed] = useState(0);
+  const [aligned, setAligned] = useState<{ converted: number; kept: number } | null>(null);
 
   const culture = scene.culture === "all" ? "lebanese" : scene.culture;
 
@@ -117,7 +123,20 @@ export default function HandoffPanel({
     if (!capture) return;
     setErr(null);
     setResult(null);
-    // Capture first and show it immediately: the conditioning is real evidence
+
+    // Make the room's furniture match the room's culture BEFORE capturing.
+    // Otherwise the style we send and the silhouettes we condition on disagree
+    // and the render comes back a hybrid — see onAlignCulture at the call site.
+    const align = onAlignCulture?.() ?? null;
+    setAligned(align);
+    if (align) {
+      // The store dispatch has to reach React state and the effect that syncs
+      // the scene into the THREE world before capture() reads it. Two frames:
+      // one for the commit, one for the rebuild.
+      await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+    }
+
+    // Capture and show it immediately: the conditioning is real evidence
     // and does not depend on the backend being reachable, so the user sees what
     // is being preserved even if the render itself fails.
     const c = capture(1024, 768);
@@ -170,7 +189,10 @@ export default function HandoffPanel({
       clearInterval(tick);
       setRendering(false);
     }
-  }, [capture, culture, isArabic]);
+  }, [capture, culture, isArabic, renderIntent, onAlignCulture]);
+  // renderIntent was absent from this list, so a room type or intensity chosen
+  // after the panel mounted was silently dropped and the mount-time values
+  // were sent instead.
 
   const payload = useMemo(() => buildRenderPayload(scene), [scene]);
   const placed = scene.objects.filter((o) => o.origin === "catalog");
@@ -298,8 +320,27 @@ export default function HandoffPanel({
           </div>
 
           {err && (
-            <p style={{ color: "#ff8a72", fontSize: "0.76rem", marginTop: 8 }} role="alert">
+            <p style={{ color: "var(--error)", fontSize: "0.76rem", marginTop: 8 }} role="alert">
               {err}
+            </p>
+          )}
+
+          {/* Converting the room's furniture is a real change to the user's
+              scene, so it is stated rather than done quietly. One Ctrl+Z takes
+              back the conversion and the render together. */}
+          {aligned && (
+            <p
+              style={{ color: "var(--dd-text-secondary)", fontSize: "0.76rem", marginTop: 8 }}
+              role="status"
+            >
+              {isArabic
+                ? `حُوّلت ${aligned.converted} قطعة إلى اللغة التصميمية للغرفة قبل العرض، ليتطابق ما يُطلَب مع ما يُشترَط عليه.`
+                : `Converted ${aligned.converted} piece${aligned.converted === 1 ? "" : "s"} to the room's design language before rendering, so the prompt and the conditioning describe the same room.`}
+              {aligned.kept > 0 &&
+                (isArabic
+                  ? ` بقيت ${aligned.kept} قطعة كما هي — لا مقابل لها في هذه اللغة.`
+                  : ` ${aligned.kept} kept as ${aligned.kept === 1 ? "it was" : "they were"} — no counterpart in this language.`)}
+              {isArabic ? " تراجُع واحد يعيد كل شيء." : " One undo reverses all of it."}
             </p>
           )}
 
@@ -319,7 +360,20 @@ export default function HandoffPanel({
                 </figure>
                 <figure>
                   <img src={cond.seg} alt={isArabic ? "خريطة التقسيم" : "Segmentation control"} />
-                  <figcaption>{isArabic ? "التقسيم · هوية القطع" : "Segments · identity"}</figcaption>
+                  {/* DARDESIGN_DEPTH_ONLY (the documented Colab/Kaggle T4
+                      setting) loads only the depth ControlNet and drops this
+                      image. Presenting it as "identity" evidence when it never
+                      reached the model would be claiming a control we did not
+                      use. */}
+                  <figcaption className={result && !result.dualControlNet ? "warn" : undefined}>
+                    {result && !result.dualControlNet
+                      ? isArabic
+                        ? "التقسيم · لم يُستخدَم (عمق فقط)"
+                        : "Segments · not used (depth only)"
+                      : isArabic
+                        ? "التقسيم · هوية القطع"
+                        : "Segments · identity"}
+                  </figcaption>
                 </figure>
                 {result && (
                   <figure>
@@ -390,8 +444,8 @@ export default function HandoffPanel({
           </div>
           <p>
             {isArabic
-              ? "المحفوظ: مواضع القطع واتجاهاتها، هندسة الغرفة، ونقطة النظر — لأنها إشارة التحكّم نفسها. غير المضمون: مظهر كل قطعة على حدة؛ يخترع النموذج التفاصيل داخل الصورة الظلّية التي يتلقّاها، وتصل الخامات عبر النص فتوجّه ولا تُلزِم."
-              : "Held: placement, orientation, room geometry and viewpoint — they are the control signal itself. Not guaranteed: the appearance of any individual piece. The model invents surface and ornament inside the silhouette it is given, and material choices reach it through the prompt, so they steer rather than bind."}
+              ? "المحفوظ: مواضع القطع واتجاهاتها، هندسة الغرفة، ونقطة النظر — لأنها إشارة التحكّم نفسها. غير المضمون: مظهر كل قطعة على حدة؛ يخترع النموذج التفاصيل داخل الصورة الظلّية التي يتلقّاها. أمّا الخامات التي اخترتها فلا تُرسَل إلى النموذج إطلاقًا: ما يصله هو مفردات الخامات العامة لهذه اللغة التصميمية عبر النص."
+              : "Held: placement, orientation, room geometry and viewpoint — they are the control signal itself. Not guaranteed: the appearance of any individual piece; the model invents surface and ornament inside the silhouette it is given. The materials you chose are not sent to the model at all — only this culture's generic material vocabulary reaches it, through the prompt."}
           </p>
         </div>
 
