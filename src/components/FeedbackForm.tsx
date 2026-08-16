@@ -46,6 +46,78 @@ const PLACEMENTS: { value: FurniturePlacementVerdict; en: string; ar: string }[]
   { value: "not_applicable", en: "No furniture added", ar: "لم يُضف أثاث" },
 ];
 
+/* One 1-5 row.
+
+   Declared at module scope rather than inside FeedbackForm. A component defined
+   in a render body is a brand new type on every render, so React unmounted and
+   remounted the whole fieldset each time a value changed — which threw keyboard
+   focus off the button that had just been pressed.
+
+   The buttons are a five-column grid, not a fixed-width flex row. `w-9` in a
+   flex row still shrinks (flex-shrink defaults to 1), so once this form was laid
+   out three-across inside the results header the boxes compressed narrower than
+   their own digits and the numbers ran into each other. Grid columns divide
+   whatever width exists, so they can get tight but can never overlap.
+
+   The direction is left to `dir` on the section: in RTL the grid already places
+   1 on the right, so no flex-row-reverse is needed to mirror it. */
+function RatingRow({
+  label,
+  value,
+  onChange,
+  disabled,
+  name,
+  t,
+}: {
+  label: string;
+  value: number;
+  onChange: (n: number) => void;
+  disabled: boolean;
+  name: string;
+  t: (en: string, ar: string) => string;
+}) {
+  return (
+    <fieldset className="min-w-0">
+      <legend className="mb-2 text-sm text-[var(--dd-text-secondary)]">
+        {label}
+      </legend>
+      <div role="radiogroup" aria-label={label} className="grid grid-cols-5 gap-1.5">
+        {RATINGS.map((n) => (
+          <button
+            key={n}
+            type="button"
+            role="radio"
+            aria-checked={value === n}
+            aria-label={t(
+              `${n} out of ${FEEDBACK_RATING_MAX}`,
+              `${n} من ${FEEDBACK_RATING_MAX}`,
+            )}
+            onClick={() => onChange(n)}
+            disabled={disabled}
+            data-name={name}
+            className={cn(
+              "flex h-9 min-w-0 items-center justify-center rounded-md border text-sm tabular-nums transition",
+              value === n
+                ? "border-[var(--dd-gold)] bg-[var(--dd-gold)] font-medium text-[var(--dd-ink)]"
+                : "border-[var(--dd-gold-dim)]/40 text-[var(--dd-text-soft)] hover:border-[var(--dd-gold)]",
+              disabled && "cursor-not-allowed opacity-50",
+            )}
+          >
+            {n}
+          </button>
+        ))}
+      </div>
+      {/* Which end is which. A bare 1-5 row leaves the reader to guess whether
+          1 is best, and a rating given under the wrong assumption is worse than
+          no rating — these numbers are the evaluation dashboard's corpus. */}
+      <div className="mt-1.5 flex justify-between text-[0.65rem] uppercase tracking-wider text-[var(--dd-text-secondary)]">
+        <span>{t("Poor", "ضعيف")}</span>
+        <span>{t("Excellent", "ممتاز")}</span>
+      </div>
+    </fieldset>
+  );
+}
+
 export default function FeedbackForm({ historyId, defaultOpen = false, onSaved }: Props) {
   const { isArabic } = useThemeLanguage();
   const t = useCallback((en: string, ar: string) => (isArabic ? ar : en), [isArabic]);
@@ -122,48 +194,6 @@ export default function FeedbackForm({ historyId, defaultOpen = false, onSaved }
     }
   };
 
-  const Stars = ({
-    label,
-    labelAr,
-    value,
-    onChange,
-    name,
-  }: {
-    label: string;
-    labelAr: string;
-    value: number;
-    onChange: (n: number) => void;
-    name: string;
-  }) => (
-    <fieldset className={cn("space-y-1.5", isArabic && "text-right")}>
-      <legend className="text-sm text-[var(--dd-text-secondary)]">
-        {t(label, labelAr)}
-      </legend>
-      <div className={cn("flex gap-1.5", isArabic && "flex-row-reverse")} role="radiogroup">
-        {RATINGS.map((n) => (
-          <button
-            key={n}
-            type="button"
-            role="radio"
-            aria-checked={value === n}
-            aria-label={t(`${n} out of ${FEEDBACK_RATING_MAX}`, `${n} من ${FEEDBACK_RATING_MAX}`)}
-            onClick={() => onChange(n)}
-            disabled={saving}
-            className={cn(
-              "h-9 w-9 rounded-lg border text-sm transition",
-              value === n
-                ? "border-[var(--dd-gold)] bg-[var(--dd-gold)] font-medium text-[var(--dd-ink)]"
-                : "border-[var(--dd-gold-dim)]/40 text-[var(--dd-text-soft)] hover:border-[var(--dd-gold)]",
-            )}
-            data-name={name}
-          >
-            {n}
-          </button>
-        ))}
-      </div>
-    </fieldset>
-  );
-
   if (!open) {
     return (
       <button
@@ -212,27 +242,40 @@ export default function FeedbackForm({ historyId, defaultOpen = false, onSaved }
         </div>
       ) : (
         <>
-          <div className="grid gap-4 sm:grid-cols-3">
-            <Stars
+          {/* Columns that respond to the CONTAINER, not the viewport. This form
+              renders inside a narrow flex item in the studio results header
+              while the window itself is wide, so a `sm:grid-cols-3` breakpoint
+              read the window, forced three columns into a few hundred pixels
+              and squeezed the rating rows until their digits collided. auto-fit
+              measures the space that actually exists and drops to fewer columns
+              when there isn't room for three. */}
+          <div
+            className="grid gap-x-5 gap-y-5"
+            style={{ gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))" }}
+          >
+            <RatingRow
               name="culturalAccuracy"
-              label="Cultural accuracy"
-              labelAr="الدقة الثقافية"
+              label={t("Cultural accuracy", "الدقة الثقافية")}
               value={culturalAccuracy}
               onChange={setCulturalAccuracy}
+              disabled={saving}
+              t={t}
             />
-            <Stars
+            <RatingRow
               name="imageQuality"
-              label="Image quality"
-              labelAr="جودة الصورة"
+              label={t("Image quality", "جودة الصورة")}
               value={imageQuality}
               onChange={setImageQuality}
+              disabled={saving}
+              t={t}
             />
-            <Stars
+            <RatingRow
               name="roomPreservation"
-              label="Room preserved"
-              labelAr="الحفاظ على الغرفة"
+              label={t("Room preserved", "الحفاظ على الغرفة")}
               value={roomPreservation}
               onChange={setRoomPreservation}
+              disabled={saving}
+              t={t}
             />
           </div>
 
