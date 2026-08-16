@@ -972,6 +972,7 @@ def placed_counts(accepted: list[dict]) -> dict[str, int]:
 
 def enforce_counts(
     adds: list[dict], understood: dict, room: dict,
+    removing: set[str] | None = None,
 ) -> tuple[list[dict], list[dict], list[dict]]:
     """Make a stated count literally true. Returns (adds, substitutions, rejected).
 
@@ -1038,6 +1039,29 @@ def enforce_counts(
                     "why": f"{len(matched)} placed but {target} asked for",
                 })
         elif len(matched) < target:
+            # Never top up a category this same plan is REMOVING. "remove one
+            # chair" is intermittently extracted as requestedFurniture
+            # [{chair, 1}] — the model reads the noun and the number as a
+            # request — and topping that up added a chair back beside the one
+            # it had just removed, so the room ended unchanged and carried an
+            # auto-placed piece nobody asked for. Observed live: identical
+            # brief, one run correct and the next inverted.
+            #
+            # The guard is deliberately about the CONTRADICTION rather than
+            # about intent. "add 5 chairs" also classifies as `edit` once the
+            # room has anything in it, so skipping enforcement on edit would
+            # break the case this function exists for. A plan that removes a
+            # category and is simultaneously short of it is incoherent whatever
+            # the model meant.
+            if removing and (satisfying & removing):
+                rejected.append({
+                    "catalogId": item["id"],
+                    "why": (
+                        f"not added to reach {target}: this plan is removing "
+                        f"a {category.replace('_', ' ')}"
+                    ),
+                })
+                continue
             missing = target - len(matched)
             for _ in range(missing):
                 adds.append({
@@ -1892,8 +1916,21 @@ def plan(
             accepted, moves, removals, rejected = validate_operations(
                 ops, understood["culture"], room, uids,
             )
+            # Categories this plan is removing, so count enforcement cannot
+            # add one straight back. `movable` is the only place uid -> category
+            # is known; removals carry a targetUid alone.
+            _cat_of = {
+                o["uid"]: o.get("category")
+                for o in movable
+                if isinstance(o.get("category"), str)
+            }
+            removing = {
+                _cat_of[r["targetUid"]]
+                for r in removals
+                if isinstance(r, dict) and _cat_of.get(r.get("targetUid"))
+            }
             accepted, substitutions, count_rejected = enforce_counts(
-                accepted, understood, room,
+                accepted, understood, room, removing=removing,
             )
             rejected = rejected + count_rejected
             refused = rejected

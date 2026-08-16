@@ -1409,3 +1409,65 @@ def test_the_prompt_tells_the_model_not_to_swap_furniture_itself():
     flat = " ".join(planner._SYSTEM.split())
     assert "YOUR JOB HERE IS THE ARRANGEMENT, NOT THE FURNITURE" in flat
     assert "DAR does that itself, deterministically" in flat
+
+
+# ---------------------------------------------------------------- removal vs counts
+
+def _room():
+    return {"width_cm": 520, "depth_cm": 400, "height_cm": 280}
+
+
+def test_a_removed_category_is_never_topped_back_up():
+    """"remove one chair" must not also ADD a chair.
+
+    The model intermittently extracts the noun and the number out of a removal
+    brief as `requestedFurniture: [{chair, 1}]`. Count enforcement then saw a
+    plan short of its target and appended a chair beside the one it had just
+    removed, so the room ended unchanged plus an auto-placed piece nobody asked
+    for. Observed live against Gemini: the identical brief was correct on one
+    run and inverted on the next, which is why this is guarded in code rather
+    than in the prompt.
+    """
+    understood = {
+        "culture": "lebanese",
+        "intent": "edit",
+        "requestedFurniture": [{"category": "chair", "count": 1}],
+    }
+    adds, subs, rejected = planner.enforce_counts(
+        [], understood, _room(), removing={"chair"},
+    )
+    assert adds == [], "a plan removing a chair must not add one back"
+    assert any("removing" in r.get("why", "") for r in rejected), (
+        "the skipped top-up must be reported, never silent"
+    )
+
+
+def test_counts_are_still_enforced_when_nothing_is_being_removed():
+    """The guard must not disarm the feature enforce_counts exists for.
+
+    "add 5 chairs" classifies as `edit` as soon as the room holds anything, so
+    a fix keyed on intent would have broken this. Keyed on the contradiction
+    instead, an ordinary shortfall still tops up.
+    """
+    understood = {
+        "culture": "lebanese",
+        "intent": "edit",
+        "requestedFurniture": [{"category": "chair", "count": 5}],
+    }
+    adds, _subs, _rejected = planner.enforce_counts(
+        [], understood, _room(), removing=set(),
+    )
+    assert len(adds) == 5
+    assert all(a["autoPlaced"] for a in adds)
+
+
+def test_removing_one_category_does_not_block_topping_up_another():
+    understood = {
+        "culture": "lebanese",
+        "intent": "edit",
+        "requestedFurniture": [{"category": "lamp", "count": 2}],
+    }
+    adds, _subs, _rejected = planner.enforce_counts(
+        [], understood, _room(), removing={"chair"},
+    )
+    assert len(adds) == 2, "removing a chair says nothing about lamps"
