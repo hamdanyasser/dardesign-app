@@ -1,0 +1,690 @@
+% =====================================================================
+%  DAR DESIGN - FYP Defence Booklet
+%  Ten pages. A single consolidated study source.
+%
+%  COMPILE: pdflatex DAR_Defence_Booklet.tex   (run twice for the TOC)
+%  Overleaf: upload and press Recompile. Uses base TeX Live packages only.
+%  No Arabic text is used anywhere, deliberately, so pdflatex is enough
+%  and no fontspec / polyglossia / bidi setup is required.
+% =====================================================================
+\documentclass[10.5pt,a4paper]{article}
+
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{mathpazo}                  % Palatino: the editorial serif
+\usepackage[scaled=0.92]{helvet}       % sans, for headings
+\usepackage{courier}
+\usepackage[margin=2.1cm,top=2.0cm,bottom=2.0cm]{geometry}
+\usepackage{xcolor}
+\usepackage[most]{tcolorbox}
+\usepackage{titlesec}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{enumitem}
+\usepackage{fancyhdr}
+\usepackage{microtype}
+\usepackage[hidelinks]{hyperref}
+
+% ---------------------------------------------------------------- palette
+% DarDesign's own tokens: limestone ground, cobalt accent, brass secondary.
+\definecolor{cobalt}{HTML}{174590}
+\definecolor{brass}{HTML}{8A6A28}
+\definecolor{ink}{HTML}{241F18}
+\definecolor{muted}{HTML}{5D5647}
+\definecolor{limestone}{HTML}{F7F0E4}
+\definecolor{sunk}{HTML}{EFE6D6}
+\definecolor{danger}{HTML}{962C1B}
+\definecolor{okgreen}{HTML}{256641}
+\definecolor{rule}{HTML}{C9C0AE}
+
+\color{ink}
+
+% ---------------------------------------------------------------- headings
+\titleformat{\section}
+  {\normalfont\sffamily\bfseries\large\color{cobalt}}{}{0pt}{}
+  [\vspace{-0.6em}{\color{rule}\rule{\linewidth}{0.8pt}}]
+\titleformat{\subsection}
+  {\normalfont\sffamily\bfseries\normalsize\color{ink}}{}{0pt}{}
+\titlespacing*{\section}{0pt}{1.1em}{0.7em}
+\titlespacing*{\subsection}{0pt}{0.9em}{0.35em}
+
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{0.45em}
+\renewcommand{\arraystretch}{1.25}
+
+% ---------------------------------------------------------------- header
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\footnotesize\sffamily\color{muted}DAR DESIGN}
+\fancyhead[R]{\footnotesize\sffamily\color{muted}FYP Defence Booklet}
+\fancyfoot[C]{\footnotesize\sffamily\color{muted}\thepage\ / 10}
+\renewcommand{\headrulewidth}{0.4pt}
+\renewcommand{\headrule}{\hbox to\headwidth{\color{rule}\leaders\hrule height \headrulewidth\hfill}}
+
+% ---------------------------------------------------------------- boxes
+% "Say this" - the line to rehearse.
+\newtcolorbox{sayit}[1][Say this]{
+  enhanced, breakable, colback=cobalt!5, colframe=cobalt,
+  borderline west={2.5pt}{0pt}{cobalt}, boxrule=0pt, frame hidden,
+  arc=2pt, left=8pt, right=8pt, top=6pt, bottom=6pt,
+  fonttitle=\sffamily\bfseries\scriptsize,
+  coltitle=brass, title={\MakeUppercase{#1}}, attach title to upper=\par\vspace{2pt}
+}
+% A claim to avoid, or a warning.
+\newtcolorbox{avoid}[1][Do not say]{
+  enhanced, breakable, colback=danger!5, colframe=danger,
+  borderline west={2.5pt}{0pt}{danger}, boxrule=0pt, frame hidden,
+  arc=2pt, left=8pt, right=8pt, top=6pt, bottom=6pt,
+  fonttitle=\sffamily\bfseries\scriptsize,
+  coltitle=danger, title={\MakeUppercase{#1}}, attach title to upper=\par\vspace{2pt}
+}
+% A measured fact, or a strength worth leaning on.
+\newtcolorbox{strength}[1][Worth quoting]{
+  enhanced, breakable, colback=okgreen!5, colframe=okgreen,
+  borderline west={2.5pt}{0pt}{okgreen}, boxrule=0pt, frame hidden,
+  arc=2pt, left=8pt, right=8pt, top=6pt, bottom=6pt,
+  fonttitle=\sffamily\bfseries\scriptsize,
+  coltitle=okgreen, title={\MakeUppercase{#1}}, attach title to upper=\par\vspace{2pt}
+}
+% A prompt to read out loud.
+\newtcolorbox{prompt}{
+  enhanced, breakable, colback=sunk, colframe=rule,
+  boxrule=0.6pt, arc=3pt, left=8pt, right=8pt, top=6pt, bottom=6pt
+}
+
+\newcommand{\pagelabel}[2]{%
+  {\sffamily\bfseries\scriptsize\color{brass}\MakeUppercase{Page #1 --- #2}}\par\vspace{0.2em}}
+\newcommand{\tests}[1]{{\footnotesize\ttfamily\color{muted}#1}}
+
+\begin{document}
+
+% ===================================================================== 1
+\pagelabel{1}{the spine}
+\section*{If you forget everything else}
+
+\begin{sayit}[The whole system, one line]
+LLM = Designer \quad$\cdot$\quad DAR = Spatial Truth \quad$\cdot$\quad
+Build Mode = User Control \quad$\cdot$\quad SDXL + ControlNet = Renderer
+\end{sayit}
+
+\subsection*{The four analogies --- memorise these, not the code}
+\begin{tabularx}{\linewidth}{@{}lX@{}}
+\toprule
+\textbf{ControlNet} & ``Tracing your room, not painting a new one.''\\
+\textbf{LoRA} & ``The model already speaks interiors. This gives it an accent.''\\
+\textbf{Render with DAR} & ``Normally it traces your photo. Here it traces your 3D model.''\\
+\textbf{Planner gates} & ``Most tools give the model a text box. I gave it a dropdown.''\\
+\bottomrule
+\end{tabularx}
+
+\subsection*{The 30-second pitch}
+\begin{sayit}
+Ask any general image model for a majlis and you get a Western living room with ornate cushions.
+DAR is built on a curated Arab architectural ontology --- thirty terms per culture, bilingual, each
+with a verification state --- and three LoRAs trained per culture. It reads the room with depth and
+segmentation before it generates, so the redesign keeps your room's actual geometry. And every
+element traces back to a named, sourced entry rather than to a model's memory.
+\end{sayit}
+
+\subsection*{The numbers a jury may ask for}
+\begin{tabularx}{\linewidth}{@{}lX@{}}
+\toprule
+Cultures & 3 trained (Lebanese, Khaleeji, Moroccan); Persian is prompt-only\\
+Catalogue & 27 items --- 9 per culture\\
+3D assets & 1 real CC0 scan, 26 procedural; found objects are massing\\
+Ontology & $\sim$30 terms per culture; 6 of 30 carry a citation\\
+Verified & Khaleeji 30/30, Moroccan 30/30, \textbf{Lebanese 0/30}\\
+Knowledge base & 105 chunks (35 per culture) for retrieval\\
+LoRA files & 3 files, $\sim$93\,MB each, distinct checksums, all deployed\\
+Training set & 12--19 images per culture\\
+Tests & 793 backend, 65 frontend\\
+\bottomrule
+\end{tabularx}
+
+\newpage
+% ===================================================================== 2
+\pagelabel{2}{the live demo}
+\section*{Click by click, about 14 minutes}
+
+\textbf{Before they walk in:} double-click \texttt{START DEMO.bat}, leave both black windows open,
+sign in, open four tabs (Landing, Studio, History, a tested Build Mode scene), put one room photo on
+the Desktop, and keep an \textbf{FYP BACKUP} folder of real earlier outputs. Light mode for a projector.
+
+\subsection*{0:00 --- Landing page, scroll slowly \hfill \textnormal{\small 90\,s}}
+Five scenes. Stop on the one showing labelled elements with confidence values.
+\begin{sayit}
+Most generative interior tools begin and end with an image. We wanted the design to stay
+understandable, culturally grounded and editable.
+\end{sayit}
+
+\subsection*{1:30 --- Studio: drag the photo, choose the house \hfill \textnormal{\small 60\,s}}
+\begin{sayit}
+Three cultures, each with its own trained model. Not three prompts --- three LoRAs, trained separately.
+\end{sayit}
+
+\subsection*{2:30 --- Generate, and talk over the wait \hfill \textnormal{\small 2\,min}}
+``Inside DAR'' plays on screen. Narrate along with it. Point at the elapsed seconds.
+\begin{sayit}
+There's no percentage bar on purpose. The backend returns once and has no intermediate state, so a
+percentage would be an animation pretending to be telemetry. It counts real elapsed seconds instead.
+\end{sayit}
+
+\subsection*{4:30 --- The reveal: drag the wipe slowly, twice \hfill \textnormal{\small 2\,min}}
+\begin{sayit}
+Same room, three cultures. Look at what didn't move --- the window, the corners, the depth of the
+room. That's the ControlNet conditioning holding.
+\end{sayit}
+
+\subsection*{6:30 --- Three tabs only: Culture DNA, Understand, Edit \hfill \textnormal{\small 3\,min}}
+On Culture DNA point at a \emph{verified} and an \emph{unverified} label. On Edit change a wall
+colour --- it returns instantly.
+\begin{sayit}[Say on Edit]
+That was instant because it isn't a second generation. It's a masked hue and saturation edit that
+keeps the brightness channel, so every shadow is still the original render's lighting.
+\end{sayit}
+
+\subsection*{9:30 --- Build Mode: let them look for two seconds \hfill \textnormal{\small 3\,min}}
+Then run \textbf{Prompt A} (page 8). Drag a piece into a wall for the red refusal, and near a found
+object for amber.
+
+\subsection*{12:30 --- Render with DAR: point at the two evidence images first \hfill \textnormal{\small 2\,min}}
+Then state the limit yourself (page 4). This is the strongest moment in the demo.
+
+\subsection*{14:30 --- Close on evidence \hfill \textnormal{\small 90\,s}}
+\texttt{/history}, then Evaluation. Point at a figure reading \textbf{``No data''}.
+
+\begin{avoid}[Cut to five minutes?]
+Reveal (45\,s) $\rightarrow$ Culture DNA verified/unverified (15\,s) $\rightarrow$ Build Mode
+opening (90\,s) $\rightarrow$ Render with DAR and the two maps (90\,s) $\rightarrow$ architecture
+split (30\,s).
+\end{avoid}
+
+\newpage
+% ===================================================================== 3
+\pagelabel{3}{the core}
+\section*{How a redesign actually happens}
+
+\subsection*{1 $\cdot$ The redesign --- \texttt{POST /redesign}}
+\textbf{Plain:} one photo in, three redesigns out, roughly 1--2 minutes.
+\begin{itemize}[leftmargin=1.1em,itemsep=1pt]
+  \item \textbf{One understanding pass.} Depth Anything produces a depth map; OneFormer produces an
+        ADE20K segmentation map. This runs \emph{once}, however many cultures are requested.
+  \item \textbf{Three generations.} SDXL, both ControlNets, and that culture's LoRA.
+  \item \textbf{Returns} three PNGs plus object map, segmentation regions, depth map, room analysis,
+        job id, duration and SSIM.
+\end{itemize}
+\begin{sayit}
+It reads the room once, then redesigns it three times. The expensive understanding step is shared,
+not repeated for every culture.
+\end{sayit}
+
+\subsection*{2 $\cdot$ Dual ControlNet --- the most important idea}
+\begin{tabularx}{\linewidth}{@{}lX@{}}
+\toprule
+Depth map & geometry, perspective, near and far\\
+Segmentation & layout --- what kind of region belongs where\\
+LoRA & the cultural visual language\\
+SDXL & generates inside all three constraints at once\\
+\bottomrule
+\end{tabularx}
+\begin{sayit}
+It's the difference between telling an artist ``paint me a Lebanese living room'' and handing them a
+tracing of \emph{your} room and saying ``paint inside these lines.''
+\end{sayit}
+\textbf{If they ask what the maps are:} depth is ``how far away is every pixel''; segmentation is
+``paint-by-numbers --- this colour is a wall, this one is a sofa.''
+
+\subsection*{3 $\cdot$ LoRA --- where the culture lives}
+A $\sim$93\,MB low-rank adapter fused into SDXL at generation time. Trained on a free T4 by caching
+image latents and text embeddings in fp16, freeing the encoders, then training only the fp32-master
+UNet plus the LoRA under mixed precision. \textbf{Loading the base in fp32 runs out of memory; in
+fp16 it produces NaNs.} The caching is what makes it both fit and stay stable.
+\begin{strength}[If they attack the 12--19 images]
+``LoRA is low-shot style adaptation. It isn't learning what furniture is --- the base model already
+knows interiors. The adapter learns the cultural visual direction.''
+\end{strength}
+
+\subsection*{4 $\cdot$ The ontology --- the project's spine}
+Terms carry English and Arabic labels, a weight, a hex colour and a \textbf{verification state} ---
+verified-and-cited, verified, or unverified, never flattened to a boolean. It feeds the prompt
+builder, Culture DNA, the highlighter, materials, the catalogue and the knowledge base.
+\begin{sayit}
+Every cultural term comes from a dictionary we built, not from the model improvising at runtime ---
+and the app shows which knowledge has actually been checked.
+\end{sayit}
+
+\newpage
+% ===================================================================== 4
+\pagelabel{4}{the headline}
+\section*{Render with DAR}
+
+\textbf{Plain:} the user arranges the room in 3D, and the AI renders \emph{that} arrangement
+photorealistically.
+
+\textbf{The insight:} the pipeline already needs two control images, normally derived from the
+photograph. Build Mode renders them \emph{from the 3D scene} instead --- three offscreen passes
+capture a beauty image, a linear depth pass, and a flat ADE20K segmentation pass.
+
+\textbf{One optional argument.} \texttt{control\_override}. Passing \texttt{None} behaves exactly as
+before, so the original \texttt{/redesign} path is byte-for-byte unchanged. No model, notebook or
+Colab change was needed or made.
+
+\begin{sayit}[Say --- the simplest version]
+Normally it traces your photo. Here it traces your 3D model instead.
+\end{sayit}
+\begin{sayit}[Then the fuller line]
+Layout stops being something the model infers from a sentence and becomes something it's
+conditioned on.
+\end{sayit}
+
+\begin{avoid}[Always state the limit yourself --- do not skip this]
+``What's held is placement, orientation and viewpoint, because that's the control signal. What isn't
+held is the surface of any individual piece --- the model still invents ornament inside the
+silhouette. The panel says so itself.''\\[2pt]
+Saying the limit out loud is worth more to a jury than the render is.
+\end{avoid}
+
+\subsection*{The camera --- your best bug story}
+\begin{itemize}[leftmargin=1.1em,itemsep=1pt]
+  \item \textbf{The bug:} capture cloned the on-screen orbit camera --- \emph{outside} the room,
+        30$^\circ$ above horizontal, 38$^\circ$ field of view. A doll's-house view.
+  \item \textbf{Why it mattered:} SDXL and both ControlNets were trained on interior photographs
+        taken from \emph{inside} rooms, at eye height, with a wide lens. Every capture handed them a
+        viewpoint no camera could occupy. The first real render came back looking like a storage room.
+  \item \textbf{The fix:} the capture builds its own camera --- inside the room, eye height 155\,cm,
+        54$^\circ$ FOV (about a 24\,mm interior lens). It keeps only the user's azimuth.
+  \item \textbf{Two things followed for free:} all four walls can stay, because the near wall is
+        behind the lens; and a capture-only ceiling was needed, since from inside an open top reads
+        as sky.
+\end{itemize}
+
+\begin{strength}[Numbers to quote]
+Verified on a real GPU: 10 detected objects plus 3 placed Khaleeji pieces rendered in
+\textbf{35.6 seconds}, with \texttt{control\_override} confirmed reaching the pipeline and the
+photo-derived annotator called \textbf{zero times} --- proving no silent fallback. Segmentation
+output is pixel-exact against the backend palette.
+\end{strength}
+
+\textbf{Three bugs found by measuring pixels, not looking at them:} ACES tone mapping shifted class
+colours (a wall from 120 to 129); the camera-facing walls rendered opaque in capture and walled off
+the room; and the framing left 42\% of the frame empty --- now about 16\%.
+
+\newpage
+% ===================================================================== 5
+\pagelabel{5}{the planner and rag}
+\section*{Why the LLM cannot hallucinate furniture}
+
+The model returns \textbf{operations} --- add, move, remove --- over the current scene, plus an
+\texttt{understood} block (culture, room type, capacity, intensity, requested pieces). It is shown
+the whole scene with uids; found massing is shown with \emph{no uid}, which makes moving a
+measurement unrepresentable rather than merely discouraged.
+
+\subsection*{The six gates --- memorise these}
+\begin{tabularx}{\linewidth}{@{}lX@{}}
+\toprule
+\textbf{1 Closed vocabulary} & the catalogue id is a JSON-Schema enum of that culture's 9 ids, so an
+  invented piece is \emph{unrepresentable}, not merely unlikely\\
+\textbf{2 No dimensions} & the model emits no sizes at all; they come from the ontology\\
+\textbf{3 Backend validation} & unknown id, absurd coordinate or unknown material: dropped
+  \emph{and reported}\\
+\textbf{4 Client re-validation} & every placement runs the same oriented-rect collision test a human
+  drag gets\\
+\textbf{5 Advisories pass} & placing where the old sofa stood is redesign, not error\\
+\textbf{6 Culture coherence} & wrong-culture pieces are dropped and named\\
+\bottomrule
+\end{tabularx}
+
+\begin{sayit}
+The model never emits a dimension and never emits a coordinate I trust. It picks from a closed
+vocabulary and proposes positions --- six gates decide what actually enters the room.
+\end{sayit}
+
+\subsection*{Two more facts}
+\begin{itemize}[leftmargin=1.1em,itemsep=1pt]
+  \item \textbf{Counts are DAR's arithmetic.} Ask a design model for five chairs and it reliably
+        returns four and a paragraph about proportion. DAR reconciles: short, it appends; over, it
+        trims and names the surplus.
+  \item \textbf{Unconfigured is a working mode.} No key, a provider error, or the call cap reached
+        gives a deterministic rule-based layout, and the badge says ``Planned by DAR's rules''
+        instead of naming a model. It never silently pretends a model answered.
+\end{itemize}
+
+\subsection*{Cultural RAG --- yes, you do use it}
+\begin{avoid}[Correction to your Defence Playbook]
+One of your earlier documents says ``RAG is not part of the current production pipeline.''
+\textbf{That is wrong.} \texttt{backend/knowledge.py} and \texttt{backend/retrieval.py} are imported
+by the planner, run on every plan, and return \texttt{evidence} in the live response. Do not deny a
+real feature.
+\end{avoid}
+
+\begin{itemize}[leftmargin=1.1em,itemsep=1pt]
+  \item \textbf{BM25 lexical retrieval} over 105 knowledge chunks (35 per culture), assembled at
+        load time from three joined files: vocabulary, citations, editorial layer.
+  \item \textbf{Retrieval never decides.} A test asserts that no chunk contains a catalogue id, a
+        dimension or a coordinate. RAG supplies knowledge, the planner reasons, the ontology limits
+        vocabulary, and the placement engine owns spatial truth.
+  \item \textbf{Why lexical, not embeddings:} the vocabulary is proper nouns --- zellige,
+        mashrabiya, sadu --- where exact matching is the better signal; it is local and free and
+        needs no model download in CI; and a scored token match can be shown to a jury, while a
+        cosine distance cannot.
+\end{itemize}
+
+\begin{sayit}
+Open-book instead of closed-book. It designs from a reference sheet, not from memory.
+\end{sayit}
+
+\newpage
+% ===================================================================== 6
+\pagelabel{6}{build mode and the tools}
+\section*{Where the design stays editable}
+
+\subsection*{Build Mode}
+\begin{itemize}[leftmargin=1.1em,itemsep=1pt]
+  \item \textbf{Metric.} Centimetres, Y up. The scene is a plain serializable object --- no class
+        instances, no Three.js types --- which makes saving, undo/redo and the render handoff the
+        same problem.
+  \item \textbf{It doesn't open empty.} The floor area is backed out of the room analysis, and the
+        detected furniture is reconstructed as \emph{locked massing}.
+  \item \textbf{The shell says how it knows:} measured, estimated or default. A default room is
+        never presented as a measurement.
+  \item \textbf{Undo is snapshot-based with gesture coalescing}, so a 200-frame drag is one entry.
+\end{itemize}
+\begin{sayit}
+It doesn't open on an empty grid. Your floor was measured from the photo, and everything the
+segmentation found is already standing there --- locked, because moving one would turn a measurement
+into a fiction.
+\end{sayit}
+
+\subsection*{Two placement tiers --- a design decision, so say so}
+\begin{sayit}
+Red is physics --- that's inside a wall. Amber is judgement --- that's where your old sofa was, are
+you sure? Amber never stops you, because replacing your sofa is probably the whole point.
+\end{sayit}
+
+\subsection*{Three realism tiers}
+\begin{tabularx}{\linewidth}{@{}llX@{}}
+\toprule
+\textbf{real} & 1 of 27 & an actual scanned CC0 asset\\
+\textbf{procedural} & 26 of 27 & DAR's own drawing from the ontology\\
+\textbf{massing} & found objects & read off the photo: class and footprint known, form not\\
+\bottomrule
+\end{tabularx}
+\begin{strength}[Why only one scan --- a strength, not an excuse]
+``I downloaded about twenty free scanned assets and rejected nineteen as culturally wrong. The near
+misses are the instructive ones: the available lanterns are Western storm lanterns, while a Moroccan
+lantern is pierced --- and the piercing IS the cultural signal. My own catalogue art is more
+culturally specific than anything available under a free licence.''
+\end{strength}
+
+\subsection*{Colour Control}
+A masked HSV edit on the finished render. Hue and saturation come from the picked colour while the
+\textbf{value channel is preserved}, so every shadow and texture survives. The mask is the
+segmentation already computed, so ``floor'' means the ADE20K floor and not the rug on it. Edges are
+\emph{feathered, never eroded} --- eroding traces every object in the old colour and reads as a glow.
+\begin{sayit}
+It's dyeing the shirt, not buying a new one. The folds and shadows stay; I'm changing the colour,
+not regenerating the object.
+\end{sayit}
+
+\subsection*{The Understood Room}
+Element highlighter (segmentation regions, click for the Arabic term); 2D plan (footprints and wall
+openings); depth orbit (the styled image displaced by the run's own depth map).
+\begin{sayit}
+How it looks, how it's laid out, and how it feels to stand in --- all three from the same single
+reading of your room.
+\end{sayit}
+
+\newpage
+% ===================================================================== 7
+\pagelabel{7}{the honesty layer}
+\section*{This is your thesis, not a footnote}
+
+\subsection*{Evaluation}
+\begin{itemize}[leftmargin=1.1em,itemsep=1pt]
+  \item \textbf{Two populations, both named on screen.} Rooms generated is every saved design; every
+        \emph{average} is over evaluable designs only --- unedited and not placeholder. The excluded
+        counts are printed, so the arithmetic closes in front of the viewer.
+  \item \textbf{Every unmeasured figure is null and renders ``No data'', never 0.} On a 1--5 scale a
+        zero is unreachable, so printing one would fabricate a result.
+  \item \textbf{Filters are applied in SQL from one helper} --- an average cannot be filtered after
+        it has been taken.
+  \item \textbf{Scores are columns on the history row}, so deleting a design removes it from every
+        average in the same instant.
+\end{itemize}
+
+\begin{tabularx}{\linewidth}{@{}lX@{}}
+\toprule
+SSIM & how much structure survived\\
+LPIPS & how different it looks --- \emph{higher means more change, not worse}\\
+CLIP & can an independent model recognise the culture\\
+\bottomrule
+\end{tabularx}
+
+\begin{sayit}[Say --- the CLIP one is your strongest]
+CLIP is a separate model that never saw my training data. I show it my render and ask which culture
+it is. When it says Moroccan for my Moroccan renders, that's independent confirmation, not my own
+marking.
+\end{sayit}
+\begin{sayit}[And the line that defines the project]
+Where something wasn't measured it says ``No data'', never zero. Missing evidence should look missing.
+\end{sayit}
+
+\subsection*{Two backends, one codebase}
+The \textbf{render host} is a borrowed GPU behind a rotating tunnel with no durable state. The
+\textbf{data host} holds accounts, saved designs and images. The GPU host has \textbf{no users table
+and is sent no session cookie} --- which is why the usage check is its own endpoint rather than a
+check inside the render call, and why the planner's API key lives on the machine you control.
+
+\subsection*{Plans and usage}
+Basic is 3 designs a week; Pro is \$20 for 30 days. The usage gate reads, decides and increments
+under one lock in one transaction, so two tabs cannot both spend the last free design. It fails
+\emph{closed} on quota and \emph{open} on anything else --- an unreachable accounts backend is not
+the user's overspend. Nobody subscribes themselves; an admin decides. Unsubscribing is the user's own.
+
+\subsection*{Placeholder mode is a first-class mode, not a mock}
+The real generation module is canonical and contains a placeholder branch; nothing else is stubbed.
+\texttt{placeholder: true} propagates to the front end so the truth gates suppress evidence that
+isn't real. There is no fake render button.
+
+\newpage
+% ===================================================================== 8
+\pagelabel{8}{live prompts}
+\section*{Four prompts, in the order to use them}
+
+\textbf{Use A live.} Keep B, C and D for extra time or a challenge. Read the prompt naturally, then
+say what capability it tests.
+
+\subsection*{A $\cdot$ Designer test --- use this one}
+\begin{prompt}
+Seven guests are coming tonight. Turn this into a warm Lebanese living room where everyone can sit,
+talk and move comfortably. Choose the furniture and layout yourself. Keep it elegant and open.\\[3pt]
+\tests{proves: autonomous design reasoning, seating capacity, circulation}
+\end{prompt}
+\begin{sayit}[Introduce it]
+I'm giving DAR the goal, not coordinates or a furniture list.
+\end{sayit}
+
+\subsection*{B $\cdot$ Zoning test}
+\begin{prompt}
+Create a Moroccan room with two moods. Make one area a lively tea lounge for five people and another
+a quiet reading corner for one. Keep them separate with a clear path between them.\\[3pt]
+\tests{proves: it understands activities, not just furniture counts}
+\end{prompt}
+
+\subsection*{C $\cdot$ Restyle test}
+\begin{prompt}
+I like this layout. Keep it. Transform it from Lebanese to Moroccan while preserving the seating
+arrangement, table positions and circulation. Change the culture, not the basic design.\\[3pt]
+\tests{proves: cultural transformation without destroying composition}
+\end{prompt}
+\begin{strength}[The number to quote here]
+Measured live on a deliberately un-Moroccan room: \textbf{centre occupied 79.1\% $\rightarrow$
+28.6\%}, and \textbf{seating at the wall 0 of 2 $\rightarrow$ 2 of 2}. The 28.6\% remaining is the
+coffee table, centred --- which the Moroccan convention explicitly allows.
+\end{strength}
+
+\subsection*{D $\cdot$ Chaos test --- the memorable ending}
+\begin{prompt}
+I changed my mind. Give me 50 coffee tables, 12 sofas, 25 chairs and as many lamps as possible. Turn
+this room into a furniture warehouse. But keep everything inside the room and do not overlap
+anything.\\[3pt]
+\tests{proves: the LLM can be creative; DAR still controls spatial truth}
+\end{prompt}
+\begin{sayit}[Introduce it]
+And now let's test the most dangerous component of an AI system: the user.
+\end{sayit}
+\begin{sayit}[After the result]
+The LLM understood my ridiculous request. But understanding it doesn't give it permission to violate
+the room.
+\end{sayit}
+
+\subsection*{Hallucination test, if challenged}
+\begin{prompt}
+Make this Moroccan. Add a grand piano, aquarium, fireplace and a huge crystal chandelier. If
+DarDesign doesn't have something, don't invent it.\\[3pt]
+\tests{proves: closed vocabulary --- none of those exist in a nine-piece catalogue}
+\end{prompt}
+
+\newpage
+% ===================================================================== 9
+\pagelabel{9}{the q\&a drill}
+\section*{Rehearse these until they bore you}
+
+\subsection*{Nano Banana or ChatGPT does this for free. Why do you exist?}
+\textbf{Do not argue image quality --- you lose.} ``A general model gives you decor. DAR gives you
+provenance. It names every cultural element and where it came from, it lets you compose an exact
+layout and conditions the generator on it, and it is correct about a specific culture rather than
+plausible about all of them.''
+
+\subsection*{How do you know the room is preserved?}
+``Two ways and one gap. The depth and segmentation maps are the control signal, and I verified on a
+real GPU that my scene-rendered versions reach the pipeline with no fallback. I also measured the
+segmentation output pixel by pixel against the backend palette. \textbf{What I have not done is a
+side-by-side preservation study against a baseline} --- that is unmeasured and I would not claim it.''
+
+\subsection*{Your hero culture is 0 of 30 verified. Isn't accuracy the whole claim?}
+\textbf{Say it before they find it.} ``It is, which is why the verification state is visible in the
+app rather than hidden. Khaleeji and Moroccan are both 30 of 30. Lebanese awaits my partner's
+sign-off --- and because every consumer reads the flag from the ontology rather than copying it, the
+day she signs off the whole app upgrades with no code change.''
+
+\subsection*{How do you stop the LLM hallucinating?}
+Lead with the strongest gate: \textbf{``the catalogue id is a schema enum, so an invented piece is
+unrepresentable rather than unlikely.''} Then the other five, briefly.
+
+\subsection*{Does the LLM control placement?}
+``It proposes. It has no final authority. DAR validates oriented footprints against room boundaries,
+other objects and opening clearances. \textbf{This is why an LLM hallucination doesn't automatically
+become scene geometry.}''
+
+\subsection*{Is this real 3D reconstruction?}
+``No, and I wouldn't call it that. Depth and segmentation give structural understanding, and DAR
+estimates room scale. Detected furniture is locked fallback massing because we know its approximate
+class and footprint, not its exact 3D form.''
+
+\subsection*{Does ControlNet guarantee the layout?}
+``No --- it strongly constrains it. Depth constrains geometry and viewpoint, segmentation constrains
+object regions. Diffusion still synthesises, so I wouldn't claim a mathematical guarantee.''
+
+\subsection*{Twelve to nineteen training images is very small.}
+``It is, and I wouldn't train a base model on it. LoRA is low-shot style adaptation --- it's learning
+a visual style, not what furniture is. The base model already knows what a sofa is; the LoRA teaches
+it what a \emph{Khaleeji} sofa looks like.''
+
+\subsection*{Why only three cultures?}
+``Three with an end-to-end implementation rather than broad coverage without the data, design
+knowledge and catalogue to support it. The architecture expands.''
+
+\subsection*{Is this a business?}
+\textbf{Don't pitch consumer subscriptions.} ``The consumer restyle market is crowded and
+commoditising. The defensible version is business-facing in the Gulf --- a furniture retailer
+visualising their own catalogue inside a customer's actual room. Build Mode with a real catalogue and
+provenance is already most of that product.''
+
+\subsection*{What was the hardest bug?}
+Tell the camera story (page 4). It is concrete, it shows you diagnosed rather than guessed, and it
+ends with two things that improved for free.
+
+\subsection*{What are you least happy with?}
+This question rewards candour. ``The evaluation. The engineering is thorough and the evaluation is
+thin --- no user study, no layout-preservation baseline. I built the instrumentation and ran out of
+time to run it.''
+
+\subsection*{What next?}
+Three, in order: \textbf{a user study}; \textbf{the layout-preservation comparison} against a
+text-only baseline; \textbf{per-culture geometry}, so a Moroccan horseshoe-arch back and a low
+Khaleeji majlis bench differ in silhouette, not only in dimensions.
+
+\newpage
+% ===================================================================== 10
+\pagelabel{10}{limits and failure}
+\section*{Never claim these}
+
+\begin{tabularx}{\linewidth}{@{}XX@{}}
+\toprule
+\textbf{Do not say} & \textbf{Say instead}\\
+\midrule
+DAR reconstructs the room & DAR estimates structural and spatial information\\
+ControlNet guarantees geometry & ControlNet strongly constrains geometry and layout\\
+27 real 3D models & 27 catalogue items: 1 scan, 26 procedural\\
+Our evaluation proves DAR is better & We built an evaluation framework; current results are
+  small-sample observations\\
+Users prefer DAR's designs & There is no user study --- the biggest gap, and the first thing I'd do
+  next\\
+The LLM handles collisions & The LLM proposes; deterministic validation handles spatial truth\\
+The photo gives exact dimensions & Scale is estimated where needed\\
+\textbf{We don't use RAG} & \textbf{We do --- BM25 over 105 cultural chunks, and it never decides
+  placement}\\
+\bottomrule
+\end{tabularx}
+
+\subsection*{Two more, if the question gets specific}
+\begin{itemize}[leftmargin=1.1em,itemsep=1pt]
+  \item \textbf{The furniture geometry is culture-blind.} A sofa is built by the same routine in
+        every culture, differing in centimetres, materials and ornament --- not silhouette. Known,
+        deliberate, and the next step.
+  \item \textbf{The 15 spatial conventions are unverified and uncited.} The app prints
+        ``unverified'' on them and the prompt says so. Do not let that claim drift.
+\end{itemize}
+
+\subsection*{State the limits before they ask}
+Three cultures; small catalogue; mostly procedural furniture; monocular scale is estimated;
+generative output varies run to run; ControlNet constrains but does not guarantee.
+\emph{``Those limitations define the next stage rather than being hidden.''}
+
+\section*{If something goes wrong}
+\begin{tabularx}{\linewidth}{@{}lX@{}}
+\toprule
+GPU dead & Go straight to \texttt{/studio?demo=1} --- six finished rooms, full result, no backend.
+  \textbf{Never} press generate hoping it recovers; a dead tunnel takes about three minutes to time
+  out, in silence, while they watch.\\
+Planner unavailable & The badge says ``Planned by DAR's rules.'' \textbf{Use it as a feature} --- it
+  never silently pretends a model answered.\\
+Build Mode black & Reload once. Then Reset, Start a new room. Do not debug Three.js in front of them.\\
+Render fails & Show the saved depth, segmentation and render from the backup folder, and explain the
+  pipeline.\\
+App won't load & Close both black windows and run \texttt{START DEMO.bat} again. Safe to run twice.\\
+\bottomrule
+\end{tabularx}
+
+\begin{strength}[If you use saved outputs, say this plainly]
+``These are previously generated outputs from the same pipeline. I'm using them so the defence
+doesn't depend on temporary GPU availability.''
+\end{strength}
+
+\vspace{0.6em}
+\begin{sayit}[The closing line]
+Semantic AI proposes. Deterministic logic validates. The human edits. Generative AI renders.
+\end{sayit}
+\begin{sayit}[And if you forget everything]
+The LLM understands what the user wants. DAR decides what can actually exist.
+\end{sayit}
+
+\vspace{0.8em}
+{\color{muted}\small\textbf{The one habit that wins this.} When something isn't real, say so before
+they ask --- the unverified terms, the placeholder mode, the limits of what the render holds. You
+built a system that refuses to fabricate. Demonstrating that is the defence.\par
+\vspace{0.3em}
+Stay simple. Show the system. State the limits first. Do not debug live.}
+
+\end{document}

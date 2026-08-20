@@ -70,10 +70,10 @@ Then open `check.jpg` with the Read tool.
 
 ## Recording something long
 
-`scratchpad/rec30.mjs` is the full-length version: it records in named segments,
+`scripts/record-demo.mjs` is the full-length version: it records in named segments,
 encodes and **deletes each segment's frames before starting the next**, so peak
 disk is one segment rather than the whole take, and a bad segment can be re-shot
-alone (`node rec30.mjs out 6,7`). 20 minutes of frames is ~2.5 GB at 1100px/q62.
+alone (`node scripts/record-demo.mjs 6,7`). 20 minutes of frames is ~2.5 GB at 1100px/q62.
 
 ## What about the Chrome DevTools MCP?
 

@@ -134,3 +134,6 @@ DAR_GEMINI_ARCHITECTURE_PACK.zip
 # …and the pack unzipped into itself at some point, leaving an exact copy of the
 # pack inside the pack. It is an accident of extraction, not content.
 DAR_GEMINI_ARCHITECTURE_PACK/DAR_GEMINI_ARCHITECTURE_PACK/
+
+# Working directory for demo recording: hundreds of MB of frames and takes.
+scratchpad/
